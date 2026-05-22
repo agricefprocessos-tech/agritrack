@@ -589,9 +589,9 @@ tr:hover td{background:rgba(255,255,255,0.02)}
     <div class="settings-box">
       <div class="settings-title">Planilha de Compras (Google Sheets)</div>
       <div class="fg">
-        <label>ID da planilha</label>
-        <input id="comprasSheetId" style="font-family:'IBM Plex Mono',monospace;font-size:11px" placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms" oninput="saveComprasId()">
-        <div class="hint">Copie o ID da URL da sua planilha Google Sheets (entre /d/ e /edit)</div>
+        <label>URL ou ID da planilha</label>
+        <input id="comprasSheetUrl" style="font-family:'IBM Plex Mono',monospace;font-size:11px" placeholder="https://docs.google.com/spreadsheets/d/…/edit" oninput="saveComprasId()">
+        <div class="hint">Cole a URL completa da planilha Google Sheets (o ID e a aba serão extraídos automaticamente)</div>
       </div>
       <div style="margin-top:14px">
         <button class="btn-sec" onclick="testarCompras()">Testar Conexão</button>
@@ -1394,24 +1394,46 @@ function initConfig(){
   const gk=localStorage.getItem('gemini_key');
   if(gk)document.getElementById('geminiKey').value=gk;
   const cid=localStorage.getItem('compras_sheet_id');
-  if(cid)document.getElementById('comprasSheetId').value=cid;
+  const cgid=localStorage.getItem('compras_sheet_gid');
+  if(cid){
+    const urlEl=document.getElementById('comprasSheetUrl');
+    if(urlEl)urlEl.value=cgid
+      ?'https://docs.google.com/spreadsheets/d/'+cid+'/edit?gid='+cgid+'#gid='+cgid
+      :'https://docs.google.com/spreadsheets/d/'+cid+'/edit';
+  }
 }
 async function testApi(){
   const s=document.getElementById('cfgApiStatus');s.textContent='Testando…';s.style.color='var(--text2)';
   try{const r=await api({action:'buscarTarefasJira'});s.textContent='✓ Conectado';s.style.color='var(--green)';}
   catch(e){s.textContent='✗ Falhou: '+e.message;s.style.color='var(--red)';}
 }
+function parseSheetUrl(val){
+  val=(val||'').trim();
+  // Tenta extrair ID do formato URL
+  const mId=val.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+  const id=mId?mId[1]:val; // fallback: assume que é o ID direto
+  // Tenta extrair gid do fragment ou query
+  const mGid=val.match(/[?&#]gid=(\d+)/);
+  const gid=mGid?mGid[1]:null;
+  return {id,gid};
+}
 function saveComprasId(){
-  localStorage.setItem('compras_sheet_id',document.getElementById('comprasSheetId').value.trim());
+  const val=document.getElementById('comprasSheetUrl').value;
+  const {id,gid}=parseSheetUrl(val);
+  localStorage.setItem('compras_sheet_id',id);
+  if(gid)localStorage.setItem('compras_sheet_gid',gid);
 }
 async function testarCompras(){
   const s=document.getElementById('comprasStatus');
-  const id=document.getElementById('comprasSheetId').value.trim();
-  if(!id){s.textContent='⚠ Informe o ID';s.style.color='var(--amber)';return;}
+  const val=document.getElementById('comprasSheetUrl').value;
+  const {id,gid}=parseSheetUrl(val);
+  if(!id){s.textContent='⚠ Informe a URL ou ID';s.style.color='var(--amber)';return;}
   s.textContent='Testando…';s.style.color='var(--text2)';
   try{
-    const r=await api({action:'buscarCompras',sheetId:id});
-    if(r.success){s.textContent='✓ '+r.total+' linhas encontradas (aba: '+r.sheetName+')';s.style.color='var(--green)';}
+    const payload={action:'buscarCompras',sheetId:id};
+    if(gid)payload.gid=gid;
+    const r=await api(payload);
+    if(r.success){s.textContent='✓ '+r.total+' linhas | aba: "'+r.sheetName+'"';s.style.color='var(--green)';}
     else{s.textContent='✗ '+r.erro;s.style.color='var(--red)';}
   }catch(e){s.textContent='✗ '+e.message;s.style.color='var(--red)';}
 }
@@ -1426,6 +1448,7 @@ let _comprasCarregado=false;
 
 async function loadCompras(){
   const sheetId=localStorage.getItem('compras_sheet_id');
+  const sheetGid=localStorage.getItem('compras_sheet_gid');
   const noConf=document.getElementById('comprasNoConfig');
   const load=document.getElementById('comprasLoad');
   const table=document.getElementById('comprasTable');
@@ -1440,7 +1463,9 @@ async function loadCompras(){
   load.style.display='block';
 
   try{
-    const r=await api({action:'buscarCompras',sheetId:sheetId});
+    const payload={action:'buscarCompras',sheetId:sheetId};
+    if(sheetGid)payload.gid=sheetGid;
+    const r=await api(payload);
     load.style.display='none';
     if(!r.success){
       noConf.innerHTML='<div style="padding:40px;text-align:center;color:var(--red);font-size:13px">Erro: '+r.erro+'</div>';
@@ -1601,6 +1626,11 @@ async function sendChat(){
 // INIT
 // ════════════════════════════════════════════════════════════════
 (function init(){
+  // Pré-configura planilha de compras se ainda não configurada
+  if(!localStorage.getItem('compras_sheet_id')){
+    localStorage.setItem('compras_sheet_id','16kKKfYC_TBmuR6wpEyah4BwBsv0TcCD_2ImQE1SN32A');
+    localStorage.setItem('compras_sheet_gid','1298683044');
+  }
   // Auto-fetch Jira on load
   autoFetch();
 })();
