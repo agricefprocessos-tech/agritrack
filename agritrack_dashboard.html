@@ -1737,7 +1737,7 @@ function renderComprasKPIs(){
   if(topCat){
     const nome=topCat[0].length>14?topCat[0].slice(0,13)+'…':topCat[0];
     catCritEl.textContent=nome;
-    catCritN.textContent=topCat[1]+' vencido'+(topCat[1]>1?'s')+' nesta cat.';
+    catCritN.textContent=topCat[1]+' vencido'+(topCat[1]>1?'s':'')+' nesta cat.';
   } else { catCritEl.textContent='✓'; catCritN.textContent='sem vencidos'; document.getElementById('kpi2CatCrit').className='kpi g'; }
 
   document.getElementById('kCmpSemData').textContent=semData;
