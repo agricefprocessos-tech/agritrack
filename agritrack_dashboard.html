@@ -513,28 +513,20 @@ tr:hover td{background:rgba(255,255,255,0.02)}
 <!-- ══ PAGE: RELATÓRIO SEMANAL ══════════════════════════════════ -->
 <div id="pg-report" class="pg">
   <div class="ph">
-    <div><div class="ptitle">Relatório Semanal</div><div class="psub">Análise automatizada por IA (Gemini) com sugestões de ação</div></div>
+    <div><div class="ptitle">Relatório Semanal</div><div class="psub" id="rptMeta">Gerado automaticamente com Gemini ao abrir esta aba</div></div>
     <div style="display:flex;gap:8px">
-      <button class="btn-primary" onclick="gerarRelatorio()" id="rptBtn">✨ Gerar Relatório</button>
+      <button class="btn-sec" onclick="gerarRelatorio(true)" id="rptBtn" style="font-size:12px">🔄 Atualizar</button>
     </div>
   </div>
   <div class="main" style="max-width:900px">
-    <div style="margin-top:18px;margin-bottom:14px;padding:12px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--rs);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <div style="flex:1;min-width:200px">
-        <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Gemini API Key (armazenada localmente)</div>
-        <input id="geminiKey" type="password" placeholder="AIza…" style="width:100%;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--rs);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:6px 10px;outline:none" oninput="saveGeminiKey()">
-      </div>
-      <div style="font-size:11px;color:var(--text2);max-width:200px">Obtenha em <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--blue)">aistudio.google.com</a>. Gemini Flash é gratuito.</div>
-    </div>
     <div id="rptLoad" style="display:none" class="load">
       <div class="spinner"></div>
-      <div class="ltxt" id="rptLoadTxt">Enviando para o Gemini…</div>
+      <div class="ltxt" id="rptLoadTxt">Preparando análise…</div>
     </div>
     <div class="rpt-box" id="rptBox">
       <div class="rpt-placeholder">
-        <div class="ri">📋</div>
-        <div style="font-size:14px;font-weight:500;color:var(--text);margin-bottom:6px">Relatório não gerado</div>
-        <div style="font-size:12px">Clique em "Gerar Relatório" para analisar os projetos com IA</div>
+        <div class="spinner" style="width:32px;height:32px;margin:0 auto 12px"></div>
+        <div style="font-size:13px;color:var(--text2)">Gerando relatório…</div>
       </div>
     </div>
   </div>
@@ -563,9 +555,18 @@ tr:hover td{background:rgba(255,255,255,0.02)}
       <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Última atualização: <span id="cfgLastUpdate">—</span></div>
       <button class="btn-sec" onclick="autoFetch()">↺ Forçar atualização do Jira</button>
     </div>
+    <div class="sec" style="margin-top:20px">Inteligência Artificial</div>
+    <div class="settings-box">
+      <div class="settings-title">Gemini API Key</div>
+      <div class="fg">
+        <label>Chave API (armazenada localmente, não enviada ao servidor)</label>
+        <input id="geminiKey" type="password" placeholder="AIza…" style="font-family:'IBM Plex Mono',monospace;font-size:11px" oninput="saveGeminiKey()">
+        <div class="hint">Obtenha gratuitamente em <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--blue)">aistudio.google.com/apikey</a> — usada para o Relatório Semanal</div>
+      </div>
+    </div>
     <div class="sec" style="margin-top:20px">Sobre</div>
     <div class="settings-box">
-      <div class="settings-title">AgriTrack v3.0</div>
+      <div class="settings-title">AgriTrack v3.1</div>
       <div style="font-size:12px;color:var(--text2);line-height:1.6">
         Dashboard multi-página com auto-fetch do Jira.<br>
         Formulário PCP para todos os departamentos.<br>
@@ -592,6 +593,8 @@ async function api(payload){
 // ════════════════════════════════════════════════════════════════
 // NAVIGATION
 // ════════════════════════════════════════════════════════════════
+let _rptGerado=false; // controla se já foi gerado nesta sessão
+
 function nav(id){
   document.querySelectorAll('.pg').forEach(p=>p.classList.remove('on'));
   document.querySelectorAll('.ntab').forEach(t=>t.classList.remove('on'));
@@ -601,6 +604,7 @@ function nav(id){
   if(idx[id]!==undefined)tabs[idx[id]].classList.add('on');
   if(id==='block')loadBloqueados();
   if(id==='cfg')initConfig();
+  if(id==='report'&&!_rptGerado)gerarRelatorio(false);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -616,6 +620,7 @@ async function autoFetch(){
     const r=await api({action:'buscarTarefasJira'});
     if(!r.success)throw new Error(r.erro||'Erro desconhecido');
     processData(r.issues);
+    _rptGerado=false; // invalida relatório anterior para refletir dados novos
     const now=new Date().toLocaleString('pt-BR');
     document.getElementById('dashMeta').textContent='Atualizado: '+now+' — '+r.total+' itens';
     localStorage.setItem('agritrack_lastUpdate',now);
@@ -1103,9 +1108,12 @@ function clearBloqueioForm(){
 // ════════════════════════════════════════════════════════════════
 // RELATÓRIO SEMANAL (GEMINI)
 // ════════════════════════════════════════════════════════════════
-async function gerarRelatorio(){
-  const key=(localStorage.getItem('gemini_key')||document.getElementById('geminiKey').value||'').trim();
-  if(!key){document.getElementById('rptBox').innerHTML='<div class="rpt-placeholder"><div style="color:var(--amber)">⚠️ Configure a Gemini API Key acima para gerar o relatório.</div></div>';return;}
+async function gerarRelatorio(manual){
+  const key=localStorage.getItem('gemini_key')||'';
+  if(!key){
+    document.getElementById('rptBox').innerHTML='<div class="rpt-placeholder"><div style="color:var(--amber);font-size:14px">⚠️ Chave Gemini não configurada.<br><br>Vá em <strong>⚙️ Config</strong> e insira a Gemini API Key.</div></div>';
+    return;
+  }
 
   document.getElementById('rptLoad').style.display='flex';
   document.getElementById('rptBox').style.display='none';
@@ -1202,6 +1210,8 @@ Responda em português, tom executivo e objetivo. Seja específico com as chaves
     document.getElementById('rptLoad').style.display='none';
     document.getElementById('rptBox').style.display='block';
     document.getElementById('rptBox').innerHTML=mdToHtml(text);
+    _rptGerado=true;
+    document.getElementById('rptMeta').textContent='Gerado em '+new Date().toLocaleString('pt-BR')+' — '+allTasks.length+' tarefas analisadas';
   }catch(e){
     document.getElementById('rptLoad').style.display='none';
     document.getElementById('rptBox').style.display='block';
@@ -1235,6 +1245,8 @@ function mdToHtml(md){
 function initConfig(){
   document.getElementById('cfgApi').value=getApi();
   document.getElementById('cfgLastUpdate').textContent=localStorage.getItem('agritrack_lastUpdate')||'—';
+  const gk=localStorage.getItem('gemini_key');
+  if(gk)document.getElementById('geminiKey').value=gk;
 }
 async function testApi(){
   const s=document.getElementById('cfgApiStatus');s.textContent='Testando…';s.style.color='var(--text2)';
@@ -1246,10 +1258,7 @@ async function testApi(){
 // INIT
 // ════════════════════════════════════════════════════════════════
 (function init(){
-  // Restore gemini key
-  const gk=localStorage.getItem('gemini_key');
-  if(gk)document.getElementById('geminiKey').value=gk;
-  // Auto-fetch on load
+  // Auto-fetch Jira on load
   autoFetch();
 })();
 </script>
