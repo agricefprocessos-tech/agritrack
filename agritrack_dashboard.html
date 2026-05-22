@@ -636,6 +636,9 @@ tr:hover td{background:rgba(255,255,255,0.02)}
     <!-- Dashboard content (shown after load) -->
     <div id="comprasDashboard" style="display:none">
 
+      <!-- Seletor de Abas -->
+      <div id="comprasTabSelector" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"></div>
+
       <!-- KPIs -->
       <div class="krow" style="grid-template-columns:repeat(5,1fr);margin-bottom:16px" id="comprasKpiRow">
         <div class="kpi"><div class="kl">Total de Itens</div><div class="kv" id="kCmpTotal">—</div><div class="kn" id="kCmpTotalN">solicitações</div><div class="kb" id="kCmpTotalB" style="width:100%"></div></div>
@@ -756,6 +759,14 @@ tr:hover td{background:rgba(255,255,255,0.02)}
       </div>
 
     </div><!-- /comprasDashboard -->
+  </div>
+</div>
+
+<!-- ══ MODAL DETALHE ITEM COMPRAS ════════════════════════════════ -->
+<div id="cmpModal" style="display:none;position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,.65);backdrop-filter:blur(4px);align-items:center;justify-content:center" onclick="closeCmpModal(event)">
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;max-width:600px;width:92%;max-height:85vh;overflow-y:auto;padding:22px 24px;position:relative;box-shadow:0 24px 64px rgba(0,0,0,.5)">
+    <button onclick="document.getElementById('cmpModal').style.display='none'" style="position:absolute;top:14px;right:16px;background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;line-height:1">✕</button>
+    <div id="cmpModalContent"></div>
   </div>
 </div>
 
@@ -1593,6 +1604,9 @@ let _comprasData=[];
 let _comprasFilt=[];
 let _comprasHeaders=[];
 let _comprasCarregado=false;
+let _comprasTabs=[];          // [{name, gid, rows, headers}]
+let _comprasTabAtiva='all';   // 'all' ou nome da aba
+let _cmpModalData=[];         // índice→row para o modal
 let _cmpChartResp=null, _cmpChartFinal=null, _cmpChartMes=null;
 
 // Colunas mapeadas dinamicamente (busca por substring case-insensitive)
@@ -1618,58 +1632,163 @@ function parseDate(s){
 
 async function loadCompras(){
   const sheetId=localStorage.getItem('compras_sheet_id');
-  const sheetGid=localStorage.getItem('compras_sheet_gid');
   const noConf=document.getElementById('comprasNoConfig');
   const load=document.getElementById('comprasLoad');
   const dash=document.getElementById('comprasDashboard');
   const meta=document.getElementById('comprasMeta');
 
-  if(!sheetId){
-    noConf.style.display='block'; load.style.display='none'; dash.style.display='none'; return;
-  }
+  if(!sheetId){ noConf.style.display='block'; load.style.display='none'; dash.style.display='none'; return; }
   noConf.style.display='none'; dash.style.display='none'; load.style.display='block';
 
   try{
-    const payload={action:'buscarCompras',sheetId:sheetId};
-    if(sheetGid)payload.gid=sheetGid;
-    const r=await api(payload);
+    // Busca TODAS as abas da planilha
+    const r=await api({action:'buscarTodasAbasCompras',sheetId});
     load.style.display='none';
     if(!r.success){
-      noConf.innerHTML='<div style="padding:40px;text-align:center;color:var(--red);font-size:13px">Erro: '+r.erro+'</div>';
+      noConf.innerHTML='<div style="padding:40px;text-align:center;color:var(--red);font-size:13px">Erro: '+esc(r.erro)+'</div>';
       noConf.style.display='block'; return;
     }
-    _comprasHeaders=r.headers;
-    _comprasData=r.rows;
-    _comprasFilt=r.rows;
+
+    _comprasTabs=r.tabs.filter(t=>t.rows&&t.rows.length>0);
+    if(_comprasTabs.length===0){
+      noConf.innerHTML='<div style="padding:40px;text-align:center;color:var(--text2);font-size:13px">Nenhum dado encontrado na planilha.</div>';
+      noConf.style.display='block'; return;
+    }
+
+    // Mescla todas as abas: cada row recebe _tab com o nome da aba
+    // Headers: união de todos os headers
+    const headersSet=new Set();
+    _comprasTabs.forEach(t=>t.headers.forEach(h=>headersSet.add(h)));
+    _comprasHeaders=[..._comprasHeaders,...headersSet].filter((v,i,a)=>a.indexOf(v)===i);
+    _comprasHeaders=[...headersSet]; // re-set limpo
+
+    const allRows=[];
+    _comprasTabs.forEach(t=>{
+      t.rows.forEach(row=>{ allRows.push({...row,_tab:t.name}); });
+    });
+
+    _comprasData=allRows;
+    _comprasFilt=allRows;
+    _comprasTabAtiva='all';
     _comprasCarregado=true;
-    meta.textContent=r.total+' itens carregados — aba "'+r.sheetName+'"';
 
-    // Popula selects de filtro
-    const respKey=cmpKey('respons');
-    const finalKey=cmpKey('finalid');
-    const selResp=document.getElementById('comprasFiltroResp');
-    const selFinal=document.getElementById('comprasFiltroFinal');
-    selResp.innerHTML='<option value="all">Todos responsáveis</option>';
-    selFinal.innerHTML='<option value="all">Todas finalidades</option>';
-    if(respKey){
-      [...new Set(r.rows.map(row=>(row[respKey]||'').trim()).filter(Boolean))].sort()
-        .forEach(v=>{ const o=document.createElement('option');o.value=v;o.textContent=v;selResp.appendChild(o); });
-    }
-    if(finalKey){
-      [...new Set(r.rows.map(row=>(row[finalKey]||'').trim()).filter(Boolean))].sort()
-        .forEach(v=>{ const o=document.createElement('option');o.value=v;o.textContent=v;selFinal.appendChild(o); });
-    }
+    const totalItens=allRows.length;
+    meta.textContent=totalItens+' itens em '+_comprasTabs.length+' aba'+(r.totalTabs>1?'s':'');
 
+    _populaFiltros();
+    renderComprasTabSelector();
     dash.style.display='block';
-    renderComprasKPIs();
-    renderComprasCharts();
-    renderComprasSwimLanes();
-    renderComprasTable();
+    _renderTudo();
   }catch(e){
     load.style.display='none';
-    noConf.innerHTML='<div style="padding:40px;text-align:center;color:var(--red);font-size:13px">Erro de conexão: '+e.message+'</div>';
+    noConf.innerHTML='<div style="padding:40px;text-align:center;color:var(--red);font-size:13px">Erro: '+esc(e.message)+'</div>';
     noConf.style.display='block';
   }
+}
+
+function _populaFiltros(){
+  const respKey=cmpKey('respons');
+  const finalKey=cmpKey('finalid');
+  const selResp=document.getElementById('comprasFiltroResp');
+  const selFinal=document.getElementById('comprasFiltroFinal');
+  selResp.innerHTML='<option value="all">Todos responsáveis</option>';
+  selFinal.innerHTML='<option value="all">Todas finalidades</option>';
+  if(respKey){
+    [...new Set(_comprasData.map(r=>(r[respKey]||'').trim()).filter(Boolean))].sort()
+      .forEach(v=>{ const o=document.createElement('option');o.value=v;o.textContent=v;selResp.appendChild(o); });
+  }
+  if(finalKey){
+    [...new Set(_comprasData.map(r=>(r[finalKey]||'').trim()).filter(Boolean))].sort()
+      .forEach(v=>{ const o=document.createElement('option');o.value=v;o.textContent=v;selFinal.appendChild(o); });
+  }
+}
+
+function _renderTudo(){
+  renderComprasKPIs();
+  renderComprasCharts();
+  renderComprasSwimLanes();
+  renderComprasTable();
+}
+
+function renderComprasTabSelector(){
+  const container=document.getElementById('comprasTabSelector');
+  if(!container||_comprasTabs.length<=1){if(container)container.innerHTML='';return;}
+
+  const total=_comprasData.length;
+  const pillStyle=(active)=>`cursor:pointer;border-radius:20px;padding:4px 12px;font-size:11px;font-weight:600;border:1px solid ${active?'var(--green)':'var(--border2)'};background:${active?'var(--green)':'transparent'};color:${active?'#000':'var(--text2)'};transition:all .15s`;
+
+  const pills=[{name:'all',label:'Todas as Abas',count:total},..._comprasTabs.map(t=>({name:t.name,label:t.name,count:t.rows.length}))];
+  container.innerHTML=pills.map(p=>
+    `<button style="${pillStyle(p.name===_comprasTabAtiva)}" onclick="selecionarAbaCompras('${esc(p.name)}')">${esc(p.label)} <span style="opacity:.7">(${p.count})</span></button>`
+  ).join('');
+}
+
+function selecionarAbaCompras(tabName){
+  _comprasTabAtiva=tabName;
+  if(tabName==='all'){
+    _comprasData=[];
+    _comprasTabs.forEach(t=>t.rows.forEach(r=>_comprasData.push({...r,_tab:t.name})));
+  } else {
+    const tab=_comprasTabs.find(t=>t.name===tabName);
+    _comprasData=tab?tab.rows.map(r=>({...r,_tab:tab.name})):[];
+    // Atualiza headers para a aba selecionada
+    if(tab) _comprasHeaders=tab.headers;
+  }
+  _comprasFilt=[..._comprasData];
+  document.getElementById('comprasSearch').value='';
+  document.getElementById('comprasFiltroResp').value='all';
+  document.getElementById('comprasFiltroFinal').value='all';
+  document.getElementById('comprasFiltroVenc').value='all';
+  _populaFiltros();
+  renderComprasTabSelector();
+  _renderTudo();
+}
+
+// Modal detalhe
+function openCmpModal(idx){
+  const row=_cmpModalData[idx];
+  if(!row)return;
+  const modal=document.getElementById('cmpModal');
+  const content=document.getElementById('cmpModalContent');
+  const hoje=new Date();hoje.setHours(0,0,0,0);
+  const dtKey=cmpKey('desejada','entrega','prazo');
+  const codKey=cmpKey('cod.','codigo','cód','pv');
+  const descKey=cmpKey('descri','item','produto');
+  const respKey=cmpKey('respons');
+
+  const cod=(row[codKey]||'').trim();
+  const desc=(row[descKey]||'').trim();
+  const dt=parseDate(row[dtKey]||'');
+  const isVenc=dt&&dt<hoje;
+  const em7=new Date(hoje);em7.setDate(hoje.getDate()+7);
+  const isProx=dt&&!isVenc&&dt<=em7;
+  const urgColor=isVenc?'#ef4444':isProx?'#f59e0b':'#22d37a';
+
+  const skip=['_tab'];
+  const fields=Object.entries(row).filter(([k])=>!skip.includes(k)&&k.trim());
+
+  const badgeTab=row._tab?`<span style="background:var(--bg3);border:1px solid var(--border2);border-radius:10px;padding:2px 8px;font-size:10px;color:var(--text2)">${esc(row._tab)}</span>`:'';
+  const badgeUrg=isVenc?`<span style="background:#ef444428;color:#ef4444;border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700">⚠ VENCIDO</span>`:
+    isProx?`<span style="background:#f59e0b28;color:#f59e0b;border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700">⏰ Vence em breve</span>`:'';
+
+  content.innerHTML=`
+    <div style="border-left:4px solid ${urgColor};padding-left:12px;margin-bottom:18px">
+      <div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:4px">${esc(cod?cod+' — '+desc:desc||'Item')}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${badgeTab}${badgeUrg}</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      ${fields.map(([k,v])=>`
+        <div style="background:var(--bg3);border-radius:8px;padding:10px 12px;${k===dtKey&&isVenc?'border:1px solid #ef444440':''}">
+          <div style="font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);margin-bottom:3px">${esc(k)}</div>
+          <div style="font-size:12px;color:${k===dtKey&&isVenc?'#ef4444':k===dtKey&&isProx?'#f59e0b':'var(--text)'};font-weight:${k===dtKey&&(isVenc||isProx)?'600':'400'}">${esc(v||'—')}</div>
+        </div>`).join('')}
+    </div>`;
+  modal.style.display='flex';
+}
+
+function closeCmpModal(e){
+  if(e.target===document.getElementById('cmpModal'))
+    document.getElementById('cmpModal').style.display='none';
 }
 
 function renderComprasKPIs(){
@@ -1853,10 +1972,7 @@ function filtrarCompras(){
     }
     return true;
   });
-  renderComprasKPIs();
-  renderComprasCharts();
-  renderComprasSwimLanes();
-  renderComprasTable();
+  _renderTudo();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1866,6 +1982,7 @@ function renderComprasSwimLanes(){
   const container=document.getElementById('comprasSwimLanes');
   if(!container)return;
 
+  _cmpModalData=[];  // reset para novo render
   const data=_comprasFilt;
   const hoje=new Date(); hoje.setHours(0,0,0,0);
 
@@ -1892,16 +2009,18 @@ function renderComprasSwimLanes(){
       const cod=(row[codKey]||'').trim();
       const desc=(row[descKey]||'').trim();
       const resp=(row[respKey]||'').trim();
-      const label=cod||(desc.length>22?desc.slice(0,22)+'…':desc)||'Item';
+      const tab=(row._tab||'').trim();
       const dt=parseDate(row[dtKey]||'');
       const isVenc=dt&&dt<hoje;
       const isProx=dt&&!isVenc&&(dt-hoje)<=7*864e5;
       const bColor=isVenc?'#ef4444':isProx?'#f59e0b':color;
       const dtStr=dt?dt.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}):'';
-      const title2=esc((cod?cod+' — ':'')+desc);
-      return `<div style="background:var(--bg3);border-radius:6px;padding:6px 9px;border-left:3px solid ${bColor}" title="${title2}">
-        <div style="font-size:11px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:178px">${esc(label)}</div>
-        <div style="font-size:10px;color:var(--text2);margin-top:2px;display:flex;justify-content:space-between;gap:4px">
+      const idx=_cmpModalData.push(row)-1;
+      const tabBadge=tab&&_comprasTabs.length>1?`<span style="font-size:9px;color:var(--text3);margin-left:3px">[${esc(tab)}]</span>`:'';
+      return `<div style="background:var(--bg3);border-radius:6px;padding:7px 9px;border-left:3px solid ${bColor};cursor:pointer;transition:opacity .1s" onclick="openCmpModal(${idx})" title="Clique para ver detalhes">
+        <div style="font-size:11px;font-weight:700;color:${bColor};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:178px">${esc(cod||'—')}${tabBadge}</div>
+        <div style="font-size:11px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:178px;margin-top:1px">${esc(desc.length>30?desc.slice(0,30)+'…':desc||'—')}</div>
+        <div style="font-size:10px;color:var(--text2);margin-top:3px;display:flex;justify-content:space-between;gap:4px">
           <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px">${esc(resp||'—')}</span>
           <span style="color:${bColor};font-weight:${isVenc||isProx?700:400};flex-shrink:0">${dtStr}</span>
         </div>
@@ -2055,7 +2174,7 @@ function interpretarLocal(pergunta){
   const qtdKey  =cmpKey('qtd','quantidade');
 
   const D=_comprasData;
-  if(!D||D.length===0) return '⚠️ Nenhum dado carregado. Atualize a página.';
+  if(!D||D.length===0) return '⚠️ Nenhum dado carregado. Atualize a página de Compras primeiro.';
 
   // ── detecção de intenção ──────────────────────────────────────
   const has=(...kws)=>kws.some(k=>p.includes(norm(k)));
@@ -2072,10 +2191,20 @@ function interpretarLocal(pergunta){
   const isResp  =has('responsavel','responsaveis','quem','pessoa');
   const isCat   =has('categoria','finalidade','tipo de','por tipo');
   const isForn  =has('fornecedor','fornecedores');
-  const isComp  =has('comparar','diferenca','versus','vs','melhor','pior');
-  const isPintura=has('pintura');
-  const isUsin  =has('usinagem','usinar');
-  const isTrat  =has('tratamento');
+  const isComp    =has('comparar','diferenca','versus','vs','melhor','pior');
+  const isPintura =has('pintura');
+  const isUsin    =has('usinagem','usinar');
+  const isTrat    =has('tratamento');
+  const isOsti    =has('osti','terceiro');
+  const isChapa   =has('chapa','corte','laser');
+  const isMP      =has('materia prima','mp ','tubo ');
+  const isSemResp =has('sem responsavel','sem resp','nao tem responsavel');
+  const isTopUrg  =has('mais urgente','urgentes','criticos','top urgente');
+  const isAging   =has('dias em atraso','mais de ','atraso medio','tempo medio','aging','backlog');
+  const isByAba   =has('por aba','por tab','cada aba','resumo por aba');
+  const isMes     =has('janeiro','fevereiro','marco','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro');
+  // lookup de código específico: extrai padrão alfanumérico
+  const codMatch  =pergunta.match(/\b([A-Z]{2,5}[-_]?\d{3,8})\b/i);
 
   // ── helpers ──────────────────────────────────────────────────
   function groupBy(arr,fn){
@@ -2089,6 +2218,18 @@ function interpretarLocal(pergunta){
   function getVenc(arr){return arr.filter(r=>{const d=parseDate(r[dtKey]||'');return d&&d<hoje;});}
   function descItem(r){return (r[codKey]?r[codKey]+' — ':'')+((r[descKey]||'').slice(0,45)||(r[descKey]||'Item'));}
 
+  // ── lookup de código específico ───────────────────────────────
+  if(codMatch){
+    const cod=codMatch[1].toUpperCase();
+    const found=D.filter(r=>Object.values(r).some(v=>String(v).toUpperCase().includes(cod)));
+    if(found.length===0) return `🔍 Nenhum item encontrado com código **${cod}**.`;
+    const r=found[0];
+    const fields=Object.entries(r).filter(([k])=>k!=='_tab'&&(r[k]||'').trim());
+    return `🔍 **Item ${cod}** (aba: ${r._tab||'—'})\n\n`+
+      fields.map(([k,v])=>`• **${k}**: ${v}`).join('\n')+
+      (found.length>1?`\n\n…e mais ${found.length-1} resultado(s) com esse código.`:'');
+  }
+
   // Pre-filtro de dados
   let W=[...D];
   if(isVenc) W=getVenc(W);
@@ -2098,8 +2239,11 @@ function interpretarLocal(pergunta){
       return f.includes('aguard')||f.includes('compra')||f.includes('pedido')||s.includes('aguard');
     });
   } else if(isPintura) W=W.filter(r=>norm(r[finalKey]||'').includes('pintura'));
-  else if(isUsin)  W=W.filter(r=>norm(r[finalKey]||'').includes('usin'));
-  else if(isTrat)  W=W.filter(r=>norm(r[finalKey]||'').includes('tratam'));
+  else if(isUsin)   W=W.filter(r=>norm(r[finalKey]||'').includes('usin'));
+  else if(isTrat)   W=W.filter(r=>norm(r[finalKey]||'').includes('tratam'));
+  else if(isOsti)   W=W.filter(r=>norm(r[finalKey]||'').includes('osti')||norm(r[finalKey]||'').includes('terceiro'));
+  else if(isChapa)  W=W.filter(r=>norm(r[finalKey]||'').match(/chapa|corte|laser|dobra/));
+  else if(isMP)     W=W.filter(r=>norm(r[finalKey]||'').match(/materia|mp |tubo|barra|aco/));
   else if(isSForn&&frnKey) W=W.filter(r=>!(r[frnKey]||'').trim());
 
   // ── RESUMO GERAL ──────────────────────────────────────────────
@@ -2181,6 +2325,104 @@ function interpretarLocal(pergunta){
       `\n\nTotal vencidos: **${venc.length}** de ${D.length}.`;
   }
 
+  // ── SEM RESPONSÁVEL ───────────────────────────────────────────
+  if(isSemResp){
+    const sem=D.filter(r=>!(r[respKey]||'').trim());
+    if(sem.length===0) return '✅ Todos os itens têm responsável definido!';
+    const byCat=groupBy(sem,r=>r[finalKey]);
+    return `👤 **${sem.length} itens sem responsável:**\n\n`+
+      byCat.slice(0,6).map(([k,n])=>`• ${k}: ${n}`).join('\n')+
+      (frnKey?`\n\n📦 Por fornecedor:\n`+groupBy(sem,r=>r[frnKey]).slice(0,4).map(([k,n])=>`• ${k||'S/fornec.'}: ${n}`).join('\n'):'');
+  }
+
+  // ── TOP URGENTES ──────────────────────────────────────────────
+  if(isTopUrg){
+    const venc=getVenc(D);
+    const em7items=D.filter(r=>{const d=parseDate(r[dtKey]||'');return d&&d>=hoje&&d<=em7;});
+    const criticos=[...venc,...em7items].slice(0,10);
+    if(criticos.length===0) return '✅ Nenhum item crítico no momento!';
+    const sorted=[...criticos].sort((a,b)=>{
+      const da=parseDate(a[dtKey]||'')||new Date(9999,0);
+      const db=parseDate(b[dtKey]||'')||new Date(9999,0);
+      return da-db;
+    });
+    return `🚨 **Top ${sorted.length} itens mais urgentes:**\n\n`+
+      sorted.map(r=>{
+        const d=parseDate(r[dtKey]||'');
+        const isV=d&&d<hoje;
+        const dtS=d?d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}):'';
+        return `${isV?'🔴':'🟡'} **${r[codKey]||'—'}** — ${(r[descKey]||'').slice(0,35)} _(${r[respKey]||'—'} · ${dtS})_`;
+      }).join('\n');
+  }
+
+  // ── AGING / ATRASO MÉDIO ──────────────────────────────────────
+  if(isAging){
+    if(has('atraso medio','media','tempo medio')){
+      const venc=getVenc(D);
+      if(venc.length===0) return '✅ Nenhum vencido para calcular aging.';
+      const diffs=venc.map(r=>{const d=parseDate(r[dtKey]||'');return d?Math.round((hoje-d)/864e5):null;}).filter(Boolean);
+      const media=Math.round(diffs.reduce((a,b)=>a+b,0)/diffs.length);
+      const max=Math.max(...diffs);
+      return `⏳ **Aging dos vencidos:**\n\n• Atraso médio: **${media} dias**\n• Maior atraso: **${max} dias**\n• Total vencidos: **${venc.length}**`;
+    }
+    // "mais de X dias em atraso"
+    const numMatch=pergunta.match(/mais de (\d+)\s*dias/i);
+    const dias=numMatch?parseInt(numMatch[1]):30;
+    const old=D.filter(r=>{
+      if(solKey){const d=parseDate(r[solKey]||'');return d&&(hoje-d)/864e5>dias;}
+      const d=parseDate(r[dtKey]||'');return d&&d<hoje&&(hoje-d)/864e5>dias;
+    });
+    if(old.length===0) return `✅ Nenhum item com mais de ${dias} dias em atraso.`;
+    return `⏳ **${old.length} itens com mais de ${dias} dias em atraso:**\n\n`+
+      groupBy(old,r=>r[respKey]).slice(0,5).map(([k,n])=>`• ${k}: ${n}`).join('\n');
+  }
+
+  // ── POR ABA ───────────────────────────────────────────────────
+  if(isByAba&&_comprasTabs.length>0){
+    const venc=getVenc(D);
+    const lines=_comprasTabs.map(t=>{
+      const rows=D.filter(r=>r._tab===t.name);
+      const tv=rows.filter(r=>{const d=parseDate(r[dtKey]||'');return d&&d<hoje;});
+      return `• **${t.name}**: ${rows.length} itens${tv.length>0?' | 🔴 '+tv.length+' vencidos':''}`;
+    });
+    return `📁 **Resumo por aba** (${_comprasTabs.length} abas):\n\n${lines.join('\n')}\n\nTotal geral: **${D.length}** itens · **${venc.length}** vencidos`;
+  }
+
+  // ── POR MÊS ───────────────────────────────────────────────────
+  if(isMes){
+    const meses=['janeiro','fevereiro','marco','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+    const mesIdx=meses.findIndex(m=>p.includes(m));
+    if(mesIdx>=0){
+      const items=D.filter(r=>{const d=parseDate(r[dtKey]||'');return d&&d.getMonth()===mesIdx;});
+      if(items.length===0) return `📅 Nenhum item com prazo em **${meses[mesIdx]}**.`;
+      return `📅 **${items.length} itens com prazo em ${meses[mesIdx]}:**\n\n`+
+        fmtList(groupBy(items,r=>r[respKey]).slice(0,5),'•')+
+        `\n\nVencidos: **${getVenc(items).length}**`;
+    }
+  }
+
+  // ── RESPONSÁVEL ESPECÍFICO ────────────────────────────────────
+  if(isResp&&!isMais&&!isQuantos){
+    // Tenta encontrar nome mencionado
+    const nomes=[...new Set(D.map(r=>(r[respKey]||'').trim()).filter(Boolean))];
+    const nomeMenc=nomes.find(n=>p.includes(norm(n.toLowerCase().split(' ')[0])));
+    if(nomeMenc){
+      const items=D.filter(r=>(r[respKey]||'').trim()===nomeMenc);
+      const venc=getVenc(items);
+      return `👤 **${nomeMenc}** — ${items.length} itens no total\n\n`+
+        `🔴 Vencidos: **${venc.length}**\n`+
+        `📋 Por categoria:\n`+groupBy(items,r=>r[finalKey]).slice(0,5).map(([k,n])=>`• ${k}: ${n}`).join('\n');
+    }
+  }
+
+  // ── COMPARATIVO VENCIDOS POR CATEGORIA ───────────────────────
+  if(isComp||has('qual categoria','qual setor','qual area')){
+    const venc=getVenc(D);
+    const groups=groupBy(venc,r=>r[finalKey]);
+    return `⚖️ **Categorias por nº de vencidos:**\n\n`+fmtList(groups.slice(0,8),'•')+
+      `\n\nTotal vencidos: **${venc.length}** de ${D.length}.`;
+  }
+
   // ── FALLBACK ──────────────────────────────────────────────────
   return null;
 }
@@ -2217,20 +2459,27 @@ async function sendChat(){
   const sys='Você é assistente de compras industriais da Agricef. Responda em português, de forma concisa. Use listas. '+ctxData;
   try{
     const resp=await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+key,
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent?key='+key,
       {method:'POST',headers:{'Content-Type':'application/json'},
        body:JSON.stringify({system_instruction:{parts:[{text:sys}]},contents:_chatHistory,generationConfig:{temperature:0.3,maxOutputTokens:700}})}
     );
     const j=await resp.json();
     removeTypingIndicator();
-    const ans=(j.candidates?.[0]?.content?.parts?.[0]?.text)
-      ||(j.error?'⚠️ Gemini: '+j.error.message:'Sem resposta.');
+    if(j.error){
+      const isQuota=j.error.message&&(j.error.message.includes('quota')||j.error.message.includes('RESOURCE_EXHAUSTED'));
+      const msg=isQuota
+        ? '⚠️ **Cota Gemini esgotada.** Aguarde alguns minutos ou obtenha uma nova chave gratuita em [aistudio.google.com/apikey](https://aistudio.google.com/apikey).\n\n💡 O motor local já responde a maioria das perguntas — tente novamente sem precisar da chave Gemini.'
+        : '⚠️ Gemini: '+j.error.message;
+      addChatMsg(msg,false);
+      btn.disabled=false;return;
+    }
+    const ans=j.candidates?.[0]?.content?.parts?.[0]?.text||'Sem resposta.';
     _chatHistory.push({role:'model',parts:[{text:ans}]});
     if(_chatHistory.length>16)_chatHistory=_chatHistory.slice(-16);
     addChatMsg(ans,false);
   }catch(e){
     removeTypingIndicator();
-    addChatMsg('Erro de conexão com Gemini: '+e.message+'\n\n💡 Use perguntas sobre vencidos, séries, responsáveis ou categorias — o motor local responde sem API.',false);
+    addChatMsg('Erro de conexão: '+e.message+'\n\n💡 O motor local responde sem API — tente perguntas sobre vencidos, séries, responsáveis, categorias ou peça um **resumo**.',false);
   }
   btn.disabled=false;
 }
