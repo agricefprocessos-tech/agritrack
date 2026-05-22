@@ -2452,6 +2452,81 @@ function interpretarLocal(pergunta){
       `\n\nTotal vencidos: **${venc.length}** de ${D.length}.`;
   }
 
+  // ── ANÁLISE / GARGALOS / PADRÃO ──────────────────────────────
+  const isAnalise  =has('analise','gargalo','identifique','diagnostico','avalie','padrão','padrao','panorama','visao completa','relatorio');
+  const isSugestao =has('sugest','recomend','melhori','dica','acao','o que fazer','como reduzir','como melhorar','estrategia');
+  const isPrev     =has('previsao','projecao','tendencia','quanto tempo','quando','futuro','proximo mes');
+
+  if(isAnalise){
+    const venc=getVenc(D);
+    const em7items=D.filter(r=>{const d=parseDate(r[dtKey]||'');return d&&d>=hoje&&d<=em7;});
+    const em30items=D.filter(r=>{const d=parseDate(r[dtKey]||'');return d&&d>=hoje&&d<=em30;});
+    const semDt=D.filter(r=>!parseDate(r[dtKey]||''));
+    const byResp=groupBy(D,r=>r[respKey]);
+    const byRespVenc=groupBy(venc,r=>r[respKey]);
+    const byCat=groupBy(D,r=>r[finalKey]);
+    const byCatVenc=groupBy(venc,r=>r[finalKey]);
+    const taxa=((venc.length/D.length)*100).toFixed(1);
+    // Atraso médio
+    const diffs=venc.map(r=>{const d=parseDate(r[dtKey]||'');return d?Math.round((hoje-d)/864e5):null;}).filter(Boolean);
+    const media=diffs.length?Math.round(diffs.reduce((a,b)=>a+b,0)/diffs.length):0;
+    const maxAtr=diffs.length?Math.max(...diffs):0;
+    // Gargalo principal
+    const gargalo=byRespVenc[0]?`${byRespVenc[0][0]} (${byRespVenc[0][1]} vencidos)`:'N/A';
+    const catGarg=byCatVenc[0]?`${byCatVenc[0][0]} (${byCatVenc[0][1]} vencidos)`:'N/A';
+    return `🔍 **Análise de Compras — ${D.length} itens**\n\n`+
+      `**📊 Situação Geral**\n`+
+      `• Total de itens: **${D.length}**\n`+
+      `• Vencidos: **${venc.length}** (${taxa}% do total)\n`+
+      `• Vencem em 7 dias: **${em7items.length}**\n`+
+      `• Vencem em 30 dias: **${em30items.length}**\n`+
+      `• Sem data desejada: **${semDt.length}**\n\n`+
+      `**⚠️ Gargalos Identificados**\n`+
+      `• Responsável mais sobrecarregado: **${gargalo}**\n`+
+      `• Categoria mais crítica: **${catGarg}**\n`+
+      `• Atraso médio dos vencidos: **${media} dias**\n`+
+      `• Maior atraso individual: **${maxAtr} dias**\n\n`+
+      `**👤 Distribuição por Responsável**\n`+
+      byResp.slice(0,4).map(([k,n])=>{const v=byRespVenc.find(([rk])=>rk===k);return `• ${k}: ${n} itens${v?` | 🔴 ${v[1]} vencidos`:''}`;}).join('\n')+'\n\n'+
+      `**📋 Distribuição por Categoria**\n`+
+      byCat.slice(0,5).map(([k,n])=>{const v=byCatVenc.find(([ck])=>ck===k);return `• ${k}: ${n} itens${v?` | 🔴 ${v[1]} vencidos`:''}`;}).join('\n')+'\n\n'+
+      `💡 _Para sugestões de melhoria, pergunte "o que fazer para reduzir atrasos"._`;
+  }
+
+  if(isSugestao){
+    const venc=getVenc(D);
+    const semDt=D.filter(r=>!parseDate(r[dtKey]||''));
+    const byRespVenc=groupBy(venc,r=>r[respKey]);
+    const byCatVenc=groupBy(venc,r=>r[finalKey]);
+    const taxa=((venc.length/D.length)*100).toFixed(1);
+    const diffs=venc.map(r=>{const d=parseDate(r[dtKey]||'');return d?Math.round((hoje-d)/864e5):null;}).filter(Boolean);
+    const media=diffs.length?Math.round(diffs.reduce((a,b)=>a+b,0)/diffs.length):0;
+    let recs=[];
+    if(venc.length>0) recs.push(`🔴 **Priorizar ${venc.length} itens vencidos** (${taxa}%): concentrar esforços em ${byRespVenc[0]?byRespVenc[0][0]:'responsáveis críticos'}.`);
+    if(media>14) recs.push(`⏳ **Reduzir atraso médio de ${media} dias**: revisar fluxo de aprovação e lead time dos fornecedores.`);
+    if(semDt.length>0) recs.push(`📅 **Definir data desejada em ${semDt.length} itens**: itens sem prazo não entram no radar de urgência.`);
+    if(byCatVenc.length>0) recs.push(`📋 **Atenção à categoria "${byCatVenc[0][0]}"**: ${byCatVenc[0][1]} vencidos — verificar se há bloqueio de fornecedor.`);
+    recs.push(`📊 **Revisão semanal de vencidos**: reunião rápida (15 min) com responsáveis toda segunda-feira.`);
+    recs.push(`🔔 **Alertas antecipados**: configurar follow-up com 5 dias de antecedência à data desejada.`);
+    return `💡 **Recomendações de Melhoria**\n\n${recs.join('\n\n')}`;
+  }
+
+  if(isPrev){
+    const hoje_ms=hoje.getTime();
+    const por30=D.filter(r=>{const d=parseDate(r[dtKey]||'');return d&&d>=hoje&&d<=em30;});
+    const byRespP=groupBy(por30,r=>r[respKey]);
+    const meses_fut=[0,1,2].map(m=>{
+      const s=new Date(hoje.getFullYear(),hoje.getMonth()+m,1);
+      const e=new Date(hoje.getFullYear(),hoje.getMonth()+m+1,0);
+      const cnt=D.filter(r=>{const d=parseDate(r[dtKey]||'');return d&&d>=s&&d<=e;}).length;
+      return `• ${s.toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}: **${cnt}** entregas esperadas`;
+    });
+    return `📈 **Previsão de Entregas**\n\n`+
+      `**Próximos 30 dias:**\n• ${por30.length} itens com prazo previsto\n`+
+      `• Responsáveis envolvidos:\n`+byRespP.slice(0,4).map(([k,n])=>`  → ${k}: ${n}`).join('\n')+
+      `\n\n**Por mês:**\n${meses_fut.join('\n')}`;
+  }
+
   // ── FALLBACK ──────────────────────────────────────────────────
   return null;
 }
@@ -2478,7 +2553,7 @@ async function sendChat(){
   const key=localStorage.getItem('gemini_key');
   if(!key){
     removeTypingIndicator();
-    addChatMsg('Não entendi essa pergunta com o motor local. Configure sua chave Gemini em ⚙️ Config → IA para perguntas mais complexas.\n\n💡 Dicas: pergunte sobre *vencidos*, *séries*, *responsáveis*, *categorias*, *fornecedores* ou peça um *resumo*.',false);
+    addChatMsg('Não entendi essa pergunta. Tente:\n\n📊 *resumo geral* · *análise de gargalos* · *sugestões de melhoria* · *previsão de entregas*\n👤 *itens por responsável* · *quem tem mais vencidos*\n🔴 *quais estão vencidos* · *top urgentes* · *atraso médio*\n📋 *por categoria* · *por série* · *por fornecedor* · *por aba*\n🔍 *código 509199* (pesquisa por código)\n📅 *itens de junho* · *vence em 7 dias*',false);
     btn.disabled=false;return;
   }
 
