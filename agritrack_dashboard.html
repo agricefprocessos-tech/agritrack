@@ -661,6 +661,15 @@ tr:hover td{background:rgba(255,255,255,0.02)}
         </div>
       </div>
 
+      <!-- Painéis Operacionais -->
+      <div style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.06em">⚡ Painel Operacional — Itens por Categoria</div>
+          <span style="font-size:10px;color:var(--text3)">Role horizontalmente →</span>
+        </div>
+        <div id="comprasSwimLanes" style="display:flex;gap:12px;overflow-x:auto;padding-bottom:8px;scrollbar-width:thin"></div>
+      </div>
+
       <!-- Filters + Table -->
       <div class="card" style="padding:0;overflow:hidden">
         <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -689,6 +698,32 @@ tr:hover td{background:rgba(255,255,255,0.02)}
             <thead id="comprasThead" style="position:sticky;top:0;z-index:10;background:var(--bg3)"></thead>
             <tbody id="comprasTbody"></tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- Chat Assistente de Compras -->
+      <div class="card" style="margin-top:16px;padding:0;overflow:hidden">
+        <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:16px">🤖</span>
+            <div>
+              <div style="font-size:12px;font-weight:600;color:var(--text)">Assistente de Compras</div>
+              <div style="font-size:10px;color:var(--text2)">Powered by Gemini Flash — pergunte sobre os dados carregados</div>
+            </div>
+          </div>
+          <button onclick="limparChat()" style="background:none;border:1px solid var(--border2);border-radius:var(--rs);padding:4px 10px;color:var(--text2);font-size:11px;cursor:pointer">🗑 Limpar</button>
+        </div>
+        <div id="chatMsgs" style="height:280px;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:10px">
+          <div class="chat-msg-bot"><div class="chat-bubble-bot">Olá! Sou seu assistente de análise de compras. Posso responder perguntas como:<br><br>• <strong>Quais itens estão vencidos?</strong><br>• <strong>Quem tem mais solicitações em aberto?</strong><br>• <strong>Quais itens aguardam chapa/usinagem?</strong><br><br>Configure sua chave Gemini em ⚙️ Config → IA para começar.</div></div>
+        </div>
+        <div style="padding:10px 12px;border-top:1px solid var(--border);display:flex;gap:8px">
+          <input id="chatInput" placeholder="Pergunte sobre os itens de compras…"
+            style="flex:1;background:var(--bg);border:1px solid var(--border2);border-radius:var(--rs);padding:8px 12px;color:var(--text);font-size:12px;font-family:inherit"
+            onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat();}">
+          <button id="chatSendBtn" onclick="sendChat()"
+            style="background:var(--green);color:#000;border:none;border-radius:var(--rs);padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
+            Enviar ↑
+          </button>
         </div>
       </div>
 
@@ -1600,6 +1635,7 @@ async function loadCompras(){
     dash.style.display='block';
     renderComprasKPIs();
     renderComprasCharts();
+    renderComprasSwimLanes();
     renderComprasTable();
   }catch(e){
     load.style.display='none';
@@ -1750,7 +1786,139 @@ function filtrarCompras(){
   });
   renderComprasKPIs();
   renderComprasCharts();
+  renderComprasSwimLanes();
   renderComprasTable();
+}
+
+// ════════════════════════════════════════════════════════════════
+// SWIM LANES OPERACIONAIS
+// ════════════════════════════════════════════════════════════════
+function renderComprasSwimLanes(){
+  const container=document.getElementById('comprasSwimLanes');
+  if(!container)return;
+
+  const data=_comprasFilt;
+  const hoje=new Date(); hoje.setHours(0,0,0,0);
+
+  const dtKey  =cmpKey('desejada','entrega','prazo');
+  const codKey =cmpKey('cod.','código','codigo','pv','cód');
+  const descKey=cmpKey('descri','item','produto');
+  const respKey=cmpKey('respons');
+  const finalKey=cmpKey('finalid');
+  const serieKey=cmpKey('serie','serial','modelo','hauler','máquina');
+  const statusKey=cmpKey('status','situac','situação');
+
+  // Constrói card individual
+  function buildCard(icon,title,color,items){
+    if(!items||items.length===0)return '';
+    const sorted=[...items].sort((a,b)=>{
+      const da=parseDate(a[dtKey]||''); const db=parseDate(b[dtKey]||'');
+      if(!da&&!db)return 0; if(!da)return 1; if(!db)return -1; return da-db;
+    });
+    const MAX_V=14;
+    const rows=sorted.slice(0,MAX_V).map(row=>{
+      const cod=(row[codKey]||'').trim();
+      const desc=(row[descKey]||'').trim();
+      const resp=(row[respKey]||'').trim();
+      const label=cod||(desc.length>22?desc.slice(0,22)+'…':desc)||'Item';
+      const dt=parseDate(row[dtKey]||'');
+      const isVenc=dt&&dt<hoje;
+      const isProx=dt&&!isVenc&&(dt-hoje)<=7*864e5;
+      const bColor=isVenc?'#ef4444':isProx?'#f59e0b':color;
+      const dtStr=dt?dt.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}):'';
+      const title2=esc((cod?cod+' — ':'')+desc);
+      return `<div style="background:var(--bg3);border-radius:6px;padding:6px 9px;border-left:3px solid ${bColor}" title="${title2}">
+        <div style="font-size:11px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:178px">${esc(label)}</div>
+        <div style="font-size:10px;color:var(--text2);margin-top:2px;display:flex;justify-content:space-between;gap:4px">
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px">${esc(resp||'—')}</span>
+          <span style="color:${bColor};font-weight:${isVenc||isProx?700:400};flex-shrink:0">${dtStr}</span>
+        </div>
+      </div>`;
+    }).join('');
+    const more=items.length>MAX_V?`<div style="font-size:10px;color:var(--text2);text-align:center;padding:4px 0">+${items.length-MAX_V} mais…</div>`:'';
+    return `<div class="card" style="min-width:224px;max-width:224px;padding:12px;flex-shrink:0;display:flex;flex-direction:column;gap:0">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="font-size:18px;line-height:1">${icon}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:11px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>
+        </div>
+        <span style="background:${color}28;color:${color};border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700;flex-shrink:0">${items.length}</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px;max-height:310px;overflow-y:auto;scrollbar-width:thin">${rows}${more}</div>
+    </div>`;
+  }
+
+  // Função de match por keyword em finalidade + status
+  function match(row,...kws){
+    const f=(row[finalKey]||'').toLowerCase();
+    const s=(statusKey?row[statusKey]||'':'').toLowerCase();
+    const d=(row[descKey]||'').toLowerCase();
+    return kws.some(k=>f.includes(k)||s.includes(k)||d.includes(k));
+  }
+
+  // Definição das categorias (ordem = prioridade de match)
+  const CATS=[
+    {icon:'🎨',title:'Pintura',      color:'#a78bfa', kws:['pintura','tinta','paint','lacqu']},
+    {icon:'⚙️', title:'Usinagem',    color:'#60a5fa', kws:['usinagem','usinar','torneamento','fresament','cnc']},
+    {icon:'🔩', title:'Tratamento',  color:'#34d399', kws:['tratamento','galvanis','zinco','fosfat','oxidac','niquela','cro']},
+    {icon:'✂️', title:'Corte / Chapa',color:'#fb923c',kws:['chapa','corte','laser','dobra','guilhot','plasma','estampagem']},
+    {icon:'🧱', title:'Matéria-Prima',color:'#f59e0b', kws:['materia prima','matéria prima','mp ','tubo ','aço','alumin','barra','perfil','vergalhão','chapa bruta']},
+    {icon:'🔄', title:'OSTI / Externo',color:'#e879f9',kws:['osti','terceiro','externo','subcontrat']},
+    {icon:'📦', title:'Aguard. Fornecedor',color:'#38bdf8',kws:['aguardando','aguard','pedido','compra']},
+  ];
+
+  // Distribui itens — cada item vai para a PRIMEIRA categoria que bate
+  const catItems=CATS.map(()=>[]);
+  const outros=[];
+  data.forEach(row=>{
+    let matched=false;
+    for(let i=0;i<CATS.length;i++){
+      if(match(row,...CATS[i].kws)){catItems[i].push(row);matched=true;break;}
+    }
+    if(!matched)outros.push(row);
+  });
+
+  // Card especial: Por Série/Modelo (agrupamento, não lista de itens)
+  let seriesHTML='';
+  if(serieKey){
+    const sm={};
+    data.forEach(row=>{
+      const s=(row[serieKey]||'').trim()||(row[codKey]||'').trim().split('-')[0]||'?';
+      if(s&&s!=='?'){sm[s]=(sm[s]||0)+1;}
+    });
+    const entries=Object.entries(sm).sort((a,b)=>b[1]-a[1]);
+    if(entries.length>1){
+      const rowsS=entries.slice(0,18).map(([s,n])=>`<div style="display:flex;justify-content:space-between;align-items:center;background:var(--bg3);border-radius:6px;padding:5px 9px">
+        <span style="font-size:11px;color:var(--text);font-weight:500;overflow:hidden;text-overflow:ellipsis;max-width:148px">${esc(s)}</span>
+        <span style="background:#22d37a22;color:#22d37a;border-radius:8px;padding:1px 7px;font-size:10px;font-weight:700">${n}</span>
+      </div>`).join('');
+      const moreS=entries.length>18?`<div style="font-size:10px;color:var(--text2);text-align:center;padding:4px 0">+${entries.length-18} séries</div>`:'';
+      seriesHTML=`<div class="card" style="min-width:224px;max-width:224px;padding:12px;flex-shrink:0">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <span style="font-size:18px;line-height:1">📊</span>
+          <div style="flex:1"><div style="font-size:11px;font-weight:700;color:var(--text)">Por Série / Modelo</div></div>
+          <span style="background:#22d37a28;color:#22d37a;border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700">${entries.length}</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px;max-height:310px;overflow-y:auto;scrollbar-width:thin">${rowsS}${moreS}</div>
+      </div>`;
+    }
+  }
+
+  const catsHTML=CATS.map((c,i)=>buildCard(c.icon,c.title,c.color,catItems[i])).join('');
+  const outrosHTML=outros.length>0?buildCard('📋','Outros / Geral','#94a3b8',outros):'';
+
+  container.innerHTML=seriesHTML+catsHTML+outrosHTML;
+
+  if(!container.innerHTML.trim()){
+    container.innerHTML='<div style="font-size:12px;color:var(--text2);padding:20px">Sem dados nos painéis operacionais.</div>';
+  }
+}
+
+function limparChat(){
+  const msgs=document.getElementById('chatMsgs');
+  if(!msgs)return;
+  _chatHistory=[];
+  msgs.innerHTML='<div class="chat-msg-bot"><div class="chat-bubble-bot">Chat limpo. Como posso ajudar com os dados de compras?</div></div>';
 }
 
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
