@@ -778,9 +778,13 @@ const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbxeB715oIGkd1jIcCaW
 function getApi(){return localStorage.getItem('agritrack_api')||DEFAULT_API;}
 function saveApiUrl(){localStorage.setItem('agritrack_api',document.getElementById('cfgApi').value);}
 function saveGeminiKey(){localStorage.setItem('gemini_key',document.getElementById('geminiKey').value);}
-async function api(payload){
-  const r=await fetch(getApi()+'?payload='+encodeURIComponent(JSON.stringify(payload)),{redirect:'follow'});
-  return r.json();
+async function api(payload, timeoutMs=28000){
+  const ctrl=new AbortController();
+  const tid=setTimeout(()=>ctrl.abort(),timeoutMs);
+  try{
+    const r=await fetch(getApi()+'?payload='+encodeURIComponent(JSON.stringify(payload)),{redirect:'follow',signal:ctrl.signal});
+    return r.json();
+  }finally{clearTimeout(tid);}
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1641,8 +1645,23 @@ async function loadCompras(){
   noConf.style.display='none'; dash.style.display='none'; load.style.display='block';
 
   try{
-    // Busca TODAS as abas da planilha
-    const r=await api({action:'buscarTodasAbasCompras',sheetId});
+    // Tenta carregar TODAS as abas (timeout 25s); se falhar, usa aba única
+    let r=null;
+    let modoFallback=false;
+    try{
+      r=await api({action:'buscarTodasAbasCompras',sheetId},25000);
+      if(!r||!r.success||!r.tabs) throw new Error(r&&r.erro?r.erro:'Resposta inválida');
+    }catch(e1){
+      modoFallback=true;
+      const sheetGid=localStorage.getItem('compras_sheet_gid');
+      const payload2={action:'buscarCompras',sheetId};
+      if(sheetGid)payload2.gid=sheetGid;
+      const r2=await api(payload2,28000);
+      if(!r2||!r2.success) throw new Error(r2&&r2.erro?r2.erro:'Falha ao carregar planilha');
+      // Normaliza para formato multi-aba
+      r={success:true,tabs:[{name:r2.sheetName||'Solicitações',gid:0,headers:r2.headers,rows:r2.rows,total:r2.total}],totalTabs:1};
+    }
+
     load.style.display='none';
     if(!r.success){
       noConf.innerHTML='<div style="padding:40px;text-align:center;color:var(--red);font-size:13px">Erro: '+esc(r.erro)+'</div>';
@@ -1673,7 +1692,8 @@ async function loadCompras(){
     _comprasCarregado=true;
 
     const totalItens=allRows.length;
-    meta.textContent=totalItens+' itens em '+_comprasTabs.length+' aba'+(r.totalTabs>1?'s':'');
+    const nAbas=_comprasTabs.length;
+    meta.textContent=totalItens+' itens'+(nAbas>1?' em '+nAbas+' abas':' — aba "'+(_comprasTabs[0]&&_comprasTabs[0].name||'—')+'"')+(modoFallback?' (modo aba única)':'');
 
     _populaFiltros();
     renderComprasTabSelector();
