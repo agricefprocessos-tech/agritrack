@@ -533,7 +533,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
 <!-- ══ PAGE: RELATÓRIO SEMANAL ══════════════════════════════════ -->
 <div id="pg-report" class="pg">
   <div class="ph">
-    <div><div class="ptitle">Relatório Semanal</div><div class="psub" id="rptMeta">Gerado automaticamente com Gemini ao abrir esta aba</div></div>
+    <div><div class="ptitle">Relatório Semanal</div><div class="psub" id="rptMeta">Gerado automaticamente ao abrir esta aba</div></div>
     <div style="display:flex;gap:8px">
       <button class="btn-sec" onclick="enviarEmail()" id="emailBtn" style="font-size:12px">📧 Enviar Email</button>
       <button class="btn-sec" onclick="gerarRelatorio(true)" id="rptBtn" style="font-size:12px">🔄 Atualizar</button>
@@ -1223,15 +1223,9 @@ function clearBloqueioForm(){
 }
 
 // ════════════════════════════════════════════════════════════════
-// RELATÓRIO SEMANAL (GEMINI)
+// RELATÓRIO SEMANAL (100% LOCAL — sem dependência externa)
 // ════════════════════════════════════════════════════════════════
 async function gerarRelatorio(manual){
-  const key=localStorage.getItem('gemini_key')||'';
-  if(!key){
-    document.getElementById('rptBox').innerHTML='<div class="rpt-placeholder"><div style="color:var(--amber);font-size:14px">⚠️ Chave Gemini não configurada.<br><br>Vá em <strong>⚙️ Config</strong> e insira a Gemini API Key.</div></div>';
-    return;
-  }
-
   document.getElementById('rptLoad').style.display='flex';
   document.getElementById('rptBox').style.display='none';
   document.getElementById('rptBtn').disabled=true;
@@ -1245,12 +1239,26 @@ async function gerarRelatorio(manual){
       if(r.success)processData(r.issues);
       data=allTasks;
     }
+    document.getElementById('rptLoadTxt').textContent='Analisando portfólio…';
 
-    // Monta resumo estruturado para o prompt
-    document.getElementById('rptLoadTxt').textContent='Preparando análise…';
     const hoje=new Date();
-    const semanaPassada=new Date(hoje);semanaPassada.setDate(hoje.getDate()-7);
+    const semanaPassada=new Date(hoje); semanaPassada.setDate(hoje.getDate()-7);
+    const proxSemana=new Date(hoje); proxSemana.setDate(hoje.getDate()+7);
+    const dataStr=hoje.toLocaleDateString('pt-BR',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
 
+    // ── KPIs globais ─────────────────────────────────────────────
+    const total=data.length;
+    const concl=data.filter(t=>t['Status']==='Feito').length;
+    const fazendo=data.filter(t=>t['Status']==='Fazendo').length;
+    const aFazer=data.filter(t=>t['Status']==='A Fazer').length;
+    const foraPrazo=data.filter(t=>t._prazo==='FORA DO PRAZO'&&t['Status']!=='Feito');
+    const bloqueados=data.filter(t=>t['Labels']&&t['Labels'].includes('bloqueado'));
+    const concl7d=data.filter(t=>{ const r=pd(t['Resolvido']); return t['Status']==='Feito'&&r&&r>=semanaPassada; });
+    const taxaConc=total?Math.round(concl/total*100):0;
+    const noPrazo=total-foraPrazo.length;
+    const taxaPrazo=total?Math.round(noPrazo/total*100):0;
+
+    // ── Por departamento ─────────────────────────────────────────
     const porDept={};
     data.forEach(t=>{
       const dept=t['Campo personalizado (Departamento)']||'Sem Dept';
@@ -1263,72 +1271,136 @@ async function gerarRelatorio(manual){
       if(t['Labels']&&t['Labels'].includes('bloqueado'))porDept[dept].bloqueado++;
     });
 
-    const atrasados=data.filter(t=>t._prazo==='FORA DO PRAZO'&&t['Status']!=='Feito')
-      .slice(0,15).map(t=>`• ${t['Chave da item']} [${t['Campo personalizado (Departamento)']}] — ${t['Resumo']} (limite: ${t['Data limite']})`).join('\n');
+    const deptRows=Object.entries(porDept)
+      .sort((a,b)=>b[1].total-a[1].total)
+      .map(([d,v])=>{
+        const pct=v.total?Math.round(v.feito/v.total*100):0;
+        const semaf=v.foraPrazo>0?'🔴 ':'';
+        return `| ${semaf}${d} | ${v.total} | ${v.fazendo} | ${v.feito} (${pct}%) | ${v.foraPrazo} | ${v.bloqueado} |`;
+      }).join('\n');
 
-    const bloqueados=data.filter(t=>t['Labels']&&t['Labels'].includes('bloqueado'))
-      .slice(0,10).map(t=>`• ${t['Chave da item']} — ${t['Resumo']}`).join('\n');
+    // ── Listas detalhadas ────────────────────────────────────────
+    const listAtrasados=foraPrazo
+      .sort((a,b)=>(pd(a['Data limite'])||0)-(pd(b['Data limite'])||0))
+      .slice(0,10)
+      .map(t=>`- **${t['Chave da item']}** [${t['Campo personalizado (Departamento)']||'?'}] — ${t['Resumo']} *(DL: ${t['Data limite']})*`)
+      .join('\n');
 
-    const concluidos7d=data.filter(t=>{
-      const res=pd(t['Resolvido']);
-      return t['Status']==='Feito'&&res&&res>=semanaPassada;
-    }).slice(0,10).map(t=>`• ${t['Chave da item']} [${t['Campo personalizado (Departamento)']}] — ${t['Resumo']}`).join('\n');
+    const listBloqueados=bloqueados.slice(0,8)
+      .map(t=>`- **${t['Chave da item']}** [${t['Campo personalizado (Departamento)']||'?'}] — ${t['Resumo']}`)
+      .join('\n');
 
-    const deptStr=Object.entries(porDept).map(([d,v])=>
-      `${d}: ${v.total} total | ${v.feito} feitos | ${v.fazendo} em andamento | ${v.aFazer} a fazer | ${v.foraPrazo} fora do prazo | ${v.bloqueado} bloqueados`
-    ).join('\n');
+    const listConcl7d=concl7d.slice(0,10)
+      .map(t=>`- **${t['Chave da item']}** [${t['Campo personalizado (Departamento)']||'?'}] — ${t['Resumo']}`)
+      .join('\n');
 
-    const prompt=`Você é um Project Manager especialista em manufatura e projetos de equipamentos agrícolas. Analise os dados da empresa Agricef e gere um relatório executivo semanal.
+    // ── Próximos vencimentos ──────────────────────────────────────
+    const proxVenc=data
+      .filter(t=>t['Status']!=='Feito'&&pd(t['Data limite'])>=hoje&&pd(t['Data limite'])<=proxSemana)
+      .sort((a,b)=>(pd(a['Data limite'])||0)-(pd(b['Data limite'])||0));
+    const listProxVenc=proxVenc.slice(0,8)
+      .map(t=>`- **${t['Chave da item']}** — ${t['Resumo']} *(${t['Data limite']})*`)
+      .join('\n');
 
-DATA DO RELATÓRIO: ${hoje.toLocaleDateString('pt-BR')}
-TOTAL DE PROJETOS: ${data.length}
+    // ── Dept mais crítico ─────────────────────────────────────────
+    const deptCritico=Object.entries(porDept)
+      .filter(([,v])=>v.total>0&&v.foraPrazo>0)
+      .sort((a,b)=>(b[1].foraPrazo/b[1].total)-(a[1].foraPrazo/a[1].total))[0];
 
-RESUMO POR DEPARTAMENTO:
-${deptStr}
+    // ── Resumo executivo ──────────────────────────────────────────
+    const bullets=[];
+    bullets.push(`Taxa de conclusão: **${taxaConc}%** — ${concl}/${total} projetos entregues`);
+    if(foraPrazo.length>0)
+      bullets.push(`**${foraPrazo.length} projeto(s) fora do prazo** (${100-taxaPrazo}% do portfólio) — atenção imediata necessária`);
+    else
+      bullets.push(`**Sem projetos fora do prazo** — portfólio dentro do cronograma ✓`);
+    if(bloqueados.length>0)
+      bullets.push(`**${bloqueados.length} bloqueio(s) ativo(s)** impactando projetos em andamento`);
+    else
+      bullets.push(`**Sem bloqueios ativos** — fluxo operacional normal ✓`);
+    if(concl7d.length>0)
+      bullets.push(`**${concl7d.length} entrega(s)** concluídas nos últimos 7 dias`);
+    if(deptCritico)
+      bullets.push(`Dept. mais crítico: **${deptCritico[0]}** (${deptCritico[1].foraPrazo} de ${deptCritico[1].total} projetos atrasados)`);
 
-PROJETOS ATRASADOS (${data.filter(t=>t._prazo==='FORA DO PRAZO'&&t['Status']!=='Feito').length} projetos):
-${atrasados||'Nenhum projeto atrasado.'}
+    // ── Pontos críticos ───────────────────────────────────────────
+    const criticos=[];
+    if(bloqueados.length>0)
+      criticos.push(`🔴 **${bloqueados.length} bloqueio(s) ativo(s):** Projetos travados aguardam ação. Revisar responsáveis e prazos de resolução no quadro BLKQ.`);
+    if(foraPrazo.length>=3)
+      criticos.push(`🔴 **Volume crítico de atrasos (${foraPrazo.length} projetos):** Revisar capacidade das equipes e redistribuir tarefas prioritárias.`);
+    else if(foraPrazo.length>0)
+      criticos.push(`🟠 **${foraPrazo.length} projeto(s) fora do prazo:** Acionar responsáveis para atualização ou renegociação de datas.`);
+    if(deptCritico&&deptCritico[1].foraPrazo>=2)
+      criticos.push(`🟠 **${deptCritico[0]} em risco:** ${deptCritico[1].foraPrazo}/${deptCritico[1].total} projetos atrasados. Revisar planejamento do departamento.`);
+    if(fazendo>total*0.4)
+      criticos.push(`🟡 **WIP elevado (${fazendo} projetos em andamento = ${Math.round(fazendo/total*100)}%):** Limitar trabalho em progresso para aumentar taxa de entrega.`);
+    if(proxVenc.length>0)
+      criticos.push(`🟡 **${proxVenc.length} projeto(s) vencendo nos próximos 7 dias:** Monitorar de perto para evitar novos atrasos.`);
+    if(criticos.length===0)
+      criticos.push('✅ **Nenhum ponto crítico identificado** — portfólio sob controle.');
 
-PROJETOS BLOQUEADOS (${data.filter(t=>t['Labels']&&t['Labels'].includes('bloqueado')).length} projetos):
-${bloqueados||'Nenhum projeto bloqueado.'}
+    // ── Ações recomendadas ────────────────────────────────────────
+    const acoes=[];
+    let n=1;
+    if(bloqueados.length>0)
+      acoes.push(`${n++}. **[URGENTE] Resolução de bloqueios:** Revisar ${bloqueados.length} projeto(s) bloqueados no quadro BLKQ e definir plano de ação. *Prazo: imediato.*`);
+    if(foraPrazo.length>0)
+      acoes.push(`${n++}. **[ALTA] Projetos fora do prazo:** Contatar responsáveis dos ${foraPrazo.length} projetos atrasados — atualizar status ou renegociar datas. *Prazo: esta semana.*`);
+    if(proxVenc.length>0)
+      acoes.push(`${n++}. **[ALTA] Monitorar vencimentos iminentes:** ${proxVenc.length} projeto(s) vencem nos próximos 7 dias. Garantir que estão em progresso. *Prazo: imediato.*`);
+    if(fazendo>0)
+      acoes.push(`${n++}. **[MÉDIA] Atualizar andamento no Jira:** ${fazendo} projetos "Em Andamento" — verificar datas-alvo e comentários atualizados. *Prazo: 3 dias.*`);
+    acoes.push(`${n++}. **[ROTINA] Reunião semanal de alinhamento:** Revisar este relatório com lideranças de departamento e priorizar ações. *Prazo: início da semana.*`);
+    if(concl7d.length>0)
+      acoes.push(`${n++}. **[INFO] Homologar entregas:** ${concl7d.length} entrega(s) concluída(s) na semana aguardam revisão e homologação final.`);
 
-CONCLUÍDOS NOS ÚLTIMOS 7 DIAS:
-${concluidos7d||'Nenhum projeto concluído na semana.'}
-
-INSTRUÇÕES:
-Gere um relatório executivo com as seguintes seções em markdown:
+    // ── Monta markdown ────────────────────────────────────────────
+    const md=
+`# 📋 Relatório Semanal AgriTrack
+**${dataStr}** — ${total} projetos analisados
 
 ## 📌 Resumo Executivo
-(3 bullets objetivos sobre o estado geral)
+
+${bullets.map(b=>`- ${b}`).join('\n')}
 
 ## 📊 Status por Departamento
-(tabela: Departamento | Total | Em Andamento | Concluídos | Atrasados | Bloqueados)
+
+| Departamento | Total | Em Andamento | Concluídos | Fora Prazo | Bloqueados |
+${deptRows}
 
 ## 🔴 Pontos Críticos
-(top 5 situações que precisam de atenção imediata, com justificativa e risco)
+
+${criticos.join('\n\n')}
+
+${foraPrazo.length>0?`**Projetos atrasados (top ${Math.min(10,foraPrazo.length)}):**\n${listAtrasados}`:''}
+
+${bloqueados.length>0?`**Projetos bloqueados:**\n${listBloqueados}`:''}
 
 ## ✅ Ações Recomendadas
-(lista priorizada com ação específica, responsável sugerido e prazo estimado)
+
+${acoes.join('\n\n')}
 
 ## 🔮 Previsão Próxima Semana
-(o que deve ser concluído, riscos iminentes)
 
-Responda em português, tom executivo e objetivo. Seja específico com as chaves dos projetos quando relevante.`;
+${proxVenc.length>0
+  ?`**${proxVenc.length} projeto(s) com prazo nos próximos 7 dias:**\n${listProxVenc}`
+  :'Nenhum projeto com prazo nos próximos 7 dias.'}
 
-    document.getElementById('rptLoadTxt').textContent='Enviando para o Gemini Flash…';
-    const gemResp=await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+key,
-      {method:'POST',headers:{'Content-Type':'application/json'},
-       body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.4,maxOutputTokens:2048}})}
-    );
-    const gemJson=await gemResp.json();
-    if(gemJson.error)throw new Error(gemJson.error.message);
-    const text=gemJson.candidates?.[0]?.content?.parts?.[0]?.text||'Sem resposta.';
+WIP atual: **${fazendo} projetos em andamento.** Monitorar impedimentos para garantir fluxo de entrega.
+
+## ✅ Concluídos nos Últimos 7 Dias
+
+${concl7d.length>0?listConcl7d:'_Nenhum projeto concluído na semana._'}
+
+---
+*Relatório gerado automaticamente pelo AgriTrack • ${hoje.toLocaleString('pt-BR')}*`;
+
     document.getElementById('rptLoad').style.display='none';
     document.getElementById('rptBox').style.display='block';
-    document.getElementById('rptBox').innerHTML=mdToHtml(text);
+    document.getElementById('rptBox').innerHTML=mdToHtml(md);
     _rptGerado=true;
-    _rptTexto=text; // guarda texto para email
+    _rptTexto=md;
     document.getElementById('rptMeta').textContent='Gerado em '+new Date().toLocaleString('pt-BR')+' — '+allTasks.length+' tarefas analisadas';
     document.getElementById('emailBtn').style.display='inline-flex';
   }catch(e){
