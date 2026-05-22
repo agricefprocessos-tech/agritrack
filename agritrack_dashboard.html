@@ -627,14 +627,22 @@ async function autoFetch(){
 }
 
 function processData(data){
+  // Separa tarefas e subtarefas — TODAS as tarefas são incluídas (com ou sem subtarefas)
   allSubs=data.filter(x=>x['Tipo de item']==='Subtarefa');
-  const csvTasks=data.filter(x=>x['Tipo de item']==='Tarefa');
-  const keysWithSubs=new Set(allSubs.map(x=>x['Chave pai']).filter(Boolean));
-  allTasks=csvTasks.filter(x=>keysWithSubs.has(x['Chave da item']));
+  allTasks=data.filter(x=>x['Tipo de item']==='Tarefa');
+  // Calcula max(Data limite subtarefas) por tarefa pai — igual ao Power Query
   const maxSubDL={};
   allSubs.forEach(s=>{const pai=s['Chave pai'];if(!pai)return;const dl=pd(s['Data limite']);if(!dl)return;if(!maxSubDL[pai]||dl>maxSubDL[pai])maxSubDL[pai]=dl;});
-  allTasks=allTasks.map(t=>{t._maxSubDL=maxSubDL[t['Chave da item']]||null;t._prazo=calcPrazo(t);t._startDt=pd(t['Campo personalizado (Start date)']);t._dlDt=pd(t['Data limite']);t._resDt=pd(t['Resolvido']);return t;});
-  // Update badge for blocked tasks
+  // Anexa _maxSubDL, _prazo (só calculado quando há subtarefas), _startDt, _dlDt, _resDt
+  allTasks=allTasks.map(t=>{
+    t._maxSubDL=maxSubDL[t['Chave da item']]||null;
+    t._prazo=calcPrazo(t);  // null se não tem subtarefas
+    t._startDt=pd(t['Campo personalizado (Start date)']);
+    t._dlDt=pd(t['Data limite']);
+    t._resDt=pd(t['Resolvido']);
+    return t;
+  });
+  // Badge de tarefas bloqueadas
   const blkCount=data.filter(x=>x['Labels']&&x['Labels'].includes('bloqueado')).length;
   const badge=document.getElementById('blkBadge');
   badge.textContent=blkCount;badge.className='nbadge'+(blkCount>0?' show':'');
