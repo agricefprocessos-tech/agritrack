@@ -645,6 +645,34 @@ tr:hover td{background:rgba(255,255,255,0.02)}
         <div class="kpi"><div class="kl">Sem Fornecedor</div><div class="kv" id="kCmpSemForn">—</div><div class="kn">itens sem definição</div><div class="kb" style="width:80%"></div></div>
       </div>
 
+      <!-- KPIs 2ª linha — Indicadores de Desempenho -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px" id="comprasKpiRow2">
+        <div class="kpi" id="kpi2TaxaAtraso">
+          <div class="kl">Taxa de Atraso</div>
+          <div class="kv" id="kCmpTaxaAtraso">—</div>
+          <div class="kn" id="kCmpTaxaAtrasaN">dos itens vencidos</div>
+          <div class="kb" id="kCmpTaxaAtrasaB" style="width:0%"></div>
+        </div>
+        <div class="kpi r" id="kpi2RespCrit">
+          <div class="kl">Responsável Crítico</div>
+          <div class="kv" id="kCmpRespCrit" style="font-size:15px;line-height:1.2">—</div>
+          <div class="kn" id="kCmpRespCritN">mais vencidos</div>
+          <div class="kb" style="width:65%"></div>
+        </div>
+        <div class="kpi a" id="kpi2CatCrit">
+          <div class="kl">Categoria Crítica</div>
+          <div class="kv" id="kCmpCatCrit" style="font-size:15px;line-height:1.2">—</div>
+          <div class="kn" id="kCmpCatCritN">mais vencidos</div>
+          <div class="kb" style="width:75%"></div>
+        </div>
+        <div class="kpi" id="kpi2SemData">
+          <div class="kl">Sem Data Desejada</div>
+          <div class="kv" id="kCmpSemData">—</div>
+          <div class="kn">itens sem prazo definido</div>
+          <div class="kb" style="width:40%"></div>
+        </div>
+      </div>
+
       <!-- Charts row -->
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:16px">
         <div class="card" style="padding:16px">
@@ -1650,16 +1678,27 @@ function renderComprasKPIs(){
   const dtKey=cmpKey('desejada','entrega','prazo');
   const frnKey=cmpKey('fornecedor','forn');
   const respKey=cmpKey('respons');
+  const finalKey=cmpKey('finalid');
 
   const total=_comprasFilt.length;
   const resps=new Set(_comprasFilt.map(r=>(r[respKey]||'').trim()).filter(Boolean));
-  let vencidos=0, prox7=0, semForn=0;
+  let vencidos=0, prox7=0, semForn=0, semData=0;
+  const vencByResp={}, vencByCat={};
+
   _comprasFilt.forEach(row=>{
     const dt=parseDate(row[dtKey]);
-    if(dt){ if(dt<hoje) vencidos++; else if(dt<=em7) prox7++; }
+    if(!dt){ semData++; }
+    else if(dt<hoje){
+      vencidos++;
+      const r=(row[respKey]||'Sem resp.').trim();
+      const c=(row[finalKey]||'Sem cat.').trim();
+      vencByResp[r]=(vencByResp[r]||0)+1;
+      vencByCat[c]=(vencByCat[c]||0)+1;
+    } else if(dt<=em7) prox7++;
     if(frnKey&&!(row[frnKey]||'').trim()) semForn++;
   });
 
+  // KPI row 1
   document.getElementById('kCmpTotal').textContent=total;
   document.getElementById('kCmpTotalN').textContent='de '+_comprasData.length+' total';
   document.getElementById('kCmpResp').textContent=resps.size;
@@ -1669,10 +1708,40 @@ function renderComprasKPIs(){
   document.getElementById('kCmpProx').textContent=prox7;
   document.getElementById('kCmpProxN').textContent='entregas próximas';
   document.getElementById('kCmpSemForn').textContent=frnKey?semForn:'—';
-
-  // Cor do card vencidos
   document.querySelector('#comprasKpiRow .kpi:nth-child(3)').className='kpi '+(vencidos>0?'r':'g');
   document.querySelector('#comprasKpiRow .kpi:nth-child(4)').className='kpi '+(prox7>0?'a':'g');
+
+  // KPI row 2 — Indicadores de desempenho
+  const taxaAtraso=total>0?((vencidos/total)*100).toFixed(1):'0.0';
+  const taxaEl=document.getElementById('kCmpTaxaAtraso');
+  const taxaN=document.getElementById('kCmpTaxaAtrasaN');
+  const taxaB=document.getElementById('kCmpTaxaAtrasaB');
+  taxaEl.textContent=taxaAtraso+'%';
+  taxaN.textContent=vencidos+' de '+total+' itens';
+  taxaB.style.width=Math.min(parseFloat(taxaAtraso),100)+'%';
+  const taxaCard=document.getElementById('kpi2TaxaAtraso');
+  taxaCard.className='kpi '+(parseFloat(taxaAtraso)>15?'r':parseFloat(taxaAtraso)>5?'a':'g');
+
+  const topResp=Object.entries(vencByResp).sort((a,b)=>b[1]-a[1])[0];
+  const respCritEl=document.getElementById('kCmpRespCrit');
+  const respCritN=document.getElementById('kCmpRespCritN');
+  if(topResp){
+    const nome=topResp[0].split(' ')[0]; // primeiro nome
+    respCritEl.textContent=nome;
+    respCritN.textContent=topResp[1]+' vencido'+(topResp[1]>1?'s':'')+' (de '+Object.keys(vencByResp).length+' responsáveis)';
+  } else { respCritEl.textContent='✓'; respCritN.textContent='sem vencidos'; document.getElementById('kpi2RespCrit').className='kpi g'; }
+
+  const topCat=Object.entries(vencByCat).sort((a,b)=>b[1]-a[1])[0];
+  const catCritEl=document.getElementById('kCmpCatCrit');
+  const catCritN=document.getElementById('kCmpCatCritN');
+  if(topCat){
+    const nome=topCat[0].length>14?topCat[0].slice(0,13)+'…':topCat[0];
+    catCritEl.textContent=nome;
+    catCritN.textContent=topCat[1]+' vencido'+(topCat[1]>1?'s')+' nesta cat.';
+  } else { catCritEl.textContent='✓'; catCritN.textContent='sem vencidos'; document.getElementById('kpi2CatCrit').className='kpi g'; }
+
+  document.getElementById('kCmpSemData').textContent=semData;
+  document.getElementById('kpi2SemData').className='kpi '+(semData>10?'a':'');
 }
 
 function renderComprasCharts(){
@@ -1816,6 +1885,9 @@ function renderComprasSwimLanes(){
       if(!da&&!db)return 0; if(!da)return 1; if(!db)return -1; return da-db;
     });
     const MAX_V=14;
+    // Conta vencidos no card para badge de urgência
+    const numVenc=items.filter(r=>{ const d=parseDate(r[dtKey]||''); return d&&d<hoje; }).length;
+    const urgBadge=numVenc>0?`<span style="background:#ef444428;color:#ef4444;border-radius:8px;padding:1px 6px;font-size:9px;font-weight:700;flex-shrink:0">⚠ ${numVenc} venc.</span>`:'';
     const rows=sorted.slice(0,MAX_V).map(row=>{
       const cod=(row[codKey]||'').trim();
       const desc=(row[descKey]||'').trim();
@@ -1837,11 +1909,12 @@ function renderComprasSwimLanes(){
     }).join('');
     const more=items.length>MAX_V?`<div style="font-size:10px;color:var(--text2);text-align:center;padding:4px 0">+${items.length-MAX_V} mais…</div>`:'';
     return `<div class="card" style="min-width:224px;max-width:224px;padding:12px;flex-shrink:0;display:flex;flex-direction:column;gap:0">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:wrap">
         <span style="font-size:18px;line-height:1">${icon}</span>
         <div style="flex:1;min-width:0">
           <div style="font-size:11px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>
         </div>
+        ${urgBadge}
         <span style="background:${color}28;color:${color};border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700;flex-shrink:0">${items.length}</span>
       </div>
       <div style="display:flex;flex-direction:column;gap:4px;max-height:310px;overflow-y:auto;scrollbar-width:thin">${rows}${more}</div>
@@ -1961,6 +2034,157 @@ function addTypingIndicator(){
 }
 function removeTypingIndicator(){const t=document.getElementById('chatTyping');if(t)t.remove();}
 
+// ── Motor de interpretação local (zero API) ──────────────────────
+function interpretarLocal(pergunta){
+  // Normaliza: minúsculo, remove acentos e pontuação
+  const norm=s=>s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[?!.,;]/g,'');
+  const p=norm(pergunta);
+
+  const hoje=new Date(); hoje.setHours(0,0,0,0);
+  const em7=new Date(hoje);  em7.setDate(hoje.getDate()+7);
+  const em30=new Date(hoje); em30.setDate(hoje.getDate()+30);
+
+  const dtKey   =cmpKey('desejada','entrega','prazo');
+  const solKey  =cmpKey('solicit','abertura','data sol');
+  const codKey  =cmpKey('cod.','codigo','cód','pv');
+  const descKey =cmpKey('descri','item','produto');
+  const respKey =cmpKey('respons');
+  const finalKey=cmpKey('finalid');
+  const frnKey  =cmpKey('fornecedor','forn');
+  const serieKey=cmpKey('serie','serial','modelo','hauler','maquina');
+  const qtdKey  =cmpKey('qtd','quantidade');
+
+  const D=_comprasData;
+  if(!D||D.length===0) return '⚠️ Nenhum dado carregado. Atualize a página.';
+
+  // ── detecção de intenção ──────────────────────────────────────
+  const has=(...kws)=>kws.some(k=>p.includes(norm(k)));
+
+  const isVenc  =has('vencid','atrasad','atraso','venceu','passou','em atraso');
+  const isProx  =has('vence','proximo','urgente','hoje','amanha','semana');
+  const isAguard=has('aguardando','chegada','espera','a caminho','em transito','pendente');
+  const isSForn =has('sem fornecedor','sem forn');
+  const isResumo=has('resumo','situacao','como esta','visao geral','status geral','geral');
+  const isMais  =has('mais','maior','principal','top','lider','mais itens','mais vencidos');
+  const isListar=has('quais','lista','mostre','me de','ver todos','exibe');
+  const isQuantos=has('quantos','quantas','total','numero','count');
+  const isSerie =serieKey&&has('serie','hauler','modelo','maquina','serial');
+  const isResp  =has('responsavel','responsaveis','quem','pessoa');
+  const isCat   =has('categoria','finalidade','tipo de','por tipo');
+  const isForn  =has('fornecedor','fornecedores');
+  const isComp  =has('comparar','diferenca','versus','vs','melhor','pior');
+  const isPintura=has('pintura');
+  const isUsin  =has('usinagem','usinar');
+  const isTrat  =has('tratamento');
+
+  // ── helpers ──────────────────────────────────────────────────
+  function groupBy(arr,fn){
+    const m={};
+    arr.forEach(r=>{const k=(fn(r)||'').trim()||(fn(r)||'(sem valor)');m[k]=(m[k]||0)+1;});
+    return Object.entries(m).sort((a,b)=>b[1]-a[1]);
+  }
+  function fmtList(entries,max=8,bullet=''){
+    return entries.slice(0,max).map(([k,n],i)=>`${bullet||(i+1+'.')} **${k}**: ${n} item${n>1?'s':''}`).join('\n');
+  }
+  function getVenc(arr){return arr.filter(r=>{const d=parseDate(r[dtKey]||'');return d&&d<hoje;});}
+  function descItem(r){return (r[codKey]?r[codKey]+' — ':'')+((r[descKey]||'').slice(0,45)||(r[descKey]||'Item'));}
+
+  // Pre-filtro de dados
+  let W=[...D];
+  if(isVenc) W=getVenc(W);
+  else if(isAguard){
+    W=W.filter(r=>{
+      const f=norm(r[finalKey]||'');const s=norm(r[cmpKey('status','situac')]||'');
+      return f.includes('aguard')||f.includes('compra')||f.includes('pedido')||s.includes('aguard');
+    });
+  } else if(isPintura) W=W.filter(r=>norm(r[finalKey]||'').includes('pintura'));
+  else if(isUsin)  W=W.filter(r=>norm(r[finalKey]||'').includes('usin'));
+  else if(isTrat)  W=W.filter(r=>norm(r[finalKey]||'').includes('tratam'));
+  else if(isSForn&&frnKey) W=W.filter(r=>!(r[frnKey]||'').trim());
+
+  // ── RESUMO GERAL ──────────────────────────────────────────────
+  if(isResumo){
+    const venc=getVenc(D);
+    const pr7=D.filter(r=>{const d=parseDate(r[dtKey]||'');return d&&d>=hoje&&d<=em7;});
+    const sf=frnKey?D.filter(r=>!(r[frnKey]||'').trim()):[];
+    const byR=groupBy(D,r=>r[respKey]);
+    const byC=groupBy(D,r=>r[finalKey]);
+    const taxa=((venc.length/D.length)*100).toFixed(1);
+    return `📊 **Resumo Geral — ${D.length} itens**\n\n`+
+      `🔴 Vencidos: **${venc.length}** (${taxa}%)\n`+
+      `🟡 Vence em 7 dias: **${pr7.length}**\n`+
+      (sf.length?`📦 Sem fornecedor: **${sf.length}**\n`:'')+
+      `\n👤 **Top 3 responsáveis:**\n${byR.slice(0,3).map(([k,n])=>`• ${k}: ${n}`).join('\n')}`+
+      `\n\n📋 **Top 3 categorias:**\n${byC.slice(0,3).map(([k,n])=>`• ${k}: ${n}`).join('\n')}`;
+  }
+
+  // ── POR SÉRIE ─────────────────────────────────────────────────
+  if(isSerie){
+    const groups=groupBy(W,r=>r[serieKey]);
+    if(groups.length===0) return `📊 Nenhum item encontrado com o filtro aplicado.`;
+    if(isMais){
+      return `📊 **Séries com mais itens${isVenc?' vencidos':isAguard?' aguardando':''}** (top 5):\n\n`+
+        fmtList(groups.slice(0,5))+`\n\nTotal analisado: **${W.length}** de ${D.length} itens.`;
+    }
+    return `📊 **Distribuição por série** (${W.length} itens):\n\n`+fmtList(groups.slice(0,10),'•');
+  }
+
+  // ── POR RESPONSÁVEL ───────────────────────────────────────────
+  if(isResp||(isMais&&!isSerie&&!isCat&&!isForn)){
+    const groups=groupBy(W,r=>r[respKey]);
+    if(isMais){
+      return `👤 **${isVenc?'Responsáveis com mais vencidos':'Responsáveis com mais itens'}:**\n\n`+
+        fmtList(groups.slice(0,5))+`\n\nTotal: ${W.length} itens.`;
+    }
+    if(isQuantos) return `👤 **${groups.length}** responsáveis, totalizando **${W.length}** itens.`;
+    return `👤 **Itens por responsável** (${W.length} itens):\n\n`+fmtList(groups.slice(0,8),'•');
+  }
+
+  // ── POR CATEGORIA / FINALIDADE ────────────────────────────────
+  if(isCat||isPintura||isUsin||isTrat){
+    const groups=groupBy(W,r=>r[finalKey]);
+    if(isMais) return `📋 **Categorias com mais itens${isVenc?' vencidos':''}:**\n\n`+fmtList(groups.slice(0,5));
+    if(isQuantos) return `📋 **${groups.length}** categorias, **${W.length}** itens.`;
+    return `📋 **Distribuição por categoria** (${W.length} itens):\n\n`+fmtList(groups.slice(0,8),'•');
+  }
+
+  // ── POR FORNECEDOR ────────────────────────────────────────────
+  if(isForn&&frnKey){
+    if(isSForn){
+      return `📦 **${W.length} itens sem fornecedor.**\n\nResponsáveis envolvidos:\n`+
+        fmtList(groupBy(W,r=>r[respKey]).slice(0,5),'•');
+    }
+    const groups=groupBy(W,r=>r[frnKey]);
+    if(isMais) return `📦 **Fornecedores com mais itens:**\n\n`+fmtList(groups.slice(0,5));
+    return `📦 **Itens por fornecedor** (${W.length} itens):\n\n`+fmtList(groups.slice(0,8),'•');
+  }
+
+  // ── LISTAR VENCIDOS ───────────────────────────────────────────
+  if(isVenc){
+    if(W.length===0) return '✅ Nenhum item vencido no filtro atual!';
+    if(isQuantos) return `🔴 **${W.length}** itens vencidos (${((W.length/D.length)*100).toFixed(1)}% do total).`;
+    const sample=W.slice(0,12);
+    const rows=sample.map(r=>`• **${descItem(r)}** _(${(r[respKey]||'—')})_`).join('\n');
+    return `🔴 **${W.length} itens vencidos:**\n\n${rows}`+(W.length>12?`\n\n…e mais **${W.length-12}** itens.`:'');
+  }
+
+  // ── QUANTOS / TOTAL ───────────────────────────────────────────
+  if(isQuantos){
+    return `📊 Total no painel: **${D.length}** itens. Com filtros ativos: **${_comprasFilt.length}** itens.`;
+  }
+
+  // ── COMPARATIVO VENCIDOS POR CATEGORIA ───────────────────────
+  if(isComp||has('qual categoria','qual setor','qual area')){
+    const venc=getVenc(D);
+    const groups=groupBy(venc,r=>r[finalKey]);
+    return `⚖️ **Categorias por nº de vencidos:**\n\n`+fmtList(groups.slice(0,8),'•')+
+      `\n\nTotal vencidos: **${venc.length}** de ${D.length}.`;
+  }
+
+  // ── FALLBACK ──────────────────────────────────────────────────
+  return null;
+}
+
 async function sendChat(){
   const inp=document.getElementById('chatInput');
   const q=inp.value.trim();
@@ -1968,51 +2192,45 @@ async function sendChat(){
   inp.value='';
   const btn=document.getElementById('chatSendBtn');
   btn.disabled=true;
-
   addChatMsg(q,true);
-  addTypingIndicator();
 
+  // 1️⃣ Tenta motor local primeiro (instantâneo, zero API)
+  const localResp=interpretarLocal(q);
+  if(localResp!==null){
+    addChatMsg(localResp,false);
+    btn.disabled=false;
+    return;
+  }
+
+  // 2️⃣ Fallback Gemini (se chave configurada e local não conseguiu)
+  addTypingIndicator();
   const key=localStorage.getItem('gemini_key');
   if(!key){
     removeTypingIndicator();
-    addChatMsg('Configure sua chave Gemini em ⚙️ Config → Inteligência Artificial para usar o chat.',false);
+    addChatMsg('Não entendi essa pergunta com o motor local. Configure sua chave Gemini em ⚙️ Config → IA para perguntas mais complexas.\n\n💡 Dicas: pergunte sobre *vencidos*, *séries*, *responsáveis*, *categorias*, *fornecedores* ou peça um *resumo*.',false);
     btn.disabled=false;return;
   }
 
-  // Monta contexto com amostra da planilha
-  let ctxData='';
-  if(_comprasData.length>0){
-    const sample=_comprasData.slice(0,80);
-    ctxData='\n\nDados da planilha de compras ('+_comprasData.length+' linhas total, mostrando '+sample.length+'):\n'+
-      JSON.stringify(sample,null,0);
-  }
-
+  const sample=_comprasData.slice(0,60);
+  const ctxData='Dados da planilha ('+_comprasData.length+' itens, amostra de '+sample.length+'):\n'+JSON.stringify(sample,null,0);
   _chatHistory.push({role:'user',parts:[{text:q}]});
-
-  const systemCtx='Você é um assistente especializado em análise de dados de compras industriais da Agricef. '+
-    'Responda em português, de forma concisa e direta. Use listas quando útil. '+
-    (_chatContexto?'\nContexto: '+_chatContexto:'')+ctxData;
-
+  const sys='Você é assistente de compras industriais da Agricef. Responda em português, de forma concisa. Use listas. '+ctxData;
   try{
     const resp=await fetch(
       'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+key,
       {method:'POST',headers:{'Content-Type':'application/json'},
-       body:JSON.stringify({
-         system_instruction:{parts:[{text:systemCtx}]},
-         contents:_chatHistory,
-         generationConfig:{temperature:0.3,maxOutputTokens:800},
-       })}
+       body:JSON.stringify({system_instruction:{parts:[{text:sys}]},contents:_chatHistory,generationConfig:{temperature:0.3,maxOutputTokens:700}})}
     );
     const j=await resp.json();
     removeTypingIndicator();
-    const ans=(j.candidates&&j.candidates[0]&&j.candidates[0].content&&j.candidates[0].content.parts[0].text)
-      || (j.error&&('Erro Gemini: '+j.error.message)) || 'Sem resposta.';
+    const ans=(j.candidates?.[0]?.content?.parts?.[0]?.text)
+      ||(j.error?'⚠️ Gemini: '+j.error.message:'Sem resposta.');
     _chatHistory.push({role:'model',parts:[{text:ans}]});
-    if(_chatHistory.length>20)_chatHistory=_chatHistory.slice(-20);
+    if(_chatHistory.length>16)_chatHistory=_chatHistory.slice(-16);
     addChatMsg(ans,false);
   }catch(e){
     removeTypingIndicator();
-    addChatMsg('Erro de conexão: '+e.message,false);
+    addChatMsg('Erro de conexão com Gemini: '+e.message+'\n\n💡 Use perguntas sobre vencidos, séries, responsáveis ou categorias — o motor local responde sem API.',false);
   }
   btn.disabled=false;
 }
