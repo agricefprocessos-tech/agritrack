@@ -621,65 +621,78 @@ tr:hover td{background:rgba(255,255,255,0.02)}
     </div>
   </div>
   <div class="main">
-    <!-- Layout: tabela à esquerda, chat à direita -->
-    <div style="display:grid;grid-template-columns:1fr 380px;gap:18px;align-items:start">
 
-      <!-- Tabela de compras -->
-      <div>
-        <div class="card" style="padding:0;overflow:hidden">
-          <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-            <input id="comprasSearch" placeholder="🔍 Buscar por código, descrição, projeto…"
-              style="flex:1;min-width:180px;background:var(--bg);border:1px solid var(--border2);border-radius:var(--rs);padding:7px 12px;color:var(--text);font-size:12px;font-family:inherit"
-              oninput="filtrarCompras()">
-            <select id="comprasFiltroCol" onchange="filtrarCompras()"
-              style="background:var(--bg3);border:1px solid var(--border2);border-radius:var(--rs);padding:7px 10px;color:var(--text);font-size:12px;font-family:inherit">
-              <option value="all">Todas as colunas</option>
-            </select>
-          </div>
-          <div id="comprasLoad" style="padding:40px;text-align:center;display:none">
-            <div class="spinner" style="margin:0 auto 12px"></div>
-            <div style="font-size:12px;color:var(--text2)">Carregando dados…</div>
-          </div>
-          <div id="comprasNoConfig" style="padding:40px;text-align:center">
-            <div style="font-size:32px;margin-bottom:12px">📋</div>
-            <div style="font-size:14px;color:var(--text2);margin-bottom:8px">Planilha de compras não configurada</div>
-            <div style="font-size:12px;color:var(--text3)">Configure o ID da planilha em <strong style="color:var(--text2)">⚙️ Config → Compras</strong></div>
-          </div>
-          <div style="overflow-x:auto;max-height:560px;overflow-y:auto">
-            <table id="comprasTable" style="width:100%;border-collapse:collapse;display:none;font-size:12px">
-              <thead id="comprasThead" style="position:sticky;top:0;z-index:10;background:var(--bg3)"></thead>
-              <tbody id="comprasTbody"></tbody>
-            </table>
-          </div>
-          <div id="comprasFooter" style="padding:10px 20px;border-top:1px solid var(--border);font-size:11px;color:var(--text2);display:none"></div>
-        </div>
-      </div>
-
-      <!-- Chat com Gemini -->
-      <div style="position:sticky;top:70px">
-        <div class="card" style="padding:0;overflow:hidden;display:flex;flex-direction:column;height:560px">
-          <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px">
-            <div style="width:28px;height:28px;background:linear-gradient(135deg,#4285F4,#34A853);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">✨</div>
-            <div>
-              <div style="font-size:13px;font-weight:600">Assistente de Compras</div>
-              <div style="font-size:10px;color:var(--text2)">Pergunte sobre itens, fornecedores, projetos…</div>
-            </div>
-          </div>
-          <div id="chatMsgs" style="flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px">
-            <div class="chat-msg-bot">
-              <div class="chat-bubble-bot">Olá! Carregue a planilha de compras e me pergunte qualquer coisa — status de itens, fornecedores, projetos, prazos...</div>
-            </div>
-          </div>
-          <div style="padding:12px;border-top:1px solid var(--border);display:flex;gap:8px">
-            <input id="chatInput" placeholder="Qual o status do item X?" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}"
-              style="flex:1;background:var(--bg);border:1px solid var(--border2);border-radius:var(--rs);padding:8px 12px;color:var(--text);font-size:13px;font-family:inherit">
-            <button onclick="sendChat()" id="chatSendBtn"
-              style="padding:8px 14px;background:var(--green);color:#000;border:none;border-radius:var(--rs);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">Enviar</button>
-          </div>
-        </div>
-      </div>
-
+    <!-- Loading / No Config -->
+    <div id="comprasLoad" style="padding:40px;text-align:center;display:none">
+      <div class="spinner" style="margin:0 auto 12px"></div>
+      <div style="font-size:12px;color:var(--text2)">Carregando dados…</div>
     </div>
+    <div id="comprasNoConfig" style="padding:60px;text-align:center">
+      <div style="font-size:40px;margin-bottom:14px">🛒</div>
+      <div style="font-size:14px;color:var(--text2);margin-bottom:8px">Planilha de compras não configurada</div>
+      <div style="font-size:12px;color:var(--text3)">Configure o ID da planilha em <strong style="color:var(--text2)">⚙️ Config → Compras</strong></div>
+    </div>
+
+    <!-- Dashboard content (shown after load) -->
+    <div id="comprasDashboard" style="display:none">
+
+      <!-- KPIs -->
+      <div class="krow" style="grid-template-columns:repeat(5,1fr);margin-bottom:16px" id="comprasKpiRow">
+        <div class="kpi"><div class="kl">Total de Itens</div><div class="kv" id="kCmpTotal">—</div><div class="kn" id="kCmpTotalN">solicitações</div><div class="kb" id="kCmpTotalB" style="width:100%"></div></div>
+        <div class="kpi"><div class="kl">Responsáveis</div><div class="kv g" id="kCmpResp">—</div><div class="kn" id="kCmpRespN">ativos</div><div class="kb g" id="kCmpRespB" style="width:100%"></div></div>
+        <div class="kpi r"><div class="kl">Vencidos</div><div class="kv" id="kCmpVenc">—</div><div class="kn" id="kCmpVencN">data desejada passada</div><div class="kb" style="width:100%"></div></div>
+        <div class="kpi a"><div class="kl">Vence em 7 dias</div><div class="kv" id="kCmpProx">—</div><div class="kn" id="kCmpProxN">atenção necessária</div><div class="kb" style="width:100%"></div></div>
+        <div class="kpi"><div class="kl">Sem Fornecedor</div><div class="kv" id="kCmpSemForn">—</div><div class="kn">itens sem definição</div><div class="kb" style="width:80%"></div></div>
+      </div>
+
+      <!-- Charts row -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:16px">
+        <div class="card" style="padding:16px">
+          <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">Itens por Responsável</div>
+          <canvas id="cmpChartResp" height="200"></canvas>
+        </div>
+        <div class="card" style="padding:16px">
+          <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">Distribuição por Finalidade</div>
+          <canvas id="cmpChartFinal" height="200"></canvas>
+        </div>
+        <div class="card" style="padding:16px">
+          <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">Entregas por Mês</div>
+          <canvas id="cmpChartMes" height="200"></canvas>
+        </div>
+      </div>
+
+      <!-- Filters + Table -->
+      <div class="card" style="padding:0;overflow:hidden">
+        <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input id="comprasSearch" placeholder="🔍 Buscar por código, descrição, projeto, responsável…"
+            style="flex:1;min-width:200px;background:var(--bg);border:1px solid var(--border2);border-radius:var(--rs);padding:6px 10px;color:var(--text);font-size:12px;font-family:inherit"
+            oninput="filtrarCompras()">
+          <select id="comprasFiltroResp" onchange="filtrarCompras()"
+            style="background:var(--bg3);border:1px solid var(--border2);border-radius:var(--rs);padding:6px 10px;color:var(--text);font-size:12px;font-family:inherit">
+            <option value="all">Todos responsáveis</option>
+          </select>
+          <select id="comprasFiltroFinal" onchange="filtrarCompras()"
+            style="background:var(--bg3);border:1px solid var(--border2);border-radius:var(--rs);padding:6px 10px;color:var(--text);font-size:12px;font-family:inherit">
+            <option value="all">Todas finalidades</option>
+          </select>
+          <select id="comprasFiltroVenc" onchange="filtrarCompras()"
+            style="background:var(--bg3);border:1px solid var(--border2);border-radius:var(--rs);padding:6px 10px;color:var(--text);font-size:12px;font-family:inherit">
+            <option value="all">Todos prazos</option>
+            <option value="vencido">Vencidos</option>
+            <option value="7d">Vence em 7 dias</option>
+            <option value="30d">Vence em 30 dias</option>
+          </select>
+          <span id="comprasFooter" style="font-size:11px;color:var(--text2)"></span>
+        </div>
+        <div style="overflow-x:auto;max-height:440px;overflow-y:auto">
+          <table id="comprasTable" style="width:100%;border-collapse:collapse;font-size:11.5px">
+            <thead id="comprasThead" style="position:sticky;top:0;z-index:10;background:var(--bg3)"></thead>
+            <tbody id="comprasTbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div><!-- /comprasDashboard -->
   </div>
 </div>
 
@@ -1511,28 +1524,47 @@ async function testarCompras(){
 }
 
 // ════════════════════════════════════════════════════════════════
-// COMPRAS
+// COMPRAS — Dashboard completo (KPIs + Charts + Tabela)
 // ════════════════════════════════════════════════════════════════
-let _comprasData=[];    // todas as linhas brutas
-let _comprasFilt=[];    // linhas filtradas
+let _comprasData=[];
+let _comprasFilt=[];
 let _comprasHeaders=[];
 let _comprasCarregado=false;
+let _cmpChartResp=null, _cmpChartFinal=null, _cmpChartMes=null;
+
+// Colunas mapeadas dinamicamente (busca por substring case-insensitive)
+function cmpCol(row, ...candidates){
+  for(const c of candidates){
+    const k=Object.keys(row).find(k=>k.toLowerCase().includes(c.toLowerCase()));
+    if(k) return row[k]||'';
+  }
+  return '';
+}
+function cmpKey(...candidates){
+  return _comprasHeaders.find(h=>candidates.some(c=>h.toLowerCase().includes(c.toLowerCase())))||'';
+}
+
+function parseDate(s){
+  if(!s) return null;
+  // dd/mm/yyyy or yyyy-mm-dd
+  const m=s.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  if(m) return new Date(+m[3],+m[2]-1,+m[1]);
+  const d=new Date(s);
+  return isNaN(d)?null:d;
+}
 
 async function loadCompras(){
   const sheetId=localStorage.getItem('compras_sheet_id');
   const sheetGid=localStorage.getItem('compras_sheet_gid');
   const noConf=document.getElementById('comprasNoConfig');
   const load=document.getElementById('comprasLoad');
-  const table=document.getElementById('comprasTable');
-  const footer=document.getElementById('comprasFooter');
+  const dash=document.getElementById('comprasDashboard');
   const meta=document.getElementById('comprasMeta');
 
   if(!sheetId){
-    noConf.style.display='block';load.style.display='none';table.style.display='none';footer.style.display='none';
-    return;
+    noConf.style.display='block'; load.style.display='none'; dash.style.display='none'; return;
   }
-  noConf.style.display='none';table.style.display='none';footer.style.display='none';
-  load.style.display='block';
+  noConf.style.display='none'; dash.style.display='none'; load.style.display='block';
 
   try{
     const payload={action:'buscarCompras',sheetId:sheetId};
@@ -1541,24 +1573,34 @@ async function loadCompras(){
     load.style.display='none';
     if(!r.success){
       noConf.innerHTML='<div style="padding:40px;text-align:center;color:var(--red);font-size:13px">Erro: '+r.erro+'</div>';
-      noConf.style.display='block';return;
+      noConf.style.display='block'; return;
     }
     _comprasHeaders=r.headers;
     _comprasData=r.rows;
     _comprasFilt=r.rows;
     _comprasCarregado=true;
-
-    // Popula select de colunas
-    const sel=document.getElementById('comprasFiltroCol');
-    sel.innerHTML='<option value="all">Todas as colunas</option>';
-    r.headers.forEach(h=>{ const o=document.createElement('option');o.value=h;o.textContent=h;sel.appendChild(o); });
-
-    renderComprasTable();
     meta.textContent=r.total+' itens carregados — aba "'+r.sheetName+'"';
-    footer.style.display='block';
 
-    // Informa o chat
-    _chatContexto='Planilha de compras carregada com '+r.total+' itens. Colunas: '+r.headers.join(', ')+'.';
+    // Popula selects de filtro
+    const respKey=cmpKey('respons');
+    const finalKey=cmpKey('finalid');
+    const selResp=document.getElementById('comprasFiltroResp');
+    const selFinal=document.getElementById('comprasFiltroFinal');
+    selResp.innerHTML='<option value="all">Todos responsáveis</option>';
+    selFinal.innerHTML='<option value="all">Todas finalidades</option>';
+    if(respKey){
+      [...new Set(r.rows.map(row=>(row[respKey]||'').trim()).filter(Boolean))].sort()
+        .forEach(v=>{ const o=document.createElement('option');o.value=v;o.textContent=v;selResp.appendChild(o); });
+    }
+    if(finalKey){
+      [...new Set(r.rows.map(row=>(row[finalKey]||'').trim()).filter(Boolean))].sort()
+        .forEach(v=>{ const o=document.createElement('option');o.value=v;o.textContent=v;selFinal.appendChild(o); });
+    }
+
+    dash.style.display='block';
+    renderComprasKPIs();
+    renderComprasCharts();
+    renderComprasTable();
   }catch(e){
     load.style.display='none';
     noConf.innerHTML='<div style="padding:40px;text-align:center;color:var(--red);font-size:13px">Erro de conexão: '+e.message+'</div>';
@@ -1566,35 +1608,148 @@ async function loadCompras(){
   }
 }
 
+function renderComprasKPIs(){
+  const hoje=new Date(); hoje.setHours(0,0,0,0);
+  const em7=new Date(hoje); em7.setDate(hoje.getDate()+7);
+  const dtKey=cmpKey('desejada','entrega','prazo');
+  const frnKey=cmpKey('fornecedor','forn');
+  const respKey=cmpKey('respons');
+
+  const total=_comprasFilt.length;
+  const resps=new Set(_comprasFilt.map(r=>(r[respKey]||'').trim()).filter(Boolean));
+  let vencidos=0, prox7=0, semForn=0;
+  _comprasFilt.forEach(row=>{
+    const dt=parseDate(row[dtKey]);
+    if(dt){ if(dt<hoje) vencidos++; else if(dt<=em7) prox7++; }
+    if(frnKey&&!(row[frnKey]||'').trim()) semForn++;
+  });
+
+  document.getElementById('kCmpTotal').textContent=total;
+  document.getElementById('kCmpTotalN').textContent='de '+_comprasData.length+' total';
+  document.getElementById('kCmpResp').textContent=resps.size;
+  document.getElementById('kCmpRespN').textContent='responsáveis ativos';
+  document.getElementById('kCmpVenc').textContent=vencidos;
+  document.getElementById('kCmpVencN').textContent=vencidos>0?'atenção!':'sem atrasos ✓';
+  document.getElementById('kCmpProx').textContent=prox7;
+  document.getElementById('kCmpProxN').textContent='entregas próximas';
+  document.getElementById('kCmpSemForn').textContent=frnKey?semForn:'—';
+
+  // Cor do card vencidos
+  document.querySelector('#comprasKpiRow .kpi:nth-child(3)').className='kpi '+(vencidos>0?'r':'g');
+  document.querySelector('#comprasKpiRow .kpi:nth-child(4)').className='kpi '+(prox7>0?'a':'g');
+}
+
+function renderComprasCharts(){
+  const COLORS=['#22d37a','#60a5fa','#f59e0b','#a78bfa','#f05252','#34d399','#fb923c','#e879f9','#38bdf8','#fbbf24'];
+  const respKey=cmpKey('respons');
+  const finalKey=cmpKey('finalid');
+  const dtKey=cmpKey('desejada','entrega','prazo');
+
+  // — Chart 1: Itens por Responsável (top 8 barras) —
+  const respCount={};
+  _comprasFilt.forEach(r=>{ const v=(r[respKey]||'Sem responsável').trim(); respCount[v]=(respCount[v]||0)+1; });
+  const respEntries=Object.entries(respCount).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  if(_cmpChartResp) _cmpChartResp.destroy();
+  _cmpChartResp=new Chart(document.getElementById('cmpChartResp'),{
+    type:'bar',
+    data:{labels:respEntries.map(e=>e[0]),datasets:[{data:respEntries.map(e=>e[1]),backgroundColor:COLORS,borderRadius:4,borderSkipped:false}]},
+    options:{indexAxis:'y',responsive:true,plugins:{legend:{display:false}},scales:{x:{grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'#8b95a5',font:{size:10}}},y:{grid:{display:false},ticks:{color:'#cdd6f4',font:{size:10}}}}}
+  });
+
+  // — Chart 2: Distribuição por Finalidade (doughnut) —
+  const finalCount={};
+  _comprasFilt.forEach(r=>{ const v=(r[finalKey]||'Sem finalidade').trim(); finalCount[v]=(finalCount[v]||0)+1; });
+  const finalEntries=Object.entries(finalCount).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  if(_cmpChartFinal) _cmpChartFinal.destroy();
+  _cmpChartFinal=new Chart(document.getElementById('cmpChartFinal'),{
+    type:'doughnut',
+    data:{labels:finalEntries.map(e=>e[0]),datasets:[{data:finalEntries.map(e=>e[1]),backgroundColor:COLORS,borderWidth:0}]},
+    options:{responsive:true,cutout:'65%',plugins:{legend:{position:'right',labels:{color:'#8b95a5',font:{size:9},boxWidth:10}}}}
+  });
+
+  // — Chart 3: Entregas por mês —
+  const mesCount={};
+  _comprasFilt.forEach(row=>{
+    const dt=parseDate(row[dtKey]);
+    if(!dt) return;
+    const k=dt.getFullYear()+'/'+(String(dt.getMonth()+1).padStart(2,'0'));
+    mesCount[k]=(mesCount[k]||0)+1;
+  });
+  const mesEntries=Object.entries(mesCount).sort((a,b)=>a[0].localeCompare(b[0])).slice(-8);
+  if(_cmpChartMes) _cmpChartMes.destroy();
+  _cmpChartMes=new Chart(document.getElementById('cmpChartMes'),{
+    type:'bar',
+    data:{labels:mesEntries.map(e=>e[0].replace('/','/').replace(/(\d{4})\/(\d{2})/,'$2/$1')),datasets:[{data:mesEntries.map(e=>e[1]),backgroundColor:'rgba(96,165,250,0.7)',borderRadius:4}]},
+    options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:'#8b95a5',font:{size:10}}},y:{grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'#8b95a5',font:{size:10}}}}}
+  });
+}
+
 function renderComprasTable(){
   const thead=document.getElementById('comprasThead');
   const tbody=document.getElementById('comprasTbody');
   const footer=document.getElementById('comprasFooter');
   const table=document.getElementById('comprasTable');
+  const hoje=new Date(); hoje.setHours(0,0,0,0);
+  const em7=new Date(hoje); em7.setDate(hoje.getDate()+7);
+  const dtKey=cmpKey('desejada','entrega','prazo');
 
-  // Cabeçalho
-  thead.innerHTML='<tr>'+_comprasHeaders.map(h=>'<th>'+esc(h)+'</th>').join('')+'</tr>';
+  // Colunas prioritárias exibidas (as 8 mais úteis)
+  const priorCols=['PV','SOLICITANTE','DATA SOLICITAÇÃO','DATA DESEJADA (ENTREGA)','RESPONSÁVEL','CÓD. AGRICEF','QTD','DESCRIÇÃO','FINALIDADE'];
+  const cols=_comprasHeaders.filter(h=>priorCols.some(p=>h.toUpperCase().includes(p)||p.toUpperCase().includes(h.toUpperCase()))).slice(0,9);
+  const displayCols=cols.length>0?cols:_comprasHeaders.slice(0,9);
 
-  // Corpo
-  const MAX=200;
+  thead.innerHTML='<tr>'+displayCols.map(h=>'<th style="padding:8px 10px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;color:var(--text2)">'+esc(h)+'</th>').join('')+'</tr>';
+
+  const MAX=300;
   const rows=_comprasFilt.slice(0,MAX);
-  tbody.innerHTML=rows.map(row=>
-    '<tr>'+_comprasHeaders.map(h=>'<td title="'+esc(row[h]||'')+'">'+esc(row[h]||'—')+'</td>').join('')+'</tr>'
-  ).join('');
+  tbody.innerHTML=rows.map(row=>{
+    const dt=parseDate(row[dtKey]);
+    let rowStyle='';
+    if(dt){ if(dt<hoje) rowStyle='background:rgba(240,82,82,0.07)'; else if(dt<=em7) rowStyle='background:rgba(245,158,11,0.07)'; }
+    return '<tr style="'+rowStyle+';border-bottom:1px solid var(--border)">'+
+      displayCols.map(h=>{
+        const v=row[h]||'—';
+        // Destaca data vencida/próxima
+        if(h===dtKey&&dt){
+          const col=dt<hoje?'var(--red)':dt<=em7?'var(--amber)':'';
+          return '<td style="padding:7px 10px;white-space:nowrap'+(col?';color:'+col+';font-weight:600':'')+'" title="'+esc(v)+'">'+esc(v)+'</td>';
+        }
+        return '<td style="padding:7px 10px;white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis" title="'+esc(v)+'">'+esc(v)+'</td>';
+      }).join('')+
+    '</tr>';
+  }).join('');
 
   table.style.display=_comprasFilt.length>0?'table':'none';
-  footer.textContent='Exibindo '+Math.min(rows.length,MAX)+' de '+_comprasFilt.length+' itens'+(_comprasFilt.length<_comprasData.length?' (filtrados de '+_comprasData.length+' total)':'');
-  footer.style.display='block';
+  footer.textContent='Exibindo '+Math.min(rows.length,MAX)+' de '+_comprasFilt.length+' itens'+(_comprasFilt.length<_comprasData.length?' (filtrado de '+_comprasData.length+' total)':'');
 }
 
 function filtrarCompras(){
   const q=(document.getElementById('comprasSearch').value||'').toLowerCase().trim();
-  const col=document.getElementById('comprasFiltroCol').value;
-  if(!q){_comprasFilt=_comprasData;renderComprasTable();return;}
+  const resp=(document.getElementById('comprasFiltroResp').value||'all');
+  const final=(document.getElementById('comprasFiltroFinal').value||'all');
+  const venc=(document.getElementById('comprasFiltroVenc').value||'all');
+  const respKey=cmpKey('respons');
+  const finalKey=cmpKey('finalid');
+  const dtKey=cmpKey('desejada','entrega','prazo');
+  const hoje=new Date(); hoje.setHours(0,0,0,0);
+  const em7=new Date(hoje); em7.setDate(hoje.getDate()+7);
+  const em30=new Date(hoje); em30.setDate(hoje.getDate()+30);
+
   _comprasFilt=_comprasData.filter(row=>{
-    if(col==='all') return Object.values(row).some(v=>(v||'').toLowerCase().includes(q));
-    return (row[col]||'').toLowerCase().includes(q);
+    if(q && !Object.values(row).some(v=>(v||'').toLowerCase().includes(q))) return false;
+    if(resp!=='all' && (row[respKey]||'').trim()!==resp) return false;
+    if(final!=='all' && (row[finalKey]||'').trim()!==final) return false;
+    if(venc!=='all'){
+      const dt=parseDate(row[dtKey]);
+      if(!dt) return false;
+      if(venc==='vencido' && dt>=hoje) return false;
+      if(venc==='7d' && (dt<hoje||dt>em7)) return false;
+      if(venc==='30d' && (dt<hoje||dt>em30)) return false;
+    }
+    return true;
   });
+  renderComprasKPIs();
+  renderComprasCharts();
   renderComprasTable();
 }
 
