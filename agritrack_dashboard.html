@@ -406,25 +406,27 @@ tr:hover td{background:rgba(255,255,255,0.02)}
           <div class="fg"><label>Classificação Estratégica</label>
             <select id="sClass" onchange="calcScore()">
               <option value="">— Selecione —</option>
-              <option value="Linha de Produto">Linha de Produto</option>
-              <option value="Projeto Dedicado">Projeto Dedicado</option>
-              <option value="Melhoria Interna">Melhoria Interna</option>
-              <option value="Inovação">Inovação</option>
+              <option value="Receita direta">Receita direta</option>
+              <option value="Estratégico e Posicionamento">Estratégico e Posicionamento</option>
+              <option value="Sustentação e Excelência Operacional">Sustentação e Excelência Operacional</option>
             </select></div>
           <div class="fg"><label>Impacto Financeiro</label>
             <select id="sImpacto" onchange="calcScore()">
               <option value="">— Selecione —</option>
-              <option value="Alto">Alto</option>
-              <option value="Médio">Médio</option>
-              <option value="Baixo">Baixo</option>
+              <option value="Transformacional">Transformacional</option>
+              <option value="Estratégico">Estratégico</option>
+              <option value="Relevante">Relevante</option>
+              <option value="Incremental">Incremental</option>
+              <option value="Marginal">Marginal</option>
             </select></div>
-          <div class="fg"><label>Urgência</label>
+          <div class="fg"><label>Urgência / Janela de Oportunidade</label>
             <select id="sUrgencia" onchange="calcScore()">
               <option value="">— Selecione —</option>
-              <option value="Crítico">Crítico</option>
-              <option value="Alto">Alto</option>
-              <option value="Médio">Médio</option>
-              <option value="Baixo">Baixo</option>
+              <option value="Imediata (Crítica)">Imediata (Crítica)</option>
+              <option value="Alta (Próximo Trimestre)">Alta (Próximo Trimestre)</option>
+              <option value="Média (Semestral)">Média (Semestral)</option>
+              <option value="Baixa (Desejável)">Baixa (Desejável)</option>
+              <option value="Backlog">Backlog</option>
             </select></div>
           <div class="fg"><label>Complexidade</label>
             <select id="sComplex" onchange="calcScore()">
@@ -432,6 +434,10 @@ tr:hover td{background:rgba(255,255,255,0.02)}
               <option value="Alta">Alta</option>
               <option value="Média">Média</option>
               <option value="Baixa">Baixa</option>
+            </select></div>
+          <div class="fg" id="sAlinhamentoWrap" style="display:none"><label>Alinhamento Estratégico</label>
+            <select id="sAlinhamento">
+              <option value="">— Selecione —</option>
             </select></div>
         </div>
         <div class="score-row" style="margin-top:14px">
@@ -721,6 +727,10 @@ tr:hover td{background:rgba(255,255,255,0.02)}
             <option value="vencido">Vencidos</option>
             <option value="7d">Vence em 7 dias</option>
             <option value="30d">Vence em 30 dias</option>
+          </select>
+          <select id="comprasFiltroCateg" onchange="filtrarCompras()"
+            style="background:var(--bg3);border:1px solid var(--border2);border-radius:var(--rs);padding:6px 10px;color:var(--text);font-size:12px;font-family:inherit">
+            <option value="all">Todas categorias</option>
           </select>
           <span id="comprasFooter" style="font-size:11px;color:var(--text2)"></span>
         </div>
@@ -1123,9 +1133,9 @@ function onHDestChange(){
 
 // Score calculation
 const SCORE_MAP={
-  class:{Inovação:10,'Linha de Produto':8,'Projeto Dedicado':6,'Melhoria Interna':4},
-  imp:{Alto:10,Médio:6,Baixo:2},
-  urg:{Crítico:10,Alto:8,Médio:5,Baixo:2},
+  class:{'Receita direta':10,'Estratégico e Posicionamento':8,'Sustentação e Excelência Operacional':5},
+  imp:{Transformacional:10,'Estratégico':8,Relevante:6,Incremental:4,Marginal:2},
+  urg:{'Imediata (Crítica)':10,'Alta (Próximo Trimestre)':8,'Média (Semestral)':5,'Baixa (Desejável)':3,Backlog:1},
   comp:{Alta:10,Média:6,Baixa:2},
 };
 function calcScore(){
@@ -1169,6 +1179,7 @@ async function submitForm(){
       impactoFinanceiro:document.getElementById('sImpacto').value,
       urgencia:document.getElementById('sUrgencia').value,
       complexidade:document.getElementById('sComplex').value,
+      alinhamento:document.getElementById('sAlinhamento')?.value||'',
     };
     if(tipo==='HAULER'){
       Object.assign(dados,{
@@ -1281,7 +1292,7 @@ async function submitBloqueio(){
       novaDueDate:document.getElementById('bNewDue').value||null,
       novaDataAlvo:document.getElementById('bNewAlvo').value||null,
     });
-    if(r.success){showBMsg('✓ Bloqueio registrado com sucesso em '+key,'ok');clearBloqueioForm();loadBloqueados();}
+    if(r.success){showBMsg('✓ Bloqueio registrado em '+key+'. Atualizando lista…','ok');clearBloqueioForm();setTimeout(()=>loadBloqueados(),3000);}
     else showBMsg('Erro: '+(r.erro||JSON.stringify(r)),'err');
   }catch(e){showBMsg('Erro: '+e.message,'err');}
 }
@@ -1613,6 +1624,26 @@ let _comprasTabAtiva='all';   // 'all' ou nome da aba
 let _cmpModalData=[];         // índice→row para o modal
 let _cmpChartResp=null, _cmpChartFinal=null, _cmpChartMes=null;
 
+// Categorias operacionais — usadas no swim lane E no filtro de categoria
+const CMP_CATS=[
+  {icon:'🎨',title:'Pintura',      color:'#a78bfa', kws:['pintura','tinta','paint','lacqu']},
+  {icon:'⚙️', title:'Usinagem',    color:'#60a5fa', kws:['usinagem','usinar','torneamento','fresament','cnc']},
+  {icon:'🔩', title:'Tratamento',  color:'#34d399', kws:['tratamento','galvanis','zinco','fosfat','oxidac','niquela','cro']},
+  {icon:'✂️', title:'Corte / Chapa',color:'#fb923c',kws:['chapa','corte','laser','dobra','guilhot','plasma','estampagem']},
+  {icon:'🧱', title:'Matéria-Prima',color:'#f59e0b', kws:['materia prima','matéria prima','mp ','tubo ','aço','alumin','barra','perfil','vergalhão','chapa bruta']},
+  {icon:'🔄', title:'OSTI / Externo',color:'#e879f9',kws:['osti','terceiro','externo','subcontrat']},
+  {icon:'📦', title:'Aguard. Fornecedor',color:'#38bdf8',kws:['aguardando','aguard','pedido','compra']},
+];
+function _cmpCateg(row){
+  const f=(row[cmpKey('finalid')]||'').toLowerCase();
+  const s=(row[cmpKey('status','situac','situação')]||'').toLowerCase();
+  const d=(row[cmpKey('descri','item','produto')]||'').toLowerCase();
+  for(const c of CMP_CATS){
+    if(c.kws.some(k=>f.includes(k)||s.includes(k)||d.includes(k))) return c.title;
+  }
+  return 'Outros';
+}
+
 // Colunas mapeadas dinamicamente (busca por substring case-insensitive)
 function cmpCol(row, ...candidates){
   for(const c of candidates){
@@ -1686,14 +1717,25 @@ async function loadCompras(){
       t.rows.forEach(row=>{ allRows.push({...row,_tab:t.name}); });
     });
 
+    // Aba virtual: Cartão de Crédito (CCC no campo PV)
+    const _pvK=_comprasHeaders.find(h=>/\bpv\b/i.test(h))||_comprasHeaders.find(h=>/^pv/i.test(h))||'';
+    if(_pvK){
+      const cccRows=allRows.filter(r=>(r[_pvK]||'').toUpperCase().includes('CCC'));
+      if(cccRows.length>0){
+        _comprasTabs.push({name:'💳 Cartão (CCC)',gid:-1,headers:_comprasHeaders,rows:cccRows,virtual:true});
+      }
+    }
+
     _comprasData=allRows;
     _comprasFilt=allRows;
     _comprasTabAtiva='all';
     _comprasCarregado=true;
 
     const totalItens=allRows.length;
-    const nAbas=_comprasTabs.length;
-    meta.textContent=totalItens+' itens'+(nAbas>1?' em '+nAbas+' abas':' — aba "'+(_comprasTabs[0]&&_comprasTabs[0].name||'—')+'"')+(modoFallback?' (modo aba única)':'');
+    const realTabs=_comprasTabs.filter(t=>!t.virtual);
+    const nAbas=realTabs.length;
+    const hasCCC=_comprasTabs.some(t=>t.virtual&&t.name.includes('CCC'));
+    meta.textContent=totalItens+' itens'+(nAbas>1?' em '+nAbas+' abas':' — aba "'+(_comprasTabs[0]&&_comprasTabs[0].name||'—')+'"')+(hasCCC?' | 💳 CCC detectado':'')+(modoFallback?' (modo aba única)':'');
 
     _populaFiltros();
     renderComprasTabSelector();
@@ -1711,6 +1753,7 @@ function _populaFiltros(){
   const finalKey=cmpKey('finalid');
   const selResp=document.getElementById('comprasFiltroResp');
   const selFinal=document.getElementById('comprasFiltroFinal');
+  const selCateg=document.getElementById('comprasFiltroCateg');
   selResp.innerHTML='<option value="all">Todos responsáveis</option>';
   selFinal.innerHTML='<option value="all">Todas finalidades</option>';
   if(respKey){
@@ -1720,6 +1763,12 @@ function _populaFiltros(){
   if(finalKey){
     [...new Set(_comprasData.map(r=>(r[finalKey]||'').trim()).filter(Boolean))].sort()
       .forEach(v=>{ const o=document.createElement('option');o.value=v;o.textContent=v;selFinal.appendChild(o); });
+  }
+  // Popula categorias operacionais
+  if(selCateg){
+    selCateg.innerHTML='<option value="all">Todas categorias</option>';
+    const usedCategs=[...new Set(_comprasData.map(r=>_cmpCateg(r)))].sort();
+    usedCategs.forEach(v=>{ const o=document.createElement('option');o.value=v;o.textContent=v;selCateg.appendChild(o); });
   }
 }
 
@@ -1747,7 +1796,7 @@ function selecionarAbaCompras(tabName){
   _comprasTabAtiva=tabName;
   if(tabName==='all'){
     _comprasData=[];
-    _comprasTabs.forEach(t=>t.rows.forEach(r=>_comprasData.push({...r,_tab:t.name})));
+    _comprasTabs.filter(t=>!t.virtual).forEach(t=>t.rows.forEach(r=>_comprasData.push({...r,_tab:t.name})));
   } else {
     const tab=_comprasTabs.find(t=>t.name===tabName);
     _comprasData=tab?tab.rows.map(r=>({...r,_tab:tab.name})):[];
@@ -1759,6 +1808,7 @@ function selecionarAbaCompras(tabName){
   document.getElementById('comprasFiltroResp').value='all';
   document.getElementById('comprasFiltroFinal').value='all';
   document.getElementById('comprasFiltroVenc').value='all';
+  const _selC=document.getElementById('comprasFiltroCateg');if(_selC)_selC.value='all';
   _populaFiltros();
   renderComprasTabSelector();
   _renderTudo();
@@ -1973,6 +2023,7 @@ function filtrarCompras(){
   const resp=(document.getElementById('comprasFiltroResp').value||'all');
   const final=(document.getElementById('comprasFiltroFinal').value||'all');
   const venc=(document.getElementById('comprasFiltroVenc').value||'all');
+  const categ=(document.getElementById('comprasFiltroCateg')?.value||'all');
   const respKey=cmpKey('respons');
   const finalKey=cmpKey('finalid');
   const dtKey=cmpKey('desejada','entrega','prazo');
@@ -1984,6 +2035,7 @@ function filtrarCompras(){
     if(q && !Object.values(row).some(v=>(v||'').toLowerCase().includes(q))) return false;
     if(resp!=='all' && (row[respKey]||'').trim()!==resp) return false;
     if(final!=='all' && (row[finalKey]||'').trim()!==final) return false;
+    if(categ!=='all' && _cmpCateg(row)!==categ) return false;
     if(venc!=='all'){
       const dt=parseDate(row[dtKey]);
       if(!dt) return false;
@@ -2057,13 +2109,15 @@ function renderComprasSwimLanes(){
     }).join('');
     const more=items.length>MAX_V?`<div style="font-size:10px;color:var(--text2);text-align:center;padding:4px 0">+${items.length-MAX_V} mais…</div>`:'';
     return `<div class="card" style="min-width:224px;max-width:224px;padding:12px;flex-shrink:0;display:flex;flex-direction:column;gap:0">
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:wrap">
-        <span style="font-size:18px;line-height:1">${icon}</span>
-        <div style="flex:1;min-width:0">
-          <div style="font-size:11px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>
+      <div style="margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">
+          <span style="font-size:18px;line-height:1;flex-shrink:0">${icon}</span>
+          <div style="font-size:13px;font-weight:700;color:var(--text);line-height:1.3;word-break:break-word">${title}</div>
         </div>
-        ${urgBadge}
-        <span style="background:${color}28;color:${color};border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700;flex-shrink:0">${items.length}</span>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding-left:2px">
+          ${urgBadge}
+          <span style="background:${color}28;color:${color};border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700">${items.length} iten${items.length===1?'':'s'}</span>
+        </div>
       </div>
       <div style="display:flex;flex-direction:column;gap:4px;max-height:310px;overflow-y:auto;scrollbar-width:thin">${rows}${more}</div>
     </div>`;
@@ -2077,16 +2131,8 @@ function renderComprasSwimLanes(){
     return kws.some(k=>f.includes(k)||s.includes(k)||d.includes(k));
   }
 
-  // Definição das categorias (ordem = prioridade de match)
-  const CATS=[
-    {icon:'🎨',title:'Pintura',      color:'#a78bfa', kws:['pintura','tinta','paint','lacqu']},
-    {icon:'⚙️', title:'Usinagem',    color:'#60a5fa', kws:['usinagem','usinar','torneamento','fresament','cnc']},
-    {icon:'🔩', title:'Tratamento',  color:'#34d399', kws:['tratamento','galvanis','zinco','fosfat','oxidac','niquela','cro']},
-    {icon:'✂️', title:'Corte / Chapa',color:'#fb923c',kws:['chapa','corte','laser','dobra','guilhot','plasma','estampagem']},
-    {icon:'🧱', title:'Matéria-Prima',color:'#f59e0b', kws:['materia prima','matéria prima','mp ','tubo ','aço','alumin','barra','perfil','vergalhão','chapa bruta']},
-    {icon:'🔄', title:'OSTI / Externo',color:'#e879f9',kws:['osti','terceiro','externo','subcontrat']},
-    {icon:'📦', title:'Aguard. Fornecedor',color:'#38bdf8',kws:['aguardando','aguard','pedido','compra']},
-  ];
+  // Usa as categorias globais (definidas acima, compartilhadas com o filtro)
+  const CATS=CMP_CATS;
 
   // Distribui itens — cada item vai para a PRIMEIRA categoria que bate
   const catItems=CATS.map(()=>[]);
@@ -2115,10 +2161,12 @@ function renderComprasSwimLanes(){
       </div>`).join('');
       const moreS=entries.length>18?`<div style="font-size:10px;color:var(--text2);text-align:center;padding:4px 0">+${entries.length-18} séries</div>`:'';
       seriesHTML=`<div class="card" style="min-width:224px;max-width:224px;padding:12px;flex-shrink:0">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-          <span style="font-size:18px;line-height:1">📊</span>
-          <div style="flex:1"><div style="font-size:11px;font-weight:700;color:var(--text)">Por Série / Modelo</div></div>
-          <span style="background:#22d37a28;color:#22d37a;border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700">${entries.length}</span>
+        <div style="margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">
+            <span style="font-size:18px;line-height:1;flex-shrink:0">📊</span>
+            <div style="font-size:13px;font-weight:700;color:var(--text);line-height:1.3">Por Série / Modelo</div>
+          </div>
+          <div style="padding-left:2px"><span style="background:#22d37a28;color:#22d37a;border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700">${entries.length} séries</span></div>
         </div>
         <div style="display:flex;flex-direction:column;gap:4px;max-height:310px;overflow-y:auto;scrollbar-width:thin">${rowsS}${moreS}</div>
       </div>`;
