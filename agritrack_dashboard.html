@@ -1,0 +1,1249 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>AgriTrack — Central de Projetos</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0b0f17;--bg2:#111827;--bg3:#1a2235;--bg4:#0e1420;
+  --border:rgba(255,255,255,0.06);--border2:rgba(255,255,255,0.12);
+  --text:#e2e8f4;--text2:#8896b0;--text3:#3a4558;
+  --green:#22d37a;--gdim:rgba(34,211,122,0.12);
+  --red:#f05252;--rdim:rgba(240,82,82,0.12);
+  --amber:#f59e0b;--adim:rgba(245,158,11,0.12);
+  --blue:#60a5fa;--bdim:rgba(96,165,250,0.12);
+  --purple:#a78bfa;--pdim:rgba(167,139,250,0.12);
+  --r:10px;--rs:6px;
+}
+body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+
+/* ── HEADER ── */
+.hdr{padding:0 28px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);background:var(--bg2);height:56px;position:sticky;top:0;z-index:100}
+.logo{display:flex;align-items:center;gap:12px;flex-shrink:0}
+.lmark{width:30px;height:30px;background:var(--green);border-radius:7px;display:flex;align-items:center;justify-content:center}
+.lmark svg{width:14px;height:14px;stroke:#000;fill:none;stroke-width:2.5}
+.lname{font-weight:600;font-size:14px;letter-spacing:-.3px}
+.lsub{font-size:10px;color:var(--text2)}
+
+/* ── NAV TABS ── */
+.nav{display:flex;align-items:center;gap:2px;flex:1;justify-content:center}
+.ntab{padding:6px 16px;border:none;background:none;color:var(--text2);font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;border-radius:var(--rs);transition:all .15s;display:flex;align-items:center;gap:6px}
+.ntab:hover{color:var(--text);background:rgba(255,255,255,0.05)}
+.ntab.on{color:var(--green);background:var(--gdim)}
+.ntab .nbadge{font-size:10px;background:var(--red);color:#fff;border-radius:10px;padding:1px 5px;min-width:16px;text-align:center;display:none}
+.ntab .nbadge.show{display:inline-block}
+
+.hright{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.plive{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:500;color:var(--green);background:var(--gdim);padding:3px 8px;border-radius:20px;border:1px solid rgba(34,211,122,0.2)}
+.plive::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--green);animation:blink 1.5s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.hbtn{padding:5px 12px;border:1px solid var(--border2);background:var(--bg3);color:var(--text2);border-radius:var(--rs);font-family:inherit;font-size:11px;cursor:pointer;transition:all .15s}
+.hbtn:hover{color:var(--text);border-color:var(--text2)}
+
+/* ── PAGES ── */
+.pg{display:none;padding:0 0 60px}
+.pg.on{display:block}
+.main{padding:0 28px}
+
+/* ── SECTION HEADINGS ── */
+.sec{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--text2);margin:20px 0 12px;display:flex;align-items:center;gap:8px}
+.sec::after{content:'';flex:1;height:1px;background:var(--border)}
+.ph{padding:22px 28px 0;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+.ptitle{font-size:16px;font-weight:600;color:var(--text)}
+.psub{font-size:12px;color:var(--text2);margin-top:2px}
+
+/* ── LOADING ── */
+.load{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:50vh;gap:16px}
+.spinner{width:36px;height:36px;border:3px solid var(--border2);border-top-color:var(--green);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ltxt{font-size:13px;color:var(--text2)}
+
+/* ── CARDS ── */
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:18px 20px}
+.card.full{grid-column:1/-1}
+.ct{font-size:12px;font-weight:600;color:var(--text);margin-bottom:3px}
+.cs{font-size:11px;color:var(--text2);margin-bottom:14px}
+
+/* ── KPIs ── */
+.krow{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:6px}
+.kpi{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;position:relative;overflow:hidden}
+.kl{font-size:10px;color:var(--text2);font-weight:600;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px}
+.kv{font-size:24px;font-weight:600;font-family:'IBM Plex Mono',monospace;letter-spacing:-1px;line-height:1}
+.kn{font-size:11px;color:var(--text2);margin-top:5px}
+.kb{position:absolute;bottom:0;left:0;height:3px;border-radius:0 3px 3px 0;transition:width .7s ease}
+.g .kv{color:var(--green)} .g .kb{background:var(--green)}
+.r .kv{color:var(--red)}   .r .kb{background:var(--red)}
+.a .kv{color:var(--amber)} .a .kb{background:var(--amber)}
+.b .kv{color:var(--blue)}  .b .kb{background:var(--blue)}
+.n .kv{color:var(--text)}  .n .kb{background:var(--text2)}
+
+/* ── GRIDS ── */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px}
+.gw{display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:14px}
+
+/* ── DEPT BARS ── */
+.db{display:flex;flex-direction:column;gap:10px}
+.dr{display:flex;flex-direction:column;gap:4px}
+.dm{display:flex;justify-content:space-between;font-size:11px}
+.dn{color:var(--text);font-weight:500}
+.dc{color:var(--text2)}
+.dbg{background:var(--bg3);border-radius:4px;height:6px;overflow:hidden}
+.df{height:100%;border-radius:4px;transition:width .8s ease}
+
+/* ── TABLE ── */
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text2);padding:8px 10px;border-bottom:1px solid var(--border2)}
+td{padding:8px 10px;border-bottom:1px solid var(--border);color:var(--text);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:rgba(255,255,255,0.02)}
+.badge{display:inline-flex;align-items:center;padding:2px 7px;border-radius:20px;font-size:10px;font-weight:600;letter-spacing:.04em}
+.np{background:var(--gdim);color:var(--green);border:1px solid rgba(34,211,122,.2)}
+.fp{background:var(--rdim);color:var(--red);border:1px solid rgba(240,82,82,.2)}
+.bz{background:var(--adim);color:var(--amber);border:1px solid rgba(245,158,11,.2)}
+.baf{background:var(--bdim);color:var(--blue);border:1px solid rgba(96,165,250,.2)}
+.bfe{background:var(--gdim);color:var(--green);border:1px solid rgba(34,211,122,.2)}
+.bblk{background:var(--rdim);color:var(--red);border:1px solid rgba(240,82,82,.2)}
+
+/* ── FILTERS ── */
+.fbar{margin:14px 28px 14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.fl{font-size:10px;color:var(--text2);font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+.fp2{padding:4px 10px;border-radius:20px;border:1px solid var(--border2);font-size:11px;background:var(--bg3);color:var(--text2);cursor:pointer;font-family:inherit;transition:all .15s}
+.fp2.on{background:var(--green);border-color:var(--green);color:#000;font-weight:500}
+.fsel{padding:5px 8px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--rs);font-family:inherit;font-size:12px;outline:none;cursor:pointer}
+.fsep{width:1px;height:18px;background:var(--border2)}
+
+/* ── CHART LEGEND ── */
+.leg{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px}
+.li{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)}
+.ld{width:9px;height:9px;border-radius:2px;flex-shrink:0}
+.cw{position:relative}
+
+/* ── IMPORT FALLBACK (small link) ── */
+.imp-link{font-size:11px;color:var(--text2);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.imp-link:hover{color:var(--text)}
+.impz{border:1.5px dashed var(--border2);border-radius:var(--r);padding:20px;background:var(--bg2);text-align:center;cursor:pointer;transition:all .2s;margin:0 0 14px}
+.impz:hover{border-color:var(--green)}
+.ibtn{display:inline-flex;align-items:center;gap:6px;padding:7px 16px;background:var(--green);color:#000;font-weight:600;font-size:12px;border:none;border-radius:var(--rs);cursor:pointer;font-family:inherit}
+.ibtn:hover{opacity:.85}
+
+/* ── FORM STYLES ── */
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.form-grid.g1{grid-template-columns:1fr}
+.form-grid.g3c{grid-template-columns:1fr 1fr 1fr}
+.fg{display:flex;flex-direction:column;gap:5px}
+.fg label{font-size:11px;color:var(--text2);font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+.fg input,.fg select,.fg textarea{background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--rs);font-family:inherit;font-size:13px;padding:8px 10px;outline:none;transition:border .15s;width:100%}
+.fg input:focus,.fg select:focus,.fg textarea:focus{border-color:var(--green)}
+.fg textarea{resize:vertical;min-height:80px}
+.fg .hint{font-size:10px;color:var(--text3);margin-top:2px}
+.fsubmit{display:flex;align-items:center;gap:10px;margin-top:20px}
+.btn-primary{padding:9px 22px;background:var(--green);color:#000;font-weight:600;font-size:13px;border:none;border-radius:var(--rs);cursor:pointer;font-family:inherit;transition:opacity .15s}
+.btn-primary:hover:not(:disabled){opacity:.85}
+.btn-primary:disabled{opacity:.45;cursor:not-allowed}
+.btn-sec{padding:9px 18px;background:transparent;border:1px solid var(--border2);color:var(--text2);font-weight:500;font-size:13px;border-radius:var(--rs);cursor:pointer;font-family:inherit;transition:all .15s}
+.btn-sec:hover{border-color:var(--text2);color:var(--text)}
+.btn-amber{padding:9px 18px;background:var(--adim);border:1px solid rgba(245,158,11,.3);color:var(--amber);font-weight:600;font-size:13px;border-radius:var(--rs);cursor:pointer;font-family:inherit;transition:all .15s}
+.btn-amber:hover{opacity:.85}
+.form-msg{font-size:12px;padding:10px 14px;border-radius:var(--rs);display:none}
+.form-msg.ok{background:var(--gdim);color:var(--green);border:1px solid rgba(34,211,122,.2)}
+.form-msg.err{background:var(--rdim);color:var(--red);border:1px solid rgba(240,82,82,.2)}
+.form-msg.info{background:var(--bdim);color:var(--blue);border:1px solid rgba(96,165,250,.2)}
+
+/* ── SCORE PREVIEW ── */
+.score-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px}
+.score-pill{padding:4px 12px;border-radius:20px;font-size:11px;font-weight:600}
+.sp-p1{background:var(--rdim);color:var(--red);border:1px solid rgba(240,82,82,.3)}
+.sp-p2{background:var(--adim);color:var(--amber);border:1px solid rgba(245,158,11,.3)}
+.sp-p3{background:var(--bdim);color:var(--blue);border:1px solid rgba(96,165,250,.3)}
+.sp-p4{background:var(--gdim);color:var(--green);border:1px solid rgba(34,211,122,.3)}
+.score-num{font-size:18px;font-weight:600;font-family:'IBM Plex Mono',monospace;color:var(--text)}
+
+/* ── SUBTASK PILLS ── */
+.stpills{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.stpill{padding:3px 10px;background:var(--bg4);border:1px solid var(--border2);border-radius:20px;font-size:10px;color:var(--text2)}
+
+/* ── BLOQUEIOS PAGE ── */
+.blk-list{display:flex;flex-direction:column;gap:8px;margin-bottom:20px}
+.blk-item{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;display:flex;align-items:center;gap:14px;cursor:pointer;transition:border .15s}
+.blk-item:hover{border-color:var(--amber)}
+.blk-item.sel{border-color:var(--amber);background:var(--adim)}
+.blk-key{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--amber);min-width:80px}
+.blk-sum{flex:1;font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.blk-dept{font-size:10px;color:var(--text2);min-width:80px;text-align:right}
+.blk-empty{text-align:center;color:var(--text2);font-size:13px;padding:40px 0}
+
+/* ── RELATÓRIO ── */
+.rpt-box{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:24px;min-height:300px;line-height:1.7}
+.rpt-box h1,.rpt-box h2,.rpt-box h3{color:var(--text);margin:16px 0 8px}
+.rpt-box h2{font-size:14px;border-bottom:1px solid var(--border);padding-bottom:6px;margin-bottom:10px}
+.rpt-box h3{font-size:13px;color:var(--green)}
+.rpt-box p{font-size:13px;color:var(--text2);margin-bottom:8px}
+.rpt-box ul,.rpt-box ol{padding-left:18px;margin-bottom:10px}
+.rpt-box li{font-size:13px;color:var(--text2);margin-bottom:4px}
+.rpt-box strong{color:var(--text)}
+.rpt-box code{font-family:'IBM Plex Mono',monospace;background:var(--bg3);padding:1px 5px;border-radius:3px;font-size:11px}
+.rpt-box table{margin-bottom:12px}
+.rpt-box td,.rpt-box th{border:1px solid var(--border2);padding:5px 10px}
+.rpt-placeholder{text-align:center;color:var(--text2);padding:60px 0}
+.rpt-placeholder .ri{font-size:40px;opacity:.3;margin-bottom:14px}
+
+/* ── GANTT MINI ── */
+.gantt{display:flex;flex-direction:column;gap:4px;margin-top:12px}
+.gr{display:flex;align-items:center;gap:8px;font-size:10px;color:var(--text2)}
+.gn{min-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gb{flex:1;background:var(--bg3);border-radius:3px;height:14px;position:relative}
+.gf{position:absolute;height:100%;border-radius:3px;background:var(--green);opacity:.7}
+
+/* ── SETTINGS DRAWER ── */
+.settings-box{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:20px;max-width:500px}
+.settings-title{font-size:13px;font-weight:600;margin-bottom:14px;color:var(--text)}
+
+/* ── RESPONSIVE ── */
+@media(max-width:860px){.g2,.g3,.gw,.form-grid{grid-template-columns:1fr}.card.full{grid-column:auto}.nav{gap:0}.ntab{padding:6px 10px;font-size:12px}}
+@media(max-width:600px){.hdr{padding:0 14px}.main{padding:0 14px}.fbar{margin:10px 14px}}
+</style>
+</head>
+<body>
+
+<!-- ══ HEADER ══════════════════════════════════════════════════ -->
+<div class="hdr">
+  <div class="logo">
+    <div class="lmark"><svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
+    <div><div class="lname">AgriTrack</div><div class="lsub">Central de Projetos</div></div>
+  </div>
+  <nav class="nav">
+    <button class="ntab on" onclick="nav('dash')">📊 Dashboard</button>
+    <button class="ntab" onclick="nav('form')">➕ Novo Projeto</button>
+    <button class="ntab" onclick="nav('block')">🚧 Bloqueios <span class="nbadge" id="blkBadge">0</span></button>
+    <button class="ntab" onclick="nav('report')">📋 Relatório Semanal</button>
+    <button class="ntab" onclick="nav('cfg')">⚙️ Config</button>
+  </nav>
+  <div class="hright">
+    <span class="plive" id="livePill" style="display:none">Ao vivo</span>
+    <button class="hbtn" onclick="autoFetch()" title="Atualizar dados do Jira">↺ Atualizar</button>
+  </div>
+</div>
+
+<!-- ══ PAGE: DASHBOARD ══════════════════════════════════════════ -->
+<div id="pg-dash" class="pg on">
+  <div class="ph">
+    <div><div class="ptitle">Dashboard de Projetos</div><div class="psub" id="dashMeta">Carregando dados do Jira…</div></div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <span class="imp-link" onclick="toggleImport()">⬆ Importar CSV manualmente</span>
+    </div>
+  </div>
+  <!-- CSV fallback -->
+  <div id="impPanel" style="display:none;padding:0 28px;margin-top:12px">
+    <div class="impz" onclick="document.getElementById('fi').click()">
+      <div style="font-size:13px;font-weight:500;margin-bottom:4px">📂 Importar CSV do Jira</div>
+      <div style="font-size:11px;color:var(--text2)">Jira → Exportar → CSV do Excel (todos os campos)</div>
+      <button class="ibtn" style="margin-top:10px" onclick="event.stopPropagation();document.getElementById('fi').click()">Selecionar CSV</button>
+    </div>
+    <input type="file" id="fi" accept=".csv" style="display:none">
+  </div>
+  <!-- Loading -->
+  <div id="dashLoad" class="load">
+    <div class="spinner"></div>
+    <div class="ltxt">Buscando dados do Jira…</div>
+  </div>
+  <!-- Dashboard content -->
+  <div id="dash" style="display:none">
+    <div class="fbar">
+      <span class="fl">Tipo</span>
+      <button class="fp2 on" data-k="tipo" data-v="Tarefa" onclick="setF('tipo',this)">Tarefas</button>
+      <button class="fp2" data-k="tipo" data-v="Subtarefa" onclick="setF('tipo',this)">Subtarefas</button>
+      <button class="fp2" data-k="tipo" data-v="all" onclick="setF('tipo',this)">Todos</button>
+      <div class="fsep"></div>
+      <span class="fl">Departamento</span>
+      <select class="fsel" id="fD" onchange="go()"><option value="all">Todos</option></select>
+      <div class="fsep"></div>
+      <span class="fl">Ano</span>
+      <select class="fsel" id="fY" onchange="go()"><option value="all">Todos</option></select>
+    </div>
+    <div class="main">
+      <div class="sec">Visão Geral</div>
+      <div class="krow">
+        <div class="kpi g"><div class="kl">Concluídos</div><div class="kv" id="K1">—</div><div class="kn" id="K1s"></div><div class="kb" id="KL1"></div></div>
+        <div class="kpi a"><div class="kl">Em Andamento</div><div class="kv" id="K2">—</div><div class="kn" id="K2s"></div><div class="kb" id="KL2"></div></div>
+        <div class="kpi b"><div class="kl">A Fazer</div><div class="kv" id="K3">—</div><div class="kn" id="K3s"></div><div class="kb" id="KL3"></div></div>
+        <div class="kpi g"><div class="kl">No Prazo</div><div class="kv" id="K4">—</div><div class="kn" id="K4s"></div><div class="kb" id="KL4"></div></div>
+        <div class="kpi r"><div class="kl">Fora do Prazo</div><div class="kv" id="K5">—</div><div class="kn" id="K5s"></div><div class="kb" id="KL5"></div></div>
+        <div class="kpi n"><div class="kl">WIP em Aberto</div><div class="kv" id="K6">—</div><div class="kn">fazendo + a fazer</div><div class="kb" style="width:40%"></div></div>
+        <div class="kpi n"><div class="kl">Throughput Médio</div><div class="kv" id="K7">—</div><div class="kn">concluídos/mês</div><div class="kb" style="width:55%"></div></div>
+        <div class="kpi n"><div class="kl">Duração Média</div><div class="kv" id="K8">—</div><div class="kn">semanas por tarefa</div><div class="kb" style="width:35%"></div></div>
+      </div>
+      <div class="sec">Status e Prazo</div>
+      <div class="g3">
+        <div class="card"><div class="ct">Concluídos: dentro e fora do prazo</div><div class="cs">Tarefas com status "Feito"</div><div class="leg" id="lgPrC"></div><div class="cw"><canvas id="chPrC" height="175"></canvas></div></div>
+        <div class="card"><div class="ct">Em andamento: dentro e fora do prazo</div><div class="cs">Tarefas com status "Fazendo"</div><div class="leg" id="lgPrA"></div><div class="cw"><canvas id="chPrA" height="175"></canvas></div></div>
+        <div class="card"><div class="ct">Distribuição por departamento</div><div class="cs">Total de itens por área</div><div class="db" id="dbT"></div></div>
+      </div>
+      <div class="gw">
+        <div class="card"><div class="ct">Tarefas por departamento e status</div><div class="cs">Agrupado por status</div><div class="leg" id="lgDS"></div><div class="cw" id="wDS"><canvas id="chDS"></canvas></div></div>
+        <div class="card"><div class="ct">Prazo por departamento</div><div class="cs">No prazo vs. fora do prazo</div><div class="cw" id="wPD"><canvas id="chPD"></canvas></div></div>
+      </div>
+      <div class="sec">Panorama Temporal</div>
+      <div class="card full" style="margin-bottom:14px"><div class="ct">Entregas ao longo do tempo</div><div class="cs">Tarefas por mês (data limite)</div><div class="cw"><canvas id="chPan" height="185"></canvas></div></div>
+      <div class="g2">
+        <div class="card"><div class="ct">Throughput mensal</div><div class="cs">Tarefas concluídas por mês (data de resolução)</div><div class="cw"><canvas id="chTP" height="175"></canvas></div></div>
+        <div class="card"><div class="ct">Entradas mensais</div><div class="cs">Novas tarefas criadas por mês</div><div class="cw"><canvas id="chEnt" height="175"></canvas></div></div>
+      </div>
+      <div class="card full" style="margin-bottom:14px"><div class="ct">CFD — Cumulative Flow Diagram</div><div class="cs">Evolução acumulada por status</div><div class="leg" id="lgCFD"></div><div class="cw"><canvas id="chCFD" height="195"></canvas></div></div>
+      <div class="sec">Projetos Detalhados</div>
+      <div class="card full">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div><div class="ct" style="margin:0">Lista de tarefas</div><div class="cs" style="margin:0">Tarefas com subtarefas</div></div>
+          <input type="text" id="tSrch" placeholder="🔍 Buscar…" oninput="fTbl()" style="padding:6px 10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--rs);font-size:12px;outline:none;font-family:inherit;width:180px">
+        </div>
+        <div class="tw"><table><thead><tr><th>Chave</th><th>Projeto</th><th>Depto</th><th>Status</th><th>Início</th><th>Data Limite</th><th>Max DL Sub</th><th>Prazo</th><th>Sem.</th></tr></thead><tbody id="tBdy"></tbody></table></div>
+        <div style="margin-top:8px;font-size:11px;color:var(--text2)">Exibindo <span id="tCnt">0</span> projetos</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ PAGE: NOVO PROJETO ═══════════════════════════════════════ -->
+<div id="pg-form" class="pg">
+  <div class="ph">
+    <div><div class="ptitle">Novo Projeto</div><div class="psub">Criar tarefa no Jira com subtarefas e datas automáticas</div></div>
+  </div>
+  <div class="main" style="max-width:900px">
+    <div class="sec">Departamento e Tipo</div>
+    <div class="card" style="margin-bottom:14px">
+      <div class="form-grid">
+        <div class="fg">
+          <label>Departamento</label>
+          <select id="fDept" onchange="onDeptChange()"><option value="">— Selecione —</option></select>
+        </div>
+        <div class="fg">
+          <label>Tipo de Projeto</label>
+          <select id="fTipo" onchange="onTipoChange()" disabled><option value="">— Selecione o departamento —</option></select>
+        </div>
+      </div>
+      <!-- Subtask preview -->
+      <div id="stPreview" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+        <div style="font-size:10px;color:var(--text2);font-weight:600;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px">Subtarefas que serão criadas</div>
+        <div class="stpills" id="stPills"></div>
+      </div>
+    </div>
+
+    <!-- Seção Hauler -->
+    <div id="secHauler" style="display:none">
+      <div class="sec">Dados do Hauler</div>
+      <div class="card" style="margin-bottom:14px">
+        <div class="form-grid">
+          <div class="fg"><label>Diâmetro</label>
+            <select id="hDiam"><option value="8">8"</option><option value="10">10"</option></select></div>
+          <div class="fg"><label>Fases a criar</label>
+            <select id="hFases"><option value="f1f2">F1 + F2 (completo)</option><option value="f1">Apenas F1</option><option value="f2">Apenas F2 (Day C)</option></select></div>
+          <div class="fg"><label>Serial</label><input id="hSerial" placeholder="S22000XXX"><div class="hint" id="hSerialHint"></div></div>
+          <div class="fg"><label>Destino</label>
+            <select id="hDest" onchange="onHDestChange()"><option value="cliente">Cliente</option><option value="estoque">Estoque</option><option value="interno">Interno</option></select></div>
+          <div class="fg" id="hClienteWrap"><label>Nome do Cliente</label><input id="hCliente" placeholder="Ex: Syngenta"></div>
+          <div class="fg" id="hClienteNumWrap"><label>Número do Cliente</label><input id="hClienteNum" placeholder="Ex: 12345"></div>
+        </div>
+        <div class="form-grid" style="margin-top:14px">
+          <div class="fg"><label>Data de Início (F1)</label><input type="date" id="hStart"></div>
+          <div class="fg"><label>Day C (início F2)</label><input type="date" id="hDayC"></div>
+          <div class="fg"><label>Baseline / Data Limite</label><input type="date" id="hBaseline"></div>
+          <div class="fg"><label>Data Alvo</label><input type="date" id="hAlvo"></div>
+        </div>
+        <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+          <div style="font-size:10px;color:var(--text2);font-weight:600;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px">Variante F2</div>
+          <div style="display:flex;gap:14px">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" id="hAlong" onchange="if(this.checked)document.getElementById('hExt').checked=false"> Alongamento Osti</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" id="hExt" onchange="if(this.checked)document.getElementById('hAlong').checked=false"> Extensão</label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Seção Genérica (todos exceto Hauler) -->
+    <div id="secGen" style="display:none">
+      <div class="sec">Dados do Projeto</div>
+      <div class="card" style="margin-bottom:14px">
+        <div id="genFields" class="form-grid"></div>
+        <div class="form-grid" style="margin-top:14px">
+          <div class="fg"><label>Data de Início</label><input type="date" id="gStart"></div>
+          <div class="fg"><label>Data Limite (Baseline)</label><input type="date" id="gDue"></div>
+          <div class="fg"><label>Data Alvo</label><input type="date" id="gAlvo"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Score (compartilhado) -->
+    <div id="secScore" style="display:none">
+      <div class="sec">Score de Prioridade</div>
+      <div class="card" style="margin-bottom:14px">
+        <div class="form-grid">
+          <div class="fg"><label>Classificação Estratégica</label>
+            <select id="sClass" onchange="calcScore()">
+              <option value="">— Selecione —</option>
+              <option value="Linha de Produto">Linha de Produto</option>
+              <option value="Projeto Dedicado">Projeto Dedicado</option>
+              <option value="Melhoria Interna">Melhoria Interna</option>
+              <option value="Inovação">Inovação</option>
+            </select></div>
+          <div class="fg"><label>Impacto Financeiro</label>
+            <select id="sImpacto" onchange="calcScore()">
+              <option value="">— Selecione —</option>
+              <option value="Alto">Alto</option>
+              <option value="Médio">Médio</option>
+              <option value="Baixo">Baixo</option>
+            </select></div>
+          <div class="fg"><label>Urgência</label>
+            <select id="sUrgencia" onchange="calcScore()">
+              <option value="">— Selecione —</option>
+              <option value="Crítico">Crítico</option>
+              <option value="Alto">Alto</option>
+              <option value="Médio">Médio</option>
+              <option value="Baixo">Baixo</option>
+            </select></div>
+          <div class="fg"><label>Complexidade</label>
+            <select id="sComplex" onchange="calcScore()">
+              <option value="">— Selecione —</option>
+              <option value="Alta">Alta</option>
+              <option value="Média">Média</option>
+              <option value="Baixa">Baixa</option>
+            </select></div>
+        </div>
+        <div class="score-row" style="margin-top:14px">
+          <div class="score-num" id="scoreNum">—</div>
+          <div id="scorePill"></div>
+          <div style="font-size:11px;color:var(--text2)">F×0.40 + I×0.30 + U×0.15 + C×0.15</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="fSubmitArea" style="display:none">
+      <div class="form-msg" id="fMsg"></div>
+      <div class="fsubmit">
+        <button class="btn-primary" id="fBtn" onclick="submitForm()">Criar Projeto no Jira</button>
+        <button class="btn-sec" onclick="resetForm()">Limpar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ PAGE: BLOQUEIOS ══════════════════════════════════════════ -->
+<div id="pg-block" class="pg">
+  <div class="ph">
+    <div><div class="ptitle">Registro de Bloqueios</div><div class="psub">Registrar impedimentos e atualizar datas de tarefas bloqueadas</div></div>
+    <button class="btn-sec" onclick="loadBloqueados()">↺ Recarregar</button>
+  </div>
+  <div class="main">
+    <div class="sec">Tarefas Bloqueadas no Jira</div>
+    <div id="blkList" class="blk-list">
+      <div class="blk-empty">Carregando…</div>
+    </div>
+
+    <div class="sec">Registrar Bloqueio / Atualizar Datas</div>
+    <div class="card" style="max-width:800px">
+      <div class="form-grid">
+        <div class="fg">
+          <label>Chave da Tarefa</label>
+          <div style="display:flex;gap:8px">
+            <input id="bKey" placeholder="Ex: AGTK-123" style="flex:1">
+            <button class="btn-sec" onclick="lookupIssue()" style="padding:8px 14px;white-space:nowrap">Buscar</button>
+          </div>
+        </div>
+        <div class="fg">
+          <label>Resumo (auto)</label>
+          <input id="bSummary" readonly placeholder="— preenche ao buscar a chave —" style="color:var(--text2)">
+        </div>
+      </div>
+      <div id="bIssueInfo" style="display:none;margin-top:10px;padding:10px 12px;background:var(--bg3);border-radius:var(--rs);font-size:12px;color:var(--text2)"></div>
+
+      <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px">
+        <div class="form-grid">
+          <div class="fg"><label>Tipo de Bloqueio</label>
+            <select id="bTipo">
+              <option value="">— Selecione —</option>
+              <option value="Falta de informação / dados">Falta de informação / dados</option>
+              <option value="Dependência não resolvida">Dependência não resolvida</option>
+              <option value="Recurso indisponível">Recurso indisponível</option>
+              <option value="Decisão pendente">Decisão pendente</option>
+              <option value="Problema técnico">Problema técnico</option>
+              <option value="Atraso de fornecedor">Atraso de fornecedor</option>
+              <option value="Janela agrícola crítica">Janela agrícola crítica</option>
+              <option value="Outro">Outro</option>
+            </select></div>
+          <div class="fg"><label>Impacto</label>
+            <select id="bImpacto">
+              <option value="Alto (>5 dias)">🔴 Alto — mais de 5 dias de atraso</option>
+              <option value="Médio (2-5 dias)">🟡 Médio — 2 a 5 dias</option>
+              <option value="Baixo (<2 dias)">🟢 Baixo — menos de 2 dias</option>
+            </select></div>
+          <div class="fg"><label>Responsável pela Resolução</label>
+            <input id="bResponsavel" placeholder="Nome do responsável"></div>
+          <div class="fg"><label>Prazo para Resolver</label>
+            <input type="date" id="bPrazoRes"></div>
+        </div>
+        <div class="fg" style="margin-top:12px"><label>Descrição do Bloqueio</label>
+          <textarea id="bDescricao" placeholder="Descreva o bloqueio em detalhes: causa, impacto nos demais projetos, ações em andamento…"></textarea>
+        </div>
+      </div>
+
+      <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px">
+        <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Atualizar Datas (opcional)</div>
+        <div class="form-grid g3c">
+          <div class="fg"><label>Nova Data Limite</label><input type="date" id="bNewDue"></div>
+          <div class="fg"><label>Nova Data Alvo</label><input type="date" id="bNewAlvo"></div>
+          <div class="fg"><label>Nova Data de Início</label><input type="date" id="bNewStart"></div>
+        </div>
+      </div>
+
+      <div class="form-msg" id="bMsg" style="margin-top:12px"></div>
+      <div class="fsubmit" style="margin-top:16px">
+        <button class="btn-primary" onclick="submitBloqueio()">Registrar Bloqueio</button>
+        <button class="btn-amber" onclick="submitApenasData()">Só Atualizar Datas</button>
+        <button class="btn-sec" onclick="clearBloqueioForm()">Limpar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ PAGE: RELATÓRIO SEMANAL ══════════════════════════════════ -->
+<div id="pg-report" class="pg">
+  <div class="ph">
+    <div><div class="ptitle">Relatório Semanal</div><div class="psub">Análise automatizada por IA (Gemini) com sugestões de ação</div></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn-primary" onclick="gerarRelatorio()" id="rptBtn">✨ Gerar Relatório</button>
+    </div>
+  </div>
+  <div class="main" style="max-width:900px">
+    <div style="margin-top:18px;margin-bottom:14px;padding:12px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--rs);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:200px">
+        <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Gemini API Key (armazenada localmente)</div>
+        <input id="geminiKey" type="password" placeholder="AIza…" style="width:100%;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--rs);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:6px 10px;outline:none" oninput="saveGeminiKey()">
+      </div>
+      <div style="font-size:11px;color:var(--text2);max-width:200px">Obtenha em <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--blue)">aistudio.google.com</a>. Gemini Flash é gratuito.</div>
+    </div>
+    <div id="rptLoad" style="display:none" class="load">
+      <div class="spinner"></div>
+      <div class="ltxt" id="rptLoadTxt">Enviando para o Gemini…</div>
+    </div>
+    <div class="rpt-box" id="rptBox">
+      <div class="rpt-placeholder">
+        <div class="ri">📋</div>
+        <div style="font-size:14px;font-weight:500;color:var(--text);margin-bottom:6px">Relatório não gerado</div>
+        <div style="font-size:12px">Clique em "Gerar Relatório" para analisar os projetos com IA</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ PAGE: CONFIGURAÇÕES ══════════════════════════════════════ -->
+<div id="pg-cfg" class="pg">
+  <div class="ph"><div><div class="ptitle">Configurações</div><div class="psub">Ajustes do sistema AgriTrack</div></div></div>
+  <div class="main" style="max-width:600px">
+    <div class="sec">API</div>
+    <div class="settings-box">
+      <div class="settings-title">Apps Script (Jira Proxy)</div>
+      <div class="fg">
+        <label>URL da API</label>
+        <input id="cfgApi" style="font-family:'IBM Plex Mono',monospace;font-size:11px" oninput="saveApiUrl()">
+        <div class="hint">URL do Web App publicado no Google Apps Script</div>
+      </div>
+      <div style="margin-top:14px">
+        <button class="btn-sec" onclick="testApi()">Testar Conexão</button>
+        <span id="cfgApiStatus" style="font-size:11px;margin-left:10px;color:var(--text2)"></span>
+      </div>
+    </div>
+    <div class="sec" style="margin-top:20px">Dados</div>
+    <div class="settings-box">
+      <div class="settings-title">Cache</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Última atualização: <span id="cfgLastUpdate">—</span></div>
+      <button class="btn-sec" onclick="autoFetch()">↺ Forçar atualização do Jira</button>
+    </div>
+    <div class="sec" style="margin-top:20px">Sobre</div>
+    <div class="settings-box">
+      <div class="settings-title">AgriTrack v3.0</div>
+      <div style="font-size:12px;color:var(--text2);line-height:1.6">
+        Dashboard multi-página com auto-fetch do Jira.<br>
+        Formulário PCP para todos os departamentos.<br>
+        Registro de bloqueios com atualização de datas.<br>
+        Relatório semanal via Gemini AI.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════════
+// CONFIG
+// ════════════════════════════════════════════════════════════════
+const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbxeB715oIGkd1jIcCaWbOuOm7ND_NTohw0massZKh_hzH9rXFEebvlIDxqfgcqEMBJLmQ/exec';
+function getApi(){return localStorage.getItem('agritrack_api')||DEFAULT_API;}
+function saveApiUrl(){localStorage.setItem('agritrack_api',document.getElementById('cfgApi').value);}
+function saveGeminiKey(){localStorage.setItem('gemini_key',document.getElementById('geminiKey').value);}
+async function api(payload){
+  const r=await fetch(getApi()+'?payload='+encodeURIComponent(JSON.stringify(payload)),{redirect:'follow'});
+  return r.json();
+}
+
+// ════════════════════════════════════════════════════════════════
+// NAVIGATION
+// ════════════════════════════════════════════════════════════════
+function nav(id){
+  document.querySelectorAll('.pg').forEach(p=>p.classList.remove('on'));
+  document.querySelectorAll('.ntab').forEach(t=>t.classList.remove('on'));
+  document.getElementById('pg-'+id).classList.add('on');
+  const tabs=document.querySelectorAll('.ntab');
+  const idx={'dash':0,'form':1,'block':2,'report':3,'cfg':4};
+  if(idx[id]!==undefined)tabs[idx[id]].classList.add('on');
+  if(id==='block')loadBloqueados();
+  if(id==='cfg')initConfig();
+}
+
+// ════════════════════════════════════════════════════════════════
+// AUTO-FETCH (substitui importação de CSV)
+// ════════════════════════════════════════════════════════════════
+let allTasks=[],allSubs=[],filtTasks=[],charts={},flt={tipo:'Tarefa',dept:'all',yr:'all'},tblD=[];
+
+async function autoFetch(){
+  document.getElementById('dashLoad').style.display='flex';
+  document.getElementById('dash').style.display='none';
+  document.getElementById('dashMeta').textContent='Buscando dados do Jira…';
+  try{
+    const r=await api({action:'buscarTarefasJira'});
+    if(!r.success)throw new Error(r.erro||'Erro desconhecido');
+    processData(r.issues);
+    const now=new Date().toLocaleString('pt-BR');
+    document.getElementById('dashMeta').textContent='Atualizado: '+now+' — '+r.total+' itens';
+    localStorage.setItem('agritrack_lastUpdate',now);
+    document.getElementById('cfgLastUpdate').textContent=now;
+    document.getElementById('livePill').style.display='inline-flex';
+  }catch(e){
+    document.getElementById('dashLoad').innerHTML='<div style="color:var(--red);text-align:center"><div style="font-size:24px;margin-bottom:10px">⚠️</div><div>'+e.message+'</div><div style="margin-top:10px;font-size:12px;color:var(--text2)">Use "Importar CSV manualmente" como alternativa</div></div>';
+  }
+}
+
+function processData(data){
+  allSubs=data.filter(x=>x['Tipo de item']==='Subtarefa');
+  const csvTasks=data.filter(x=>x['Tipo de item']==='Tarefa');
+  const keysWithSubs=new Set(allSubs.map(x=>x['Chave pai']).filter(Boolean));
+  allTasks=csvTasks.filter(x=>keysWithSubs.has(x['Chave da item']));
+  const maxSubDL={};
+  allSubs.forEach(s=>{const pai=s['Chave pai'];if(!pai)return;const dl=pd(s['Data limite']);if(!dl)return;if(!maxSubDL[pai]||dl>maxSubDL[pai])maxSubDL[pai]=dl;});
+  allTasks=allTasks.map(t=>{t._maxSubDL=maxSubDL[t['Chave da item']]||null;t._prazo=calcPrazo(t);t._startDt=pd(t['Campo personalizado (Start date)']);t._dlDt=pd(t['Data limite']);t._resDt=pd(t['Resolvido']);return t;});
+  // Update badge for blocked tasks
+  const blkCount=data.filter(x=>x['Labels']&&x['Labels'].includes('bloqueado')).length;
+  const badge=document.getElementById('blkBadge');
+  badge.textContent=blkCount;badge.className='nbadge'+(blkCount>0?' show':'');
+  document.getElementById('dashLoad').style.display='none';
+  document.getElementById('dash').style.display='block';
+  buildFilters();go();
+}
+
+// CSV fallback
+function toggleImport(){const p=document.getElementById('impPanel');p.style.display=p.style.display==='none'?'block':'none';}
+document.getElementById('fi').addEventListener('change',e=>{if(e.target.files[0])loadCsv(e.target.files[0]);});
+function loadCsv(file){
+  Papa.parse(file,{header:true,skipEmptyLines:true,complete:function(r){
+    processData(r.data);
+    document.getElementById('dashMeta').textContent='CSV: '+file.name+' — '+r.data.length+' itens';
+    document.getElementById('impPanel').style.display='none';
+  }});
+}
+
+// ════════════════════════════════════════════════════════════════
+// DATES & PRAZO (idêntico ao Power Query)
+// ════════════════════════════════════════════════════════════════
+const MP={jan:0,fev:1,mar:2,abr:3,mai:4,jun:5,jul:6,ago:7,set:8,out:9,nov:10,dez:11};
+function pd(s){if(!s||s==='NaT'||s==='nan'||!s.trim())return null;if(/^\d{4}-\d{2}-\d{2}/.test(s))return new Date(s+'T12:00:00');const m=s.match(/(\d{1,2})\/([a-z]{3})\/(\d{2,4})/i);if(m){let y=parseInt(m[3]);if(y<100)y+=2000;const mo=MP[m[2].toLowerCase()];if(mo!==undefined)return new Date(y,mo,parseInt(m[1]),12);}return null;}
+function fd(d){return d?d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'}):'—';}
+function isoW(d){const t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));const dn=t.getUTCDay()||7;t.setUTCDate(t.getUTCDate()+4-dn);const ys=new Date(Date.UTC(t.getUTCFullYear(),0,1));return Math.ceil((((t-ys)/86400000)+1)/7);}
+function calcPrazo(t){const dl=pd(t['Data limite']);const maxSub=t._maxSubDL;if(!dl||!maxSub)return null;return maxSub<=dl?'NO PRAZO':'FORA DO PRAZO';}
+
+// ════════════════════════════════════════════════════════════════
+// FILTERS & RENDER
+// ════════════════════════════════════════════════════════════════
+function buildFilters(){
+  const depts=[...new Set(allTasks.map(t=>t['Campo personalizado (Departamento)']).filter(Boolean))].sort();
+  const fD=document.getElementById('fD');fD.innerHTML='<option value="all">Todos</option>'+depts.map(d=>`<option value="${d}">${d}</option>`).join('');
+  const yrs=[...new Set(allTasks.map(t=>{const d=pd(t['Campo personalizado (Start date)']);return d?d.getFullYear():null;}).filter(Boolean))].sort();
+  const fY=document.getElementById('fY');fY.innerHTML='<option value="all">Todos</option>'+yrs.map(y=>`<option value="${y}">${y}</option>`).join('');
+}
+function setF(k,btn){document.querySelectorAll(`[data-k="${k}"]`).forEach(b=>b.classList.remove('on'));btn.classList.add('on');flt[k]=btn.dataset.v;go();}
+function go(){
+  flt.dept=document.getElementById('fD').value;flt.yr=document.getElementById('fY').value;
+  let src=flt.tipo==='Tarefa'?allTasks:flt.tipo==='Subtarefa'?allSubs:[...allTasks,...allSubs];
+  filtTasks=src.filter(t=>{
+    if(flt.dept!=='all'&&t['Campo personalizado (Departamento)']!==flt.dept)return false;
+    if(flt.yr!=='all'){const d=pd(t['Campo personalizado (Start date)']);if(!d||d.getFullYear().toString()!==flt.yr)return false;}
+    return true;
+  });render();
+}
+
+// ════════════════════════════════════════════════════════════════
+// METRICS & CHARTS
+// ════════════════════════════════════════════════════════════════
+function mtx(data){
+  const tot=data.length,concl=data.filter(t=>t['Status']==='Feito').length,faz=data.filter(t=>t['Status']==='Fazendo').length,af=data.filter(t=>t['Status']==='A Fazer').length;
+  let np=0,fp=0;data.forEach(t=>{const p=t._prazo||calcPrazo(t);if(p==='NO PRAZO')np++;else if(p==='FORA DO PRAZO')fp++;});
+  const durs=data.map(t=>{const s=pd(t['Campo personalizado (Start date)']);const dl=pd(t['Data limite']);if(s&&dl){const d=isoW(dl)-isoW(s);return d>0?d:null;}return null;}).filter(Boolean);
+  const avgD=durs.length?durs.reduce((a,b)=>a+b,0)/durs.length:0;
+  const tpMap={};data.filter(t=>t['Status']==='Feito'&&t['Resolvido']).forEach(t=>{const d=pd(t['Resolvido']);if(d){const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;tpMap[k]=(tpMap[k]||0)+1;}});
+  const tv=Object.values(tpMap);const avgTp=tv.length?tv.reduce((a,b)=>a+b,0)/tv.length:0;
+  return{tot,concl,faz,af,np,fp,avgD,avgTp,wip:faz+af,tpMap};
+}
+function render(){const m=mtx(filtTasks);kpis(m);pies(m);dBars();deptSt();deptPz(m);pan();thr(m);ent();cfd();tbl(m);}
+
+function kpis(m){
+  const p=v=>m.tot>0?Math.round(v/m.tot*100):0;const pp=v=>(m.np+m.fp)>0?Math.round(v/(m.np+m.fp)*100):0;
+  const S=(id,v,n,w)=>{document.getElementById(id).textContent=v;if(n)document.getElementById(id+'s').textContent=n;if(w!==undefined)document.getElementById('KL'+id.slice(-1)).style.width=w+'%';};
+  S('K1',m.concl,p(m.concl)+'% do total',p(m.concl));S('K2',m.faz,p(m.faz)+'% do total',p(m.faz));
+  S('K3',m.af,p(m.af)+'% do total',p(m.af));S('K4',m.np,pp(m.np)+'% das avaliadas',pp(m.np));
+  S('K5',m.fp,pp(m.fp)+'% das avaliadas',pp(m.fp));
+  document.getElementById('K6').textContent=m.wip;document.getElementById('K7').textContent=m.avgTp.toFixed(1);document.getElementById('K8').textContent=m.avgD.toFixed(1);
+}
+const grd={color:'rgba(255,255,255,0.05)'};const tk={color:'#8896b0',font:{size:11}};
+function ch(id){if(charts[id])charts[id].destroy();return document.getElementById(id).getContext('2d');}
+function pie(id,lg,vals,labels,cols){
+  const tot=vals.reduce((a,b)=>a+b,0);
+  document.getElementById(lg).innerHTML=labels.map((l,i)=>`<span class="li"><span class="ld" style="background:${cols[i]}"></span>${l}: ${vals[i]} (${tot>0?Math.round(vals[i]/tot*100):0}%)</span>`).join('');
+  charts[id]=new Chart(ch(id),{type:'doughnut',data:{labels,datasets:[{data:vals,backgroundColor:cols,borderWidth:0,hoverOffset:4}]},options:{responsive:true,maintainAspectRatio:false,cutout:'55%',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${c.label}: ${c.raw} (${tot>0?Math.round(c.raw/tot*100):0}%)`}}}}});
+}
+function pies(m){
+  const concl=filtTasks.filter(t=>t['Status']==='Feito');let cnp=0,cfp=0;concl.forEach(t=>{const p=t._prazo||calcPrazo(t);if(p==='NO PRAZO')cnp++;else if(p==='FORA DO PRAZO')cfp++;});
+  pie('chPrC','lgPrC',[cnp,cfp],['No Prazo','Fora do Prazo'],['#22d37a','#f05252']);
+  const and=filtTasks.filter(t=>t['Status']==='Fazendo');let anp=0,afp=0;and.forEach(t=>{const p=t._prazo||calcPrazo(t);if(p==='NO PRAZO')anp++;else if(p==='FORA DO PRAZO')afp++;});
+  pie('chPrA','lgPrA',[anp,afp],['No Prazo','Fora do Prazo'],['#f59e0b','#f05252']);
+}
+function dBars(){
+  const c={};filtTasks.forEach(t=>{const d=t['Campo personalizado (Departamento)']||'Sem Depto';c[d]=(c[d]||0)+1;});
+  const s=Object.entries(c).sort((a,b)=>b[1]-a[1]);const mx=s[0]?.[1]||1;
+  const cl=['#22d37a','#60a5fa','#f59e0b','#f05252','#a78bfa','#34d399','#fb923c'];
+  document.getElementById('dbT').innerHTML=s.map(([n,v],i)=>`<div class="dr"><div class="dm"><span class="dn">${n}</span><span class="dc">${v}</span></div><div class="dbg"><div class="df" style="width:${Math.round(v/mx*100)}%;background:${cl[i%cl.length]}"></div></div></div>`).join('');
+}
+function deptSt(){
+  const deps=[...new Set(filtTasks.map(t=>t['Campo personalizado (Departamento)']).filter(Boolean))].sort();
+  const fe=deps.map(d=>filtTasks.filter(t=>t['Campo personalizado (Departamento)']==d&&t['Status']=='Feito').length);
+  const fz=deps.map(d=>filtTasks.filter(t=>t['Campo personalizado (Departamento)']==d&&t['Status']=='Fazendo').length);
+  const af=deps.map(d=>filtTasks.filter(t=>t['Campo personalizado (Departamento)']==d&&t['Status']=='A Fazer').length);
+  const h=Math.max(260,deps.length*52+80);document.getElementById('wDS').style.height=h+'px';
+  document.getElementById('lgDS').innerHTML=[['#22d37a','Feito'],['#f59e0b','Fazendo'],['#60a5fa','A Fazer']].map(([c,l])=>`<span class="li"><span class="ld" style="background:${c}"></span>${l}</span>`).join('');
+  charts['chDS']=new Chart(ch('chDS'),{type:'bar',data:{labels:deps,datasets:[{label:'Feito',data:fe,backgroundColor:'#22d37a',borderRadius:3},{label:'Fazendo',data:fz,backgroundColor:'#f59e0b',borderRadius:3},{label:'A Fazer',data:af,backgroundColor:'#60a5fa',borderRadius:3}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:grd,ticks:tk},y:{grid:{display:false},ticks:tk}}}});
+}
+function deptPz(){
+  const deps=[...new Set(filtTasks.map(t=>t['Campo personalizado (Departamento)']).filter(Boolean))].sort();
+  const np=[],fp=[];
+  deps.forEach(d=>{let a=0,b=0;filtTasks.filter(t=>t['Campo personalizado (Departamento)']==d).forEach(t=>{const p=t._prazo||calcPrazo(t);if(p==='NO PRAZO')a++;else if(p==='FORA DO PRAZO')b++;});np.push(a);fp.push(b);});
+  const h=Math.max(240,deps.length*52+80);document.getElementById('wPD').style.height=h+'px';
+  charts['chPD']=new Chart(ch('chPD'),{type:'bar',data:{labels:deps,datasets:[{label:'No Prazo',data:np,backgroundColor:'#22d37a',borderRadius:3},{label:'Fora do Prazo',data:fp,backgroundColor:'#f05252',borderRadius:3}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{stacked:true,grid:grd,ticks:tk},y:{stacked:true,grid:{display:false},ticks:tk}}}});
+}
+function mSeries(data,field,n=18){const map={};data.forEach(t=>{const d=pd(t[field]);if(!d)return;const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;map[k]=(map[k]||0)+1;});const keys=Object.keys(map).sort().slice(-n);return{labels:keys.map(k=>{const[y,mo]=k.split('-');return`${mo}/${y.slice(2)}`;}),vals:keys.map(k=>map[k]||0)};}
+function pan(){const s=mSeries(filtTasks,'Data limite',18);charts['chPan']=new Chart(ch('chPan'),{type:'line',data:{labels:s.labels,datasets:[{label:'Entregas',data:s.vals,borderColor:'#60a5fa',backgroundColor:'rgba(96,165,250,0.08)',borderWidth:2,pointRadius:3,fill:true,tension:.3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:'rgba(255,255,255,0.03)'},ticks:{...tk,autoSkip:false,maxRotation:45}},y:{grid:grd,ticks:tk}}}});}
+function thr(m){const keys=Object.keys(m.tpMap).sort().slice(-18);const labels=keys.map(k=>{const[y,mo]=k.split('-');return`${mo}/${y.slice(2)}`;});charts['chTP']=new Chart(ch('chTP'),{type:'bar',data:{labels,datasets:[{label:'Concluídos',data:keys.map(k=>m.tpMap[k]),backgroundColor:'#22d37a',borderRadius:3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{...tk,maxRotation:45,autoSkip:true,maxTicksLimit:9}},y:{grid:grd,ticks:tk}}}});}
+function ent(){const s=mSeries(filtTasks,'Criado',18);charts['chEnt']=new Chart(ch('chEnt'),{type:'bar',data:{labels:s.labels,datasets:[{label:'Criados',data:s.vals,backgroundColor:'#a78bfa',borderRadius:3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{...tk,maxRotation:45,autoSkip:true,maxTicksLimit:9}},y:{grid:grd,ticks:tk}}}});}
+function cfd(){
+  const allD=filtTasks.map(t=>pd(t['Criado'])).filter(Boolean);if(!allD.length)return;
+  const min=new Date(Math.min(...allD));const now=new Date();
+  const months=[];const tmp=new Date(min.getFullYear(),min.getMonth(),1);
+  while(tmp<=now){months.push(new Date(tmp));tmp.setMonth(tmp.getMonth()+1);}
+  const sl=months.slice(-18);
+  const labels=sl.map(d=>`${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getFullYear()).slice(2)}`);
+  const concl=sl.map(m=>{const end=new Date(m.getFullYear(),m.getMonth()+1,0);return filtTasks.filter(t=>{if(t['Status']!=='Feito')return false;const res=pd(t['Resolvido']);return res&&res<=end;}).length;});
+  const open=sl.map(m=>{const end=new Date(m.getFullYear(),m.getMonth()+1,0);return filtTasks.filter(t=>{const cri=pd(t['Criado']);if(!cri||cri>end)return false;if(t['Status']==='Feito'){const res=pd(t['Resolvido']);return!(res&&res<=end);}return true;}).length;});
+  document.getElementById('lgCFD').innerHTML=[['#22d37a','Concluído (acumulado)'],['#60a5fa','Em aberto']].map(([c,l])=>`<span class="li"><span class="ld" style="background:${c}"></span>${l}</span>`).join('');
+  charts['chCFD']=new Chart(ch('chCFD'),{type:'line',data:{labels,datasets:[{label:'Concluído',data:concl,borderColor:'#22d37a',backgroundColor:'rgba(34,211,122,0.09)',fill:true,tension:.3,borderWidth:2,pointRadius:2},{label:'Em aberto',data:open,borderColor:'#60a5fa',backgroundColor:'rgba(96,165,250,0.07)',fill:true,tension:.3,borderWidth:2,pointRadius:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:'rgba(255,255,255,0.03)'},ticks:{...tk,autoSkip:true,maxTicksLimit:10}},y:{grid:grd,ticks:tk}}}});
+}
+function tbl(){
+  const tasks=filtTasks.filter(t=>t['Tipo de item']==='Tarefa'||!t['Tipo de item']);
+  tblD=tasks.map(t=>{const s=pd(t['Campo personalizado (Start date)']),dl=pd(t['Data limite']);let dur='—';if(s&&dl){const d=isoW(dl)-isoW(s);if(d>0)dur=d.toString();}return{ch:t['Chave da item']||'—',res:t['Resumo']||'—',dep:t['Campo personalizado (Departamento)']||'—',st:t['Status']||'—',ini:fd(s),lim:fd(dl),maxSub:fd(t._maxSubDL),pr:t._prazo,dur};});
+  fTbl();
+}
+function fTbl(){
+  const q=document.getElementById('tSrch').value.toLowerCase();
+  const d=tblD.filter(r=>!q||r.res.toLowerCase().includes(q)||r.ch.toLowerCase().includes(q)||r.dep.toLowerCase().includes(q));
+  document.getElementById('tCnt').textContent=d.length.toLocaleString('pt-BR');
+  document.getElementById('tBdy').innerHTML=d.map(r=>`<tr>
+    <td><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--blue)">${r.ch}</span></td>
+    <td style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${r.res}">${r.res}</td>
+    <td>${r.dep}</td>
+    <td>${r.st==='Feito'?'<span class="badge bfe">Feito</span>':r.st==='Fazendo'?'<span class="badge bz">Fazendo</span>':'<span class="badge baf">A Fazer</span>'}</td>
+    <td style="font-size:11px;color:var(--text2)">${r.ini}</td>
+    <td style="font-size:11px;color:var(--text2)">${r.lim}</td>
+    <td style="font-size:11px;color:var(--text2)">${r.maxSub}</td>
+    <td>${r.pr==='NO PRAZO'?'<span class="badge np">✓ No Prazo</span>':r.pr==='FORA DO PRAZO'?'<span class="badge fp">✗ Fora</span>':'—'}</td>
+    <td style="text-align:center;font-family:'IBM Plex Mono',monospace;font-size:12px">${r.dur}</td>
+  </tr>`).join('');
+}
+
+// ════════════════════════════════════════════════════════════════
+// PCP FORM
+// ════════════════════════════════════════════════════════════════
+const CATALOGO_JS = {
+  PCP:{label:'PCP — Planejamento e Controle de Produção',tipos:{
+    PPP:{label:'PPP — Plano Mestre',categoria:'PPP',subtarefas:['Preparação e Plan.','Compras','Fabricação','Montagens','Testes'],campos:['produto','serial','qtd','cliente','numeroProjeto']},
+    HAULER:{label:'Hauler — Caminhão de Tubos',categoria:null,subtarefas:null,campos:['hauler']},
+  }},
+  Engenharia:{label:'Engenharia',tipos:{
+    MDC:{label:'MDC — Melhorias Dedicadas a Cliente',categoria:'MDC',subtarefas:['Projeto Virtual 3D','Detalhamento 2D','Projeto Virtual Eletroeletrônico','Projeto Físico Eletroeletrônico','Projeto Virtual Software','Testes e Validação','Documentação Final'],campos:['titulo','cliente','numeroProjeto']},
+    PM:{label:'PM — Projeto Mecânico',categoria:'PM',subtarefas:['Levantamento de Requisitos','Concepção e Estudos Preliminares','Projeto Virtual - Modelagem 3D','Detalhamento Técnico e Documentação','Prototipagem e Fabricação Piloto','Testes e Validação','Documentação Final e Liberação'],campos:['titulo','cliente','numeroProjeto']},
+    PE:{label:'PE — Projeto Eletroeletrônico',categoria:'PE',subtarefas:['Levantamento de Requisitos','Concepção do Sistema','Projeto Virtual Eletroeletrônico','Prototipagem e Testes','Integração e Validação','Documentação Final e Liberação'],campos:['titulo','cliente','numeroProjeto']},
+    PS:{label:'PS — Projeto de Software',categoria:'PS',subtarefas:['Levantamento de Requisitos','Arquitetura e Design do Sistema','Desenvolvimento e Implementação Inicial','Testes e Validação','Integração com Hardware','Ajustes e Otimizações'],campos:['titulo','cliente','numeroProjeto']},
+    MPC:{label:'MPC — Melhorias de Produtos Consolidados',categoria:'MPC',subtarefas:['Planejamento e análise de melhorias','Desenvolvimento e apresentação de propostas','Implementações melhorias projeto eletroeletrônico','Implementações melhorias projeto de software','Implementações melhorias projeto virtual 3D/2D'],campos:['titulo','numeroProjeto']},
+    POI:{label:'PO&I — Pesquisa e Inovação',categoria:'PO&I',subtarefas:['Levantamento de Requisitos e Estado da Arte','Concepção e Planejamento','Desenvolvimento e Experimentação','Validação e Testes','Documentação e Liberação'],campos:['titulo']},
+  }},
+  Ensaios:{label:'Ensaios',tipos:{
+    AMEP:{label:'AMEP — Avaliação Padrão',categoria:'AMEP',subtarefas:['Coleta de Dados','Análise de Dados','Relatório Preliminar','Relatório Final'],campos:['titulo','cliente']},
+    'AMEP-NP':{label:'AMEP-NP — Avaliação Não Padrão',categoria:'AMEP-NP',subtarefas:['Preparação / Planejamento','Coleta de Dados 1','Análise 1','Preliminar 1','Coleta de Dados 2','Análise 2','Relatório Final'],campos:['titulo','cliente']},
+    DRE:{label:'DRE — Fazenda Conectada',categoria:'DRE',subtarefas:['Análise de Dados','Relatório Preliminar','Relatório Final'],campos:['titulo']},
+    EXP:{label:'EXP — Exploratória',categoria:'EXP',subtarefas:['Preparação','Coleta de Dados','Análise de Dados','Relatório Final'],campos:['titulo']},
+    Safra:{label:'Safra',categoria:'Safra',subtarefas:['Análise de Dados','Relatório Preliminar','Relatório Final'],campos:['titulo']},
+    Safrinha:{label:'Safrinha',categoria:'Safrinha',subtarefas:['Análise de Dados','Relatório Preliminar','Relatório Final'],campos:['titulo']},
+  }},
+  'SU.C':{label:'Sucesso do Cliente',tipos:{
+    PME:{label:'PME — Plano de Manutenção',categoria:'PME',subtarefas:['Análise do Implemento','Compras','Fabricação','Montagem','Teste'],campos:['titulo','cliente','osNumero']},
+  }},
+  COMERCIAL:{label:'Comercial',tipos:{
+    COMERCIAL:{label:'Comercial — Tarefa geral',categoria:null,subtarefas:[],campos:['titulo']},
+  }},
+  Marketing:{label:'Marketing',tipos:{
+    'EMK-ENDO':{label:'Endomarketing',categoria:'EMK',subtarefas:[],campos:['titulo']},
+    'EMK-EXT':{label:'Marketing Externo',categoria:'EMK',subtarefas:[],campos:['titulo']},
+    'EMK-DOC':{label:'Instrutivos / Documentação',categoria:'EMK',subtarefas:[],campos:['titulo']},
+  }},
+};
+
+// Populate dept selector
+(function(){
+  const sel=document.getElementById('fDept');
+  Object.entries(CATALOGO_JS).forEach(([k,v])=>{
+    const o=document.createElement('option');o.value=k;o.textContent=v.label;sel.appendChild(o);
+  });
+})();
+
+function onDeptChange(){
+  const dept=document.getElementById('fDept').value;
+  const tipoSel=document.getElementById('fTipo');
+  tipoSel.innerHTML='<option value="">— Selecione o tipo —</option>';
+  tipoSel.disabled=!dept;
+  if(dept){
+    Object.entries(CATALOGO_JS[dept].tipos).forEach(([k,v])=>{
+      const o=document.createElement('option');o.value=k;o.textContent=v.label;tipoSel.appendChild(o);
+    });
+  }
+  document.getElementById('secHauler').style.display='none';
+  document.getElementById('secGen').style.display='none';
+  document.getElementById('secScore').style.display='none';
+  document.getElementById('fSubmitArea').style.display='none';
+  document.getElementById('stPreview').style.display='none';
+}
+
+function onTipoChange(){
+  const dept=document.getElementById('fDept').value;
+  const tipo=document.getElementById('fTipo').value;
+  if(!dept||!tipo)return;
+  const cfg=CATALOGO_JS[dept].tipos[tipo];
+  // Subtask preview
+  if(cfg.subtarefas&&cfg.subtarefas.length>0){
+    document.getElementById('stPreview').style.display='block';
+    document.getElementById('stPills').innerHTML=cfg.subtarefas.map(s=>`<span class="stpill">${s}</span>`).join('');
+  } else {
+    document.getElementById('stPreview').style.display='none';
+  }
+  if(tipo==='HAULER'){
+    document.getElementById('secHauler').style.display='block';
+    document.getElementById('secGen').style.display='none';
+    fetchNextSerial();
+  } else {
+    document.getElementById('secHauler').style.display='none';
+    document.getElementById('secGen').style.display='block';
+    buildGenFields(dept,tipo,cfg);
+  }
+  document.getElementById('secScore').style.display='block';
+  document.getElementById('fSubmitArea').style.display='block';
+  document.getElementById('fMsg').style.display='none';
+}
+
+function buildGenFields(dept,tipo,cfg){
+  const fieldDefs={
+    titulo:{label:'Título do Projeto',placeholder:'Ex: MDC TEROS Plantadora'},
+    cliente:{label:'Cliente',placeholder:'Ex: Syngenta'},
+    numeroProjeto:{label:'Número do Projeto',placeholder:'Ex: 041'},
+    osNumero:{label:'Número OS',placeholder:'Ex: 12345'},
+    produto:{label:'Produto',placeholder:'Ex: Irrigador'},
+    serial:{label:'Serial',placeholder:'Ex: S22000086'},
+    qtd:{label:'Quantidade',placeholder:'Ex: 1'},
+  };
+  const html=(cfg.campos||[]).map(c=>{
+    const d=fieldDefs[c]||{label:c,placeholder:''};
+    return `<div class="fg"><label>${d.label}</label><input id="g_${c}" placeholder="${d.placeholder}"></div>`;
+  }).join('');
+  document.getElementById('genFields').innerHTML=html;
+}
+
+async function fetchNextSerial(){
+  try{
+    const r=await api({action:'buscarProximoSerial'});
+    document.getElementById('hSerialHint').textContent='Próximo sugerido: '+(r||'S22000086');
+    if(!document.getElementById('hSerial').value)
+      document.getElementById('hSerial').value=r||'S22000086';
+  }catch(_){}
+}
+
+function onHDestChange(){
+  const dest=document.getElementById('hDest').value;
+  const cw=document.getElementById('hClienteWrap');
+  const cnw=document.getElementById('hClienteNumWrap');
+  cw.style.display=(dest==='estoque')?'none':'block';
+  cnw.style.display=(dest==='cliente')?'block':'none';
+}
+
+// Score calculation
+const SCORE_MAP={
+  class:{Inovação:10,'Linha de Produto':8,'Projeto Dedicado':6,'Melhoria Interna':4},
+  imp:{Alto:10,Médio:6,Baixo:2},
+  urg:{Crítico:10,Alto:8,Médio:5,Baixo:2},
+  comp:{Alta:10,Média:6,Baixa:2},
+};
+function calcScore(){
+  const c=SCORE_MAP.class[document.getElementById('sClass').value]||0;
+  const i=SCORE_MAP.imp[document.getElementById('sImpacto').value]||0;
+  const u=SCORE_MAP.urg[document.getElementById('sUrgencia').value]||0;
+  const x=SCORE_MAP.comp[document.getElementById('sComplex').value]||0;
+  if(!c&&!i&&!u&&!x){document.getElementById('scoreNum').textContent='—';document.getElementById('scorePill').innerHTML='';return;}
+  const score=c*0.4+i*0.3+u*0.15+x*0.15;
+  document.getElementById('scoreNum').textContent=score.toFixed(1);
+  let tier,cls;
+  if(score>=8){tier='P1 — Crítico';cls='sp-p1';}
+  else if(score>=6){tier='P2 — Alto';cls='sp-p2';}
+  else if(score>=4){tier='P3 — Médio';cls='sp-p3';}
+  else{tier='P4 — Baixo';cls='sp-p4';}
+  document.getElementById('scorePill').innerHTML=`<span class="score-pill ${cls}">${tier}</span>`;
+}
+
+function resetForm(){
+  ['fDept','fTipo'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('secHauler').style.display='none';
+  document.getElementById('secGen').style.display='none';
+  document.getElementById('secScore').style.display='none';
+  document.getElementById('fSubmitArea').style.display='none';
+  document.getElementById('stPreview').style.display='none';
+  document.getElementById('fTipo').disabled=true;
+}
+
+function showFMsg(msg,type){const el=document.getElementById('fMsg');el.textContent=msg;el.className='form-msg '+type;el.style.display='block';}
+
+async function submitForm(){
+  const dept=document.getElementById('fDept').value;
+  const tipo=document.getElementById('fTipo').value;
+  if(!dept||!tipo){showFMsg('Selecione departamento e tipo.','err');return;}
+  const btn=document.getElementById('fBtn');
+  btn.disabled=true;btn.textContent='Criando…';
+  showFMsg('Criando projeto no Jira…','info');
+  try{
+    const dados={action:'criarProjetoJira',departamento:dept,tipo,
+      classificacao:document.getElementById('sClass').value,
+      impactoFinanceiro:document.getElementById('sImpacto').value,
+      urgencia:document.getElementById('sUrgencia').value,
+      complexidade:document.getElementById('sComplex').value,
+    };
+    if(tipo==='HAULER'){
+      Object.assign(dados,{
+        diametro:document.getElementById('hDiam').value,
+        criarFases:document.getElementById('hFases').value,
+        serial:document.getElementById('hSerial').value,
+        destino:document.getElementById('hDest').value,
+        clienteNome:document.getElementById('hCliente').value,
+        clienteNumero:document.getElementById('hClienteNum').value,
+        startDate:document.getElementById('hStart').value,
+        diaC:document.getElementById('hDayC').value,
+        baselineDate:document.getElementById('hBaseline').value,
+        alvoDate:document.getElementById('hAlvo').value,
+        alongamento:document.getElementById('hAlong').checked,
+        extensao:document.getElementById('hExt').checked,
+      });
+    } else {
+      const cfg=CATALOGO_JS[dept].tipos[tipo];
+      (cfg.campos||[]).forEach(c=>{const el=document.getElementById('g_'+c);if(el)dados[c]=el.value;});
+      dados.startDate=document.getElementById('gStart').value;
+      dados.dueDate=document.getElementById('gDue').value;
+      dados.alvoDate=document.getElementById('gAlvo').value;
+      dados.baselineDate=document.getElementById('gDue').value;
+    }
+    const r=await api(dados);
+    if(r.success){
+      const res=r.resultado||r;
+      const keys=res.key?[res.key]:(res.chaves?Object.values(res.chaves).filter(v=>typeof v==='string'&&v.startsWith('AGTK')):[]);
+      showFMsg('✓ Criado com sucesso! '+keys.join(', '),'ok');
+    } else {
+      showFMsg('Erro: '+(r.erro||JSON.stringify(r)),'err');
+    }
+  }catch(e){showFMsg('Erro: '+e.message,'err');}
+  btn.disabled=false;btn.textContent='Criar Projeto no Jira';
+}
+
+// ════════════════════════════════════════════════════════════════
+// BLOQUEIOS
+// ════════════════════════════════════════════════════════════════
+let selectedBlkKey=null;
+
+async function loadBloqueados(){
+  document.getElementById('blkList').innerHTML='<div class="blk-empty"><div class="spinner" style="margin:0 auto"></div></div>';
+  try{
+    const r=await api({action:'buscarBloqueados'});
+    const list=document.getElementById('blkList');
+    if(!r.success)throw new Error(r.erro);
+    if(!r.issues||r.issues.length===0){
+      list.innerHTML='<div class="blk-empty">✅ Nenhuma tarefa com label <strong>bloqueado</strong> encontrada</div>';
+      document.getElementById('blkBadge').className='nbadge';
+      return;
+    }
+    document.getElementById('blkBadge').textContent=r.issues.length;
+    document.getElementById('blkBadge').className='nbadge show';
+    list.innerHTML=r.issues.map(i=>`
+      <div class="blk-item" id="bi-${i.key}" onclick="selectBlk('${i.key}','${i.summary.replace(/'/g,"\\'")}','${i.duedate||''}','${i.departamento||''}')">
+        <span class="blk-key">${i.key}</span>
+        <span class="blk-sum">${i.summary}</span>
+        <span class="badge bz" style="margin-right:4px">${i.status}</span>
+        <span class="blk-dept">${i.departamento||''}</span>
+      </div>`).join('');
+  }catch(e){document.getElementById('blkList').innerHTML='<div class="blk-empty" style="color:var(--red)">Erro: '+e.message+'</div>';}
+}
+
+function selectBlk(key,summary,duedate,dept){
+  selectedBlkKey=key;
+  document.querySelectorAll('.blk-item').forEach(el=>el.classList.remove('sel'));
+  const el=document.getElementById('bi-'+key);if(el)el.classList.add('sel');
+  document.getElementById('bKey').value=key;
+  document.getElementById('bSummary').value=summary;
+  if(duedate)document.getElementById('bNewDue').value=duedate;
+  document.getElementById('bIssueInfo').style.display='none';
+  document.getElementById('bMsg').style.display='none';
+  window.scrollTo({top:document.getElementById('bKey').getBoundingClientRect().top+window.scrollY-100,behavior:'smooth'});
+}
+
+async function lookupIssue(){
+  const key=document.getElementById('bKey').value.trim().toUpperCase();
+  if(!key)return;
+  document.getElementById('bSummary').value='Buscando…';
+  try{
+    const r=await api({action:'buscarIssue',issueKey:key});
+    if(!r.success)throw new Error(r.erro);
+    const i=r.issue;
+    document.getElementById('bSummary').value=i.summary;
+    document.getElementById('bIssueInfo').style.display='block';
+    document.getElementById('bIssueInfo').innerHTML=`<strong>${i.key}</strong> · ${i.tipo} · <strong>${i.status}</strong> · Depto: ${i.departamento||'—'} · Limite: ${i.duedate||'—'} · Responsável: ${i.assignee||'—'}${i.labels.includes('bloqueado')?'&nbsp;<span class="badge bblk">bloqueado</span>':''}`;
+    if(i.duedate)document.getElementById('bNewDue').value=i.duedate;
+  }catch(e){document.getElementById('bSummary').value='';showBMsg('Erro: '+e.message,'err');}
+}
+
+function showBMsg(msg,type){const el=document.getElementById('bMsg');el.textContent=msg;el.className='form-msg '+type;el.style.display='block';}
+
+async function submitBloqueio(){
+  const key=(document.getElementById('bKey').value||'').trim().toUpperCase();
+  if(!key){showBMsg('Informe a chave da tarefa.','err');return;}
+  const tipo=document.getElementById('bTipo').value;
+  const descr=document.getElementById('bDescricao').value;
+  if(!tipo){showBMsg('Selecione o tipo de bloqueio.','err');return;}
+  showBMsg('Registrando…','info');
+  try{
+    const r=await api({
+      action:'registrarBloqueio',
+      issueKey:key,
+      tipoBloqueio:tipo,
+      descricao:descr,
+      impacto:document.getElementById('bImpacto').value,
+      responsavel:document.getElementById('bResponsavel').value,
+      prazoResolucao:document.getElementById('bPrazoRes').value,
+      novaDueDate:document.getElementById('bNewDue').value||null,
+      novaDataAlvo:document.getElementById('bNewAlvo').value||null,
+    });
+    if(r.success){showBMsg('✓ Bloqueio registrado com sucesso em '+key,'ok');clearBloqueioForm();loadBloqueados();}
+    else showBMsg('Erro: '+(r.erro||JSON.stringify(r)),'err');
+  }catch(e){showBMsg('Erro: '+e.message,'err');}
+}
+
+async function submitApenasData(){
+  const key=(document.getElementById('bKey').value||'').trim().toUpperCase();
+  if(!key){showBMsg('Informe a chave da tarefa.','err');return;}
+  showBMsg('Atualizando datas…','info');
+  try{
+    const r=await api({
+      action:'atualizarDatas',
+      issueKey:key,
+      dueDate:document.getElementById('bNewDue').value||null,
+      alvoDate:document.getElementById('bNewAlvo').value||null,
+      startDate:document.getElementById('bNewStart').value||null,
+    });
+    if(r.success){showBMsg('✓ Datas atualizadas em '+key,'ok');}
+    else showBMsg('Erro: '+(r.erro||JSON.stringify(r)),'err');
+  }catch(e){showBMsg('Erro: '+e.message,'err');}
+}
+
+function clearBloqueioForm(){
+  ['bKey','bSummary','bDescricao','bResponsavel','bNewDue','bNewAlvo','bNewStart','bPrazoRes'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  document.getElementById('bTipo').value='';
+  document.getElementById('bImpacto').value='Alto (>5 dias)';
+  document.getElementById('bIssueInfo').style.display='none';
+  document.getElementById('bMsg').style.display='none';
+  document.querySelectorAll('.blk-item').forEach(el=>el.classList.remove('sel'));
+  selectedBlkKey=null;
+}
+
+// ════════════════════════════════════════════════════════════════
+// RELATÓRIO SEMANAL (GEMINI)
+// ════════════════════════════════════════════════════════════════
+async function gerarRelatorio(){
+  const key=(localStorage.getItem('gemini_key')||document.getElementById('geminiKey').value||'').trim();
+  if(!key){document.getElementById('rptBox').innerHTML='<div class="rpt-placeholder"><div style="color:var(--amber)">⚠️ Configure a Gemini API Key acima para gerar o relatório.</div></div>';return;}
+
+  document.getElementById('rptLoad').style.display='flex';
+  document.getElementById('rptBox').style.display='none';
+  document.getElementById('rptBtn').disabled=true;
+
+  try{
+    // Busca dados se ainda não tiver
+    let data=allTasks;
+    if(!data.length){
+      document.getElementById('rptLoadTxt').textContent='Buscando dados do Jira…';
+      const r=await api({action:'buscarTarefasJira'});
+      if(r.success)processData(r.issues);
+      data=allTasks;
+    }
+
+    // Monta resumo estruturado para o prompt
+    document.getElementById('rptLoadTxt').textContent='Preparando análise…';
+    const hoje=new Date();
+    const semanaPassada=new Date(hoje);semanaPassada.setDate(hoje.getDate()-7);
+
+    const porDept={};
+    data.forEach(t=>{
+      const dept=t['Campo personalizado (Departamento)']||'Sem Dept';
+      if(!porDept[dept])porDept[dept]={total:0,feito:0,fazendo:0,aFazer:0,foraPrazo:0,bloqueado:0};
+      porDept[dept].total++;
+      if(t['Status']==='Feito')porDept[dept].feito++;
+      else if(t['Status']==='Fazendo')porDept[dept].fazendo++;
+      else porDept[dept].aFazer++;
+      if(t._prazo==='FORA DO PRAZO')porDept[dept].foraPrazo++;
+      if(t['Labels']&&t['Labels'].includes('bloqueado'))porDept[dept].bloqueado++;
+    });
+
+    const atrasados=data.filter(t=>t._prazo==='FORA DO PRAZO'&&t['Status']!=='Feito')
+      .slice(0,15).map(t=>`• ${t['Chave da item']} [${t['Campo personalizado (Departamento)']}] — ${t['Resumo']} (limite: ${t['Data limite']})`).join('\n');
+
+    const bloqueados=data.filter(t=>t['Labels']&&t['Labels'].includes('bloqueado'))
+      .slice(0,10).map(t=>`• ${t['Chave da item']} — ${t['Resumo']}`).join('\n');
+
+    const concluidos7d=data.filter(t=>{
+      const res=pd(t['Resolvido']);
+      return t['Status']==='Feito'&&res&&res>=semanaPassada;
+    }).slice(0,10).map(t=>`• ${t['Chave da item']} [${t['Campo personalizado (Departamento)']}] — ${t['Resumo']}`).join('\n');
+
+    const deptStr=Object.entries(porDept).map(([d,v])=>
+      `${d}: ${v.total} total | ${v.feito} feitos | ${v.fazendo} em andamento | ${v.aFazer} a fazer | ${v.foraPrazo} fora do prazo | ${v.bloqueado} bloqueados`
+    ).join('\n');
+
+    const prompt=`Você é um Project Manager especialista em manufatura e projetos de equipamentos agrícolas. Analise os dados da empresa Agricef e gere um relatório executivo semanal.
+
+DATA DO RELATÓRIO: ${hoje.toLocaleDateString('pt-BR')}
+TOTAL DE PROJETOS: ${data.length}
+
+RESUMO POR DEPARTAMENTO:
+${deptStr}
+
+PROJETOS ATRASADOS (${data.filter(t=>t._prazo==='FORA DO PRAZO'&&t['Status']!=='Feito').length} projetos):
+${atrasados||'Nenhum projeto atrasado.'}
+
+PROJETOS BLOQUEADOS (${data.filter(t=>t['Labels']&&t['Labels'].includes('bloqueado')).length} projetos):
+${bloqueados||'Nenhum projeto bloqueado.'}
+
+CONCLUÍDOS NOS ÚLTIMOS 7 DIAS:
+${concluidos7d||'Nenhum projeto concluído na semana.'}
+
+INSTRUÇÕES:
+Gere um relatório executivo com as seguintes seções em markdown:
+
+## 📌 Resumo Executivo
+(3 bullets objetivos sobre o estado geral)
+
+## 📊 Status por Departamento
+(tabela: Departamento | Total | Em Andamento | Concluídos | Atrasados | Bloqueados)
+
+## 🔴 Pontos Críticos
+(top 5 situações que precisam de atenção imediata, com justificativa e risco)
+
+## ✅ Ações Recomendadas
+(lista priorizada com ação específica, responsável sugerido e prazo estimado)
+
+## 🔮 Previsão Próxima Semana
+(o que deve ser concluído, riscos iminentes)
+
+Responda em português, tom executivo e objetivo. Seja específico com as chaves dos projetos quando relevante.`;
+
+    document.getElementById('rptLoadTxt').textContent='Enviando para o Gemini Flash…';
+    const gemResp=await fetch(
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key='+key,
+      {method:'POST',headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.4,maxOutputTokens:2048}})}
+    );
+    const gemJson=await gemResp.json();
+    if(gemJson.error)throw new Error(gemJson.error.message);
+    const text=gemJson.candidates?.[0]?.content?.parts?.[0]?.text||'Sem resposta.';
+    document.getElementById('rptLoad').style.display='none';
+    document.getElementById('rptBox').style.display='block';
+    document.getElementById('rptBox').innerHTML=mdToHtml(text);
+  }catch(e){
+    document.getElementById('rptLoad').style.display='none';
+    document.getElementById('rptBox').style.display='block';
+    document.getElementById('rptBox').innerHTML=`<div style="color:var(--red);padding:20px">⚠️ Erro ao gerar relatório: ${e.message}</div>`;
+  }
+  document.getElementById('rptBtn').disabled=false;
+}
+
+// Markdown → HTML (básico)
+function mdToHtml(md){
+  return md
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/^### (.+)$/gm,'<h3>$1</h3>')
+    .replace(/^## (.+)$/gm,'<h2>$1</h2>')
+    .replace(/^# (.+)$/gm,'<h1>$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g,'<em>$1</em>')
+    .replace(/`(.+?)`/g,'<code>$1</code>')
+    .replace(/^\| (.+) \|$/gm,(m,p)=>'<tr>'+p.split('|').map(c=>`<td>${c.trim()}</td>`).join('')+'</tr>')
+    .replace(/(<tr>.*<\/tr>)/gs,'<table>$1</table>')
+    .replace(/^- (.+)$/gm,'<li>$1</li>').replace(/(<li>.*<\/li>)/gs,'<ul>$1</ul>')
+    .replace(/^\d+\. (.+)$/gm,'<li>$1</li>')
+    .replace(/^• (.+)$/gm,'<li>$1</li>')
+    .replace(/\n\n/g,'</p><p>').replace(/^(?!<[hultop])(.+)$/gm,'<p>$1</p>')
+    .replace(/<p><\/p>/g,'');
+}
+
+// ════════════════════════════════════════════════════════════════
+// CONFIGURAÇÕES
+// ════════════════════════════════════════════════════════════════
+function initConfig(){
+  document.getElementById('cfgApi').value=getApi();
+  document.getElementById('cfgLastUpdate').textContent=localStorage.getItem('agritrack_lastUpdate')||'—';
+}
+async function testApi(){
+  const s=document.getElementById('cfgApiStatus');s.textContent='Testando…';s.style.color='var(--text2)';
+  try{const r=await api({action:'ping'});s.textContent='✓ Conectado';s.style.color='var(--green)';}
+  catch(e){s.textContent='✗ Falhou: '+e.message;s.style.color='var(--red)';}
+}
+
+// ════════════════════════════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════════════════════════════
+(function init(){
+  // Restore gemini key
+  const gk=localStorage.getItem('gemini_key');
+  if(gk)document.getElementById('geminiKey').value=gk;
+  // Auto-fetch on load
+  autoFetch();
+})();
+</script>
+</body>
+</html>

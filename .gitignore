@@ -1,0 +1,17 @@
+# Arquivos temporários
+*.tmp
+*.bak
+~$*
+Thumbs.db
+.DS_Store
+
+# Dados sensíveis
+*.env
+credentials.json
+
+# Node
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
