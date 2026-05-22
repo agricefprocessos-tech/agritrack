@@ -1772,11 +1772,12 @@ function openCmpModal(idx){
   const content=document.getElementById('cmpModalContent');
   const hoje=new Date();hoje.setHours(0,0,0,0);
   const dtKey=cmpKey('desejada','entrega','prazo');
-  const codKey=cmpKey('cod.','codigo','cód','pv');
+  const codKey =cmpKey('cód. agri','cod. agri','cód agric','codigo agri');
+  const pvKeyM =cmpKey('pv');
   const descKey=cmpKey('descri','item','produto');
   const respKey=cmpKey('respons');
 
-  const cod=(row[codKey]||'').trim();
+  const cod =(codKey?row[codKey]||'':'').trim()||(pvKeyM?row[pvKeyM]||'':'').trim();
   const desc=(row[descKey]||'').trim();
   const dt=parseDate(row[dtKey]||'');
   const isVenc=dt&&dt<hoje;
@@ -2006,12 +2007,14 @@ function renderComprasSwimLanes(){
   const data=_comprasFilt;
   const hoje=new Date(); hoje.setHours(0,0,0,0);
 
-  const dtKey  =cmpKey('desejada','entrega','prazo');
-  const codKey =cmpKey('cod.','código','codigo','pv','cód');
-  const descKey=cmpKey('descri','item','produto');
-  const respKey=cmpKey('respons');
-  const finalKey=cmpKey('finalid');
-  const serieKey=cmpKey('serie','serial','modelo','hauler','máquina');
+  const dtKey    =cmpKey('desejada','entrega','prazo');
+  // Código real do item (CÓD. AGRICEF) — NÃO o PV nem o serial do implemento
+  const itemCodKey=cmpKey('cód. agri','cod. agri','cód agric','codigo agri','item cod','part num');
+  const pvKey    =cmpKey('pv');   // número da ordem de compra — contexto secundário
+  const descKey  =cmpKey('descri','item','produto');
+  const respKey  =cmpKey('respons');
+  const finalKey =cmpKey('finalid');
+  const serieKey =cmpKey('serie','serial','modelo','hauler','máquina');
   const statusKey=cmpKey('status','situac','situação');
 
   // Constrói card individual
@@ -2022,24 +2025,30 @@ function renderComprasSwimLanes(){
       if(!da&&!db)return 0; if(!da)return 1; if(!db)return -1; return da-db;
     });
     const MAX_V=14;
-    // Conta vencidos no card para badge de urgência
     const numVenc=items.filter(r=>{ const d=parseDate(r[dtKey]||''); return d&&d<hoje; }).length;
     const urgBadge=numVenc>0?`<span style="background:#ef444428;color:#ef4444;border-radius:8px;padding:1px 6px;font-size:9px;font-weight:700;flex-shrink:0">⚠ ${numVenc} venc.</span>`:'';
     const rows=sorted.slice(0,MAX_V).map(row=>{
-      const cod=(row[codKey]||'').trim();
-      const desc=(row[descKey]||'').trim();
-      const resp=(row[respKey]||'').trim();
-      const tab=(row._tab||'').trim();
+      const itemCod=(itemCodKey?row[itemCodKey]||'':'').trim();
+      const pv     =(pvKey?row[pvKey]||'':'').trim();
+      const desc   =(row[descKey]||'').trim();
+      const resp   =(row[respKey]||'').trim();
+      const tab    =(row._tab||'').trim();
       const dt=parseDate(row[dtKey]||'');
       const isVenc=dt&&dt<hoje;
       const isProx=dt&&!isVenc&&(dt-hoje)<=7*864e5;
       const bColor=isVenc?'#ef4444':isProx?'#f59e0b':color;
       const dtStr=dt?dt.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}):'';
       const idx=_cmpModalData.push(row)-1;
-      const tabBadge=tab&&_comprasTabs.length>1?`<span style="font-size:9px;color:var(--text3);margin-left:3px">[${esc(tab)}]</span>`:'';
-      return `<div style="background:var(--bg3);border-radius:6px;padding:7px 9px;border-left:3px solid ${bColor};cursor:pointer;transition:opacity .1s" onclick="openCmpModal(${idx})" title="Clique para ver detalhes">
-        <div style="font-size:11px;font-weight:700;color:${bColor};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:178px">${esc(cod||'—')}${tabBadge}</div>
-        <div style="font-size:11px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:178px;margin-top:1px">${esc(desc.length>30?desc.slice(0,30)+'…':desc||'—')}</div>
+      const tabBadge=tab&&_comprasTabs.length>1?`<span style="font-size:9px;color:var(--text3)">[${esc(tab)}]</span>`:'';
+      // Linha 1: descrição do item (principal)
+      // Linha 2: CÓD. AGRICEF (se existir) + PV como ref
+      // Linha 3: Responsável | Data
+      const codLine=itemCod?`<span style="color:${bColor};font-weight:700">${esc(itemCod)}</span>`:'';
+      const pvLine=pv?`<span style="color:var(--text3)">PV ${esc(pv)}</span>`:'';
+      const metaLine=[codLine,pvLine].filter(Boolean).join('<span style="color:var(--border2)"> · </span>');
+      return `<div style="background:var(--bg3);border-radius:6px;padding:7px 9px;border-left:3px solid ${bColor};cursor:pointer" onclick="openCmpModal(${idx})" title="${esc(desc)}">
+        <div style="font-size:11.5px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px;line-height:1.3">${esc(desc.length>32?desc.slice(0,32)+'…':desc||'—')}</div>
+        ${metaLine?`<div style="font-size:10px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px">${metaLine}${tabBadge?'&nbsp;'+tabBadge:''}</div>`:''}
         <div style="font-size:10px;color:var(--text2);margin-top:3px;display:flex;justify-content:space-between;gap:4px">
           <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px">${esc(resp||'—')}</span>
           <span style="color:${bColor};font-weight:${isVenc||isProx?700:400};flex-shrink:0">${dtStr}</span>
@@ -2185,7 +2194,7 @@ function interpretarLocal(pergunta){
 
   const dtKey   =cmpKey('desejada','entrega','prazo');
   const solKey  =cmpKey('solicit','abertura','data sol');
-  const codKey  =cmpKey('cod.','codigo','cód','pv');
+  const codKey  =cmpKey('cód. agri','cod. agri','cód agric','codigo agri');
   const descKey =cmpKey('descri','item','produto');
   const respKey =cmpKey('respons');
   const finalKey=cmpKey('finalid');
@@ -2479,7 +2488,7 @@ async function sendChat(){
   const sys='Você é assistente de compras industriais da Agricef. Responda em português, de forma concisa. Use listas. '+ctxData;
   try{
     const resp=await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent?key='+key,
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key='+key,
       {method:'POST',headers:{'Content-Type':'application/json'},
        body:JSON.stringify({system_instruction:{parts:[{text:sys}]},contents:_chatHistory,generationConfig:{temperature:0.3,maxOutputTokens:700}})}
     );
