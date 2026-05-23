@@ -1074,6 +1074,22 @@ function processData(data){
     t._resDt=pd(t['Resolvido']);
     return t;
   });
+  // Parse issuelinks → allLinks (para setas de dependência no Gantt)
+  {
+    const seen=new Set();
+    allLinks=[];
+    data.forEach(x=>{
+      let links=[];
+      try{if(x['_links'])links=JSON.parse(x['_links']);}catch(e){}
+      links.forEach(lk=>{
+        if(!lk.from||!lk.to)return;
+        const id=lk.from+'→'+lk.to;
+        if(seen.has(id))return; seen.add(id);
+        allLinks.push(lk);
+      });
+    });
+  }
+
   // Badge de tarefas bloqueadas
   const blkCount=data.filter(x=>x['Labels']&&x['Labels'].includes('bloqueado')).length;
   const badge=document.getElementById('blkBadge');
@@ -3143,7 +3159,7 @@ async function sendChat(){
 // ════════════════════════════════════════════════════════════════
 // GANTT v2 — 3-dates framework + subtask dropdown
 // ════════════════════════════════════════════════════════════════
-const G_ROW=56, G_SUB_ROW=40, G_HDR=52, G_BAR_H=30, G_BAR_Y=13;
+const G_ROW=50, G_SUB_ROW=36, G_HDR=52, G_BAR_H=26, G_BAR_Y=12;
 const G_STATUS_CLR={'A Fazer':'#60a5fa','Fazendo':'#f59e0b','Feito':'#22d37a'};
 const G_DEPT_CLR=['#22d37a','#60a5fa','#f59e0b','#f05252','#a78bfa','#34d399','#fb923c','#e879f9','#38bdf8','#fbbf24','#84cc16','#06b6d4'];
 // Cores por nome de subtarefa (fase)
@@ -3151,6 +3167,8 @@ const G_PHASE_CLR={'preparac':'#a78bfa','compras':'#38bdf8','fabricac':'#34d399'
 let _gDeptMap={};
 let _ganttExpanded={}; // {key:true} — subtasks expanded
 let _ganttFirstRender=true; // flag para auto-scroll só no primeiro render
+let _ganttBarPos={}; // key → {x1,x2,cy} — posições das barras para setas
+let allLinks=[]; // [{from,to,rel}] — dependências Jira (issuelinks)
 
 function _ganttPhaseColor(name,status){
   if(status==='Feito') return '#22d37a';
@@ -3301,6 +3319,7 @@ function renderGantt(){
   }
 
   // ── Bars ──────────────────────────────────────────────────────
+  _ganttBarPos={};   // reset a cada render
   rowY=G_HDR;
   rows.forEach(r=>{
     const y=rowY; rowY+=r.rowH;
@@ -3327,7 +3346,7 @@ function renderGantt(){
 
       // Layer 1 — extensão até data limite (background fino)
       if(xLim>xAlvo){
-        svg+=`<rect x="${xAlvo}" y="${by+8}" width="${Math.max(xLim-xAlvo,4)}" height="12" rx="4" fill="${clr}" opacity="0.18"/>`;
+        svg+=`<rect x="${xAlvo}" y="${by+6}" width="${Math.max(xLim-xAlvo,4)}" height="14" rx="4" fill="${clr}" opacity="0.18"/>`;
       }
       // Layer 2 — barra principal start→alvo (ou limite)
       svg+=`<rect x="${x1}" y="${by}" width="${bwMain}" height="${G_BAR_H}" rx="4" fill="${clr}" opacity="0.28"/>`;
@@ -3357,6 +3376,8 @@ function renderGantt(){
       }
       // Label key
       if(bwMain>48)svg+=`<text x="${x1+7}" y="${by+G_BAR_H/2+5}" fill="white" font-size="12" font-weight="600" opacity="0.9">${key}</text>`;
+      // Registra posição para setas de dependência
+      _ganttBarPos[key]={x1,x2:Math.max(xAlvo,xLim),cy:by+Math.round(G_BAR_H/2)};
 
       // Áreas clicáveis
       svg+=`<rect x="${Math.min(x1,xBase||x1)-2}" y="${by-2}" width="${Math.max(xLim,xAlvo)-Math.min(x1,xBase||x1)+6}" height="${G_BAR_H+16}" rx="5" fill="transparent" stroke="${clr}" stroke-width="0" style="cursor:pointer" onclick="ganttClick('${key}')" onmouseover="this.setAttribute('stroke-width','1.5')" onmouseout="this.setAttribute('stroke-width','0')"/>`;
@@ -3366,29 +3387,58 @@ function renderGantt(){
       // === SUB: barra planejada + barra real ===
       const sName=t['Resumo']||'';
       const subClr=_ganttPhaseColor(sName,t['Status']);
+      const hasReal=!!t._actualStartDt;
 
-      // Barra planejada (fina, translúcida) — linha inferior
+      // Barra planejada — centralizada quando só ela existe; fina abaixo da real quando ambas
       if(t._plannedStartDt&&t._plannedEndDt){
         const xSP=Math.round((t._plannedStartDt-minD)/86400000*ppd);
         const xEP=Math.round((t._plannedEndDt-minD)/86400000*ppd);
         const bwP=Math.max(xEP-xSP,4);
-        svg+=`<rect x="${xSP}" y="${y+26}" width="${bwP}" height="9" rx="3" fill="${subClr}" opacity="0.3"/>`;
-        if(bwP>30)svg+=`<text x="${xSP+3}" y="${y+33}" fill="${subClr}" font-size="8" opacity="0.6">plan</text>`;
+        const pY=hasReal?y+24:y+9;  // centralizada (36px row, h=18) ou abaixo da real
+        const pH=hasReal?8:18;
+        const pOp=hasReal?0.28:0.72;
+        svg+=`<rect x="${xSP}" y="${pY}" width="${bwP}" height="${pH}" rx="3" fill="${subClr}" opacity="${pOp}"/>`;
+        if(bwP>40)svg+=`<text x="${xSP+4}" y="${pY+pH-3}" fill="${subClr}" font-size="8" opacity="0.75">plan</text>`;
+        // Registra posição da barra para setas de dependência
+        _ganttBarPos[key]={x1:xSP,x2:xEP,cy:Math.round(pY+pH/2)};
       }
-      // Barra real (sólida) — linha superior
-      if(t._actualStartDt){
+      // Barra real (sólida) — posicionada na metade superior da linha
+      if(hasReal){
         const eReff=t._actualEndDt||today;
         const xSR=Math.round((t._actualStartDt-minD)/86400000*ppd);
         const xER=Math.round((eReff-minD)/86400000*ppd);
         const bwR=Math.max(xER-xSR,4);
         const opac=t._actualEndDt?0.9:0.65;
-        svg+=`<rect x="${xSR}" y="${y+4}" width="${bwR}" height="18" rx="4" fill="${subClr}" opacity="${opac}"/>`;
-        if(!t._actualEndDt)svg+=`<rect x="${xSR+bwR-3}" y="${y+4}" width="4" height="18" fill="white" opacity="0.3"/>`;
-        if(bwR>30)svg+=`<text x="${xSR+4}" y="${y+16}" fill="white" font-size="8" font-weight="600">real</text>`;
+        svg+=`<rect x="${xSR}" y="${y+3}" width="${bwR}" height="16" rx="3" fill="${subClr}" opacity="${opac}"/>`;
+        if(!t._actualEndDt)svg+=`<rect x="${xSR+bwR-3}" y="${y+3}" width="4" height="16" fill="white" opacity="0.3"/>`;
+        if(bwR>40)svg+=`<text x="${xSR+4}" y="${y+14}" fill="white" font-size="8" font-weight="600">real</text>`;
+        // Sobrescreve posição com barra real (mais precisa para setas)
+        _ganttBarPos[key]={x1:xSR,x2:xER,cy:y+11};
       }
       svg+=`<rect x="0" y="${y}" width="${svgW}" height="${r.rowH}" fill="transparent" style="cursor:pointer" onclick="ganttClick('${key}')"/>`;
     }
   });
+  // ── Setas de dependência (issuelinks) ─────────────────────────
+  if(allLinks.length){
+    const seen=new Set();
+    allLinks.forEach(lk=>{
+      const dedup=lk.from+'→'+lk.to;
+      if(seen.has(dedup))return; seen.add(dedup);
+      const pF=_ganttBarPos[lk.from], pT=_ganttBarPos[lk.to];
+      if(!pF||!pT)return;
+      const rel=(lk.rel||'').toLowerCase();
+      const arwClr=rel.includes('block')||rel.includes('bloque')?'#f59e0b':
+                   rel.includes('depend')?'#60a5fa':'#8896b0';
+      // Path: fim de F → gap → cotovelo → início de T → arrowhead
+      const xF=pF.x2+2, yF=pF.cy, xT=pT.x1-6, yT=pT.cy;
+      const gap=10;
+      const mx=xF+gap;
+      if(Math.abs(xT-xF)<4&&Math.abs(yT-yF)<4)return; // mesmo ponto, ignora
+      svg+=`<path d="M${xF},${yF} L${mx},${yF} L${mx},${yT} L${xT},${yT}" fill="none" stroke="${arwClr}" stroke-width="1.5" stroke-dasharray="5,3" opacity="0.7"/>`;
+      // Arrowhead
+      svg+=`<polygon points="${xT+6},${yT} ${xT-1},${yT-4} ${xT-1},${yT+4}" fill="${arwClr}" opacity="0.85"/>`;
+    });
+  }
   svg+='</svg>';
   // ── Render SVG preservando scroll (scroll reseta no innerHTML) ─
   {
@@ -3426,7 +3476,7 @@ function renderGantt(){
       // Botão ⓘ sempre abre o painel de detalhe
       const detBtn=`<button onclick="event.stopPropagation();ganttClick('${ek}')" title="Detalhes" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:12px;padding:0 2px;flex-shrink:0;opacity:.45;line-height:1" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='.45'">ⓘ</button>`;
       return `<div onclick="${rowClick}" title="${hasSubs?'Clique para '+(isExp?'recolher':'expandir')+' subtarefas':'Ver detalhes'}" style="height:${r.rowH}px;display:flex;align-items:center;padding:0 4px 0 8px;cursor:pointer;border-bottom:1px solid ${br}22;gap:3px;background:${bg};box-sizing:border-box;flex-shrink:0" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='${bg}'">
-        <div style="width:4px;height:30px;border-radius:2px;flex-shrink:0;background:${clr}"></div>
+        <div style="width:4px;height:26px;border-radius:2px;flex-shrink:0;background:${clr}"></div>
         ${togIcon}
         <div style="min-width:0;flex:1;overflow:hidden">
           <div style="font-size:10px;font-weight:700;color:var(--text2);font-family:'IBM Plex Mono',monospace;line-height:1.2">${key}</div>
@@ -3438,7 +3488,7 @@ function renderGantt(){
       const subClr=_ganttPhaseColor(name,t['Status']);
       const hasReal=!!t._actualStartDt;
       return `<div onclick="ganttClick('${key.replace(/'/g,"\\'")}') " style="height:${r.rowH}px;display:flex;align-items:center;padding:0 6px 0 26px;cursor:pointer;border-bottom:1px solid ${br}15;gap:4px;background:var(--bg3);box-sizing:border-box;flex-shrink:0" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background='var(--bg3)'">
-        <div style="width:3px;height:22px;border-radius:2px;flex-shrink:0;background:${subClr}"></div>
+        <div style="width:3px;height:18px;border-radius:2px;flex-shrink:0;background:${subClr}"></div>
         <div style="min-width:0;flex:1;overflow:hidden">
           <div style="font-size:10px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(name)}</div>
           <div style="font-size:9px;color:var(--text3);line-height:1.3">${hasReal?'<span style="color:#22d37a">✓ real</span>':'<span>plan.</span>'} &nbsp;·&nbsp; ${t['Status']||'—'}</div>
