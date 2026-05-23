@@ -3446,9 +3446,22 @@ function renderGantt(){
     const prevL=gR.scrollLeft, prevT=gR.scrollTop;
     gR.innerHTML=svg;
     if(_ganttFirstRender){
-      // Primeiro render: auto-scroll para mostrar HOJE centralizado
       _ganttFirstRender=false;
-      gR.scrollLeft=Math.max(0,todX-Math.round(gR.clientWidth*0.35));
+      // Smart scroll: mostra barras reais se hoje estiver além delas
+      const _bps=Object.values(_ganttBarPos);
+      let _scrollTarget=Math.max(0,todX-Math.round(gR.clientWidth*0.35));
+      if(_bps.length){
+        const _minX=Math.min(..._bps.map(p=>p.x1));
+        const _maxX=Math.max(..._bps.map(p=>p.x2));
+        if(todX>_maxX){
+          // Hoje está além de todos os projetos — mostra início das barras
+          _scrollTarget=Math.max(0,_minX-Math.round(gR.clientWidth*0.08));
+        } else if(todX<_minX){
+          // Hoje está antes de todos os projetos — mostra início das barras
+          _scrollTarget=Math.max(0,_minX-Math.round(gR.clientWidth*0.15));
+        }
+      }
+      gR.scrollLeft=_scrollTarget;
     } else {
       // Re-render (toggle/filtro): preserva posição
       gR.scrollLeft=prevL;
