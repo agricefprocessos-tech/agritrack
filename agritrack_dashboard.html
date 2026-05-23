@@ -3143,7 +3143,7 @@ async function sendChat(){
 // ════════════════════════════════════════════════════════════════
 // GANTT v2 — 3-dates framework + subtask dropdown
 // ════════════════════════════════════════════════════════════════
-const G_ROW=42, G_SUB_ROW=30, G_HDR=52, G_BAR_H=20, G_BAR_Y=6;
+const G_ROW=56, G_SUB_ROW=40, G_HDR=52, G_BAR_H=30, G_BAR_Y=13;
 const G_STATUS_CLR={'A Fazer':'#60a5fa','Fazendo':'#f59e0b','Feito':'#22d37a'};
 const G_DEPT_CLR=['#22d37a','#60a5fa','#f59e0b','#f05252','#a78bfa','#34d399','#fb923c','#e879f9','#38bdf8','#fbbf24','#84cc16','#06b6d4'];
 // Cores por nome de subtarefa (fase)
@@ -3327,7 +3327,7 @@ function renderGantt(){
 
       // Layer 1 — extensão até data limite (background fino)
       if(xLim>xAlvo){
-        svg+=`<rect x="${xAlvo}" y="${by+6}" width="${Math.max(xLim-xAlvo,4)}" height="8" rx="3" fill="${clr}" opacity="0.18"/>`;
+        svg+=`<rect x="${xAlvo}" y="${by+8}" width="${Math.max(xLim-xAlvo,4)}" height="12" rx="4" fill="${clr}" opacity="0.18"/>`;
       }
       // Layer 2 — barra principal start→alvo (ou limite)
       svg+=`<rect x="${x1}" y="${by}" width="${bwMain}" height="${G_BAR_H}" rx="4" fill="${clr}" opacity="0.28"/>`;
@@ -3356,7 +3356,7 @@ function renderGantt(){
         svg+=`<polygon points="${bx},${my} ${bx-4},${my+6} ${bx},${my+12} ${bx+4},${my+6}" fill="${clr}" opacity="0.75"/>`;
       }
       // Label key
-      if(bwMain>48)svg+=`<text x="${x1+6}" y="${by+G_BAR_H/2+4}" fill="white" font-size="10" font-weight="600" opacity="0.9">${key}</text>`;
+      if(bwMain>48)svg+=`<text x="${x1+7}" y="${by+G_BAR_H/2+5}" fill="white" font-size="12" font-weight="600" opacity="0.9">${key}</text>`;
 
       // Áreas clicáveis
       svg+=`<rect x="${Math.min(x1,xBase||x1)-2}" y="${by-2}" width="${Math.max(xLim,xAlvo)-Math.min(x1,xBase||x1)+6}" height="${G_BAR_H+16}" rx="5" fill="transparent" stroke="${clr}" stroke-width="0" style="cursor:pointer" onclick="ganttClick('${key}')" onmouseover="this.setAttribute('stroke-width','1.5')" onmouseout="this.setAttribute('stroke-width','0')"/>`;
@@ -3372,8 +3372,8 @@ function renderGantt(){
         const xSP=Math.round((t._plannedStartDt-minD)/86400000*ppd);
         const xEP=Math.round((t._plannedEndDt-minD)/86400000*ppd);
         const bwP=Math.max(xEP-xSP,4);
-        svg+=`<rect x="${xSP}" y="${y+17}" width="${bwP}" height="5" rx="2" fill="${subClr}" opacity="0.3"/>`;
-        if(bwP>30)svg+=`<text x="${xSP+3}" y="${y+24}" fill="${subClr}" font-size="7" opacity="0.55">plan</text>`;
+        svg+=`<rect x="${xSP}" y="${y+26}" width="${bwP}" height="9" rx="3" fill="${subClr}" opacity="0.3"/>`;
+        if(bwP>30)svg+=`<text x="${xSP+3}" y="${y+33}" fill="${subClr}" font-size="8" opacity="0.6">plan</text>`;
       }
       // Barra real (sólida) — linha superior
       if(t._actualStartDt){
@@ -3382,9 +3382,9 @@ function renderGantt(){
         const xER=Math.round((eReff-minD)/86400000*ppd);
         const bwR=Math.max(xER-xSR,4);
         const opac=t._actualEndDt?0.9:0.65;
-        svg+=`<rect x="${xSR}" y="${y+5}" width="${bwR}" height="10" rx="3" fill="${subClr}" opacity="${opac}"/>`;
-        if(!t._actualEndDt)svg+=`<rect x="${xSR+bwR-2}" y="${y+5}" width="3" height="10" fill="white" opacity="0.35"/>`;
-        if(bwR>30)svg+=`<text x="${xSR+3}" y="${y+12}" fill="white" font-size="7" font-weight="600">real</text>`;
+        svg+=`<rect x="${xSR}" y="${y+4}" width="${bwR}" height="18" rx="4" fill="${subClr}" opacity="${opac}"/>`;
+        if(!t._actualEndDt)svg+=`<rect x="${xSR+bwR-3}" y="${y+4}" width="4" height="18" fill="white" opacity="0.3"/>`;
+        if(bwR>30)svg+=`<text x="${xSR+4}" y="${y+16}" fill="white" font-size="8" font-weight="600">real</text>`;
       }
       svg+=`<rect x="0" y="${y}" width="${svgW}" height="${r.rowH}" fill="transparent" style="cursor:pointer" onclick="ganttClick('${key}')"/>`;
     }
@@ -3426,7 +3426,7 @@ function renderGantt(){
       // Botão ⓘ sempre abre o painel de detalhe
       const detBtn=`<button onclick="event.stopPropagation();ganttClick('${ek}')" title="Detalhes" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:12px;padding:0 2px;flex-shrink:0;opacity:.45;line-height:1" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='.45'">ⓘ</button>`;
       return `<div onclick="${rowClick}" title="${hasSubs?'Clique para '+(isExp?'recolher':'expandir')+' subtarefas':'Ver detalhes'}" style="height:${r.rowH}px;display:flex;align-items:center;padding:0 4px 0 8px;cursor:pointer;border-bottom:1px solid ${br}22;gap:3px;background:${bg};box-sizing:border-box;flex-shrink:0" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='${bg}'">
-        <div style="width:3px;height:22px;border-radius:2px;flex-shrink:0;background:${clr}"></div>
+        <div style="width:4px;height:30px;border-radius:2px;flex-shrink:0;background:${clr}"></div>
         ${togIcon}
         <div style="min-width:0;flex:1;overflow:hidden">
           <div style="font-size:10px;font-weight:700;color:var(--text2);font-family:'IBM Plex Mono',monospace;line-height:1.2">${key}</div>
@@ -3438,7 +3438,7 @@ function renderGantt(){
       const subClr=_ganttPhaseColor(name,t['Status']);
       const hasReal=!!t._actualStartDt;
       return `<div onclick="ganttClick('${key.replace(/'/g,"\\'")}') " style="height:${r.rowH}px;display:flex;align-items:center;padding:0 6px 0 26px;cursor:pointer;border-bottom:1px solid ${br}15;gap:4px;background:var(--bg3);box-sizing:border-box;flex-shrink:0" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background='var(--bg3)'">
-        <div style="width:2px;height:16px;border-radius:2px;flex-shrink:0;background:${subClr}"></div>
+        <div style="width:3px;height:22px;border-radius:2px;flex-shrink:0;background:${subClr}"></div>
         <div style="min-width:0;flex:1;overflow:hidden">
           <div style="font-size:10px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(name)}</div>
           <div style="font-size:9px;color:var(--text3);line-height:1.3">${hasReal?'<span style="color:#22d37a">✓ real</span>':'<span>plan.</span>'} &nbsp;·&nbsp; ${t['Status']||'—'}</div>
