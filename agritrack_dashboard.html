@@ -243,6 +243,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
     <button class="ntab" onclick="nav('block')">🚧 Bloqueios <span class="nbadge" id="blkBadge">0</span></button>
     <button class="ntab" onclick="nav('report')">📋 Relatório Semanal</button>
     <button class="ntab" onclick="nav('compras')">🛒 Compras</button>
+    <button class="ntab" onclick="nav('gantt')">📅 Gantt</button>
     <button class="ntab" onclick="nav('cfg')">⚙️ Config</button>
   </nav>
   <div class="hright">
@@ -559,6 +560,65 @@ tr:hover td{background:rgba(255,255,255,0.02)}
   </div>
 </div>
 
+<!-- ══ PAGE: GANTT ═══════════════════════════════════════════════ -->
+<div id="pg-gantt" class="pg">
+  <div class="ph">
+    <div><div class="ptitle">Cronograma Gantt</div><div class="psub" id="ganttMeta">Visualização temporal dos projetos</div></div>
+    <button class="btn-sec" onclick="renderGantt()">↺ Atualizar</button>
+  </div>
+  <div class="main">
+    <!-- Filters -->
+    <div class="card" style="padding:12px 16px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+      <select id="gFDept" onchange="renderGantt()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:var(--rs);padding:6px 10px;color:var(--text);font-size:12px;font-family:inherit">
+        <option value="all">Todos departamentos</option>
+      </select>
+      <select id="gFStatus" onchange="renderGantt()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:var(--rs);padding:6px 10px;color:var(--text);font-size:12px;font-family:inherit">
+        <option value="all">Todos status</option>
+        <option value="A Fazer">A Fazer</option>
+        <option value="Fazendo">Fazendo</option>
+        <option value="Feito">Feito</option>
+      </select>
+      <select id="gFPeriod" onchange="renderGantt()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:var(--rs);padding:6px 10px;color:var(--text);font-size:12px;font-family:inherit">
+        <option value="-3,6">Últimos 3m + próximos 6m</option>
+        <option value="-6,12">Últimos 6m + próximos 12m</option>
+        <option value="-12,24">Último ano + próximos 2 anos</option>
+        <option value="all">Todos os projetos</option>
+      </select>
+      <select id="gFZoom" onchange="renderGantt()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:var(--rs);padding:6px 10px;color:var(--text);font-size:12px;font-family:inherit">
+        <option value="10">Zoom: Semana (10px/dia)</option>
+        <option value="4" selected>Zoom: Mês (4px/dia)</option>
+        <option value="2">Zoom: Trimestre (2px/dia)</option>
+        <option value="1">Zoom: Ano (1px/dia)</option>
+      </select>
+      <select id="gFColor" onchange="renderGantt()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:var(--rs);padding:6px 10px;color:var(--text);font-size:12px;font-family:inherit">
+        <option value="status">Cor: por Status</option>
+        <option value="dept">Cor: por Departamento</option>
+      </select>
+      <input id="gFBusca" placeholder="🔍 Buscar projeto…" oninput="renderGantt()"
+        style="background:var(--bg3);border:1px solid var(--border2);border-radius:var(--rs);padding:6px 10px;color:var(--text);font-size:12px;font-family:inherit;min-width:160px">
+    </div>
+    <p id="ganttMsg" style="color:var(--text2);padding:20px;text-align:center;display:none"></p>
+    <!-- Gantt body -->
+    <div class="card full" id="ganttWrap" style="padding:0;overflow:hidden">
+      <div style="display:flex;height:calc(min(80vh, 600px));min-height:300px">
+        <!-- Left: project labels (synced Y scroll) -->
+        <div style="width:300px;flex-shrink:0;border-right:1px solid var(--border2);display:flex;flex-direction:column;overflow:hidden">
+          <div style="height:52px;background:var(--bg3);border-bottom:1px solid var(--border2);display:flex;align-items:center;padding:0 14px;font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.08em;flex-shrink:0">
+            PROJETO / CHAVE
+          </div>
+          <div id="gLeftRows" style="flex:1;overflow-y:scroll;overflow-x:hidden;scrollbar-width:none;-ms-overflow-style:none"></div>
+        </div>
+        <!-- Right: scrollable SVG timeline -->
+        <div id="gRight" style="flex:1;overflow:auto" onscroll="document.getElementById('gLeftRows').scrollTop=this.scrollTop">
+          <svg id="ganttSvg" xmlns="http://www.w3.org/2000/svg" style="display:block"></svg>
+        </div>
+      </div>
+    </div>
+    <!-- Detail panel (shows on bar click) -->
+    <div id="ganttDetail" class="card" style="margin-top:14px;display:none;padding:16px"></div>
+  </div>
+</div>
+
 <!-- ══ PAGE: CONFIGURAÇÕES ══════════════════════════════════════ -->
 <div id="pg-cfg" class="pg">
   <div class="ph"><div><div class="ptitle">Configurações</div><div class="psub">Ajustes do sistema AgriTrack</div></div></div>
@@ -807,12 +867,13 @@ function nav(id){
   document.querySelectorAll('.ntab').forEach(t=>t.classList.remove('on'));
   document.getElementById('pg-'+id).classList.add('on');
   const tabs=document.querySelectorAll('.ntab');
-  const idx={'dash':0,'form':1,'block':2,'report':3,'compras':4,'cfg':5};
+  const idx={'dash':0,'form':1,'block':2,'report':3,'compras':4,'gantt':5,'cfg':6};
   if(idx[id]!==undefined)tabs[idx[id]].classList.add('on');
   if(id==='block')loadBloqueados();
   if(id==='cfg')initConfig();
   if(id==='report'&&!_rptGerado)gerarRelatorio(false);
   if(id==='compras'&&!_comprasCarregado)loadCompras();
+  if(id==='gantt')initGantt();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1291,6 +1352,7 @@ async function submitBloqueio(){
       prazoResolucao:document.getElementById('bPrazoRes').value,
       novaDueDate:document.getElementById('bNewDue').value||null,
       novaDataAlvo:document.getElementById('bNewAlvo').value||null,
+      novaDataStart:document.getElementById('bNewStart').value||null,
     });
     if(r.success){showBMsg('✓ Bloqueio registrado em '+key+'. Atualizando lista…','ok');clearBloqueioForm();setTimeout(()=>loadBloqueados(),3000);}
     else showBMsg('Erro: '+(r.erro||JSON.stringify(r)),'err');
@@ -2630,6 +2692,234 @@ async function sendChat(){
     addChatMsg('Erro de conexão: '+e.message+'\n\n💡 O motor local responde sem API — tente perguntas sobre vencidos, séries, responsáveis, categorias ou peça um **resumo**.',false);
   }
   btn.disabled=false;
+}
+
+// ════════════════════════════════════════════════════════════════
+// GANTT CHART
+// ════════════════════════════════════════════════════════════════
+const G_ROW=36, G_HDR=52, G_BAR_H=20, G_BAR_Y=8;
+const G_STATUS_CLR={'A Fazer':'#60a5fa','Fazendo':'#f59e0b','Feito':'#22d37a'};
+const G_DEPT_CLR=['#22d37a','#60a5fa','#f59e0b','#f05252','#a78bfa','#34d399','#fb923c','#e879f9','#38bdf8','#fbbf24','#84cc16','#06b6d4'];
+let _gDeptMap={};
+
+function initGantt(){
+  const msg=document.getElementById('ganttMsg');
+  if(!allTasks.length){
+    msg.textContent='Sem dados. Acesse o Dashboard primeiro para carregar as tarefas do Jira.';
+    msg.style.display='block';
+    document.getElementById('ganttWrap').style.display='none';
+    return;
+  }
+  // Build dept filter
+  const depts=[...new Set(allTasks.map(t=>t['Campo personalizado (Departamento)']).filter(Boolean))].sort();
+  const fD=document.getElementById('gFDept');
+  fD.innerHTML='<option value="all">Todos departamentos</option>'+depts.map(d=>`<option value="${d}">${d}</option>`).join('');
+  depts.forEach((d,i)=>{ _gDeptMap[d]=G_DEPT_CLR[i%G_DEPT_CLR.length]; });
+  renderGantt();
+}
+
+function renderGantt(){
+  const dept=document.getElementById('gFDept').value;
+  const status=document.getElementById('gFStatus').value;
+  const periodo=document.getElementById('gFPeriod').value;
+  const busca=(document.getElementById('gFBusca').value||'').toLowerCase().trim();
+  const ppd=parseInt(document.getElementById('gFZoom').value)||4; // px per day
+  const colorBy=document.getElementById('gFColor').value;
+
+  const today=new Date(); today.setHours(0,0,0,0);
+
+  let tasks=allTasks.filter(t=>{
+    if(!t._startDt&&!t._dlDt) return false;
+    if(dept!=='all'&&t['Campo personalizado (Departamento)']!==dept) return false;
+    if(status!=='all'&&t['Status']!==status) return false;
+    if(busca){
+      const k=(t['Chave da item']||'').toLowerCase();
+      const r=(t['Resumo']||'').toLowerCase();
+      if(!k.includes(busca)&&!r.includes(busca)) return false;
+    }
+    return true;
+  });
+
+  // Period window filter
+  if(periodo!=='all'){
+    const [b,f]=periodo.split(',').map(Number);
+    const wS=new Date(today); wS.setMonth(wS.getMonth()+b);
+    const wE=new Date(today); wE.setMonth(wE.getMonth()+f);
+    tasks=tasks.filter(t=>{
+      const s=t._startDt||t._dlDt;
+      const e=t._dlDt||t._startDt;
+      return s<=wE&&e>=wS;
+    });
+  }
+
+  const msg=document.getElementById('ganttMsg');
+  const wrap=document.getElementById('ganttWrap');
+  if(!tasks.length){
+    msg.textContent='Nenhuma tarefa encontrada para os filtros selecionados.';
+    msg.style.display='block'; wrap.style.display='none'; return;
+  }
+  msg.style.display='none'; wrap.style.display='block';
+
+  // Sort by start date
+  tasks.sort((a,b)=>{
+    const sa=(a._startDt||a._dlDt||new Date(9999,0,1)).getTime();
+    const sb=(b._startDt||b._dlDt||new Date(9999,0,1)).getTime();
+    return sa-sb;
+  });
+
+  // Date range
+  const allS=tasks.map(t=>t._startDt||t._dlDt).filter(Boolean);
+  const allE=tasks.map(t=>t._dlDt||t._startDt).filter(Boolean);
+  let minD=new Date(Math.min(...allS)); minD.setDate(minD.getDate()-14); minD.setHours(0,0,0,0);
+  let maxD=new Date(Math.max(...allE)); maxD.setDate(maxD.getDate()+28); maxD.setHours(0,0,0,0);
+  // Always include today
+  if(today<minD) minD=new Date(today.getTime()-14*86400000);
+  if(today>maxD) maxD=new Date(today.getTime()+28*86400000);
+
+  const totalDays=Math.ceil((maxD-minD)/86400000);
+  const svgW=totalDays*ppd;
+  const svgH=G_HDR+tasks.length*G_ROW;
+
+  // CSS vars
+  const cs=getComputedStyle(document.documentElement);
+  const cBg=cs.getPropertyValue('--bg').trim()||'#0f172a';
+  const cBg2=cs.getPropertyValue('--bg2').trim()||'#1e293b';
+  const cBg3=cs.getPropertyValue('--bg3').trim()||'#263347';
+  const cTxt=cs.getPropertyValue('--text').trim()||'#e2e8f0';
+  const cTxt2=cs.getPropertyValue('--text2').trim()||'#94a3b8';
+  const cBdr=cs.getPropertyValue('--border2').trim()||'#334155';
+
+  // Month grid
+  const months=[];
+  let mc=new Date(minD); mc.setDate(1);
+  while(mc<=maxD){
+    const x=Math.max(0,Math.round((mc-minD)/86400000*ppd));
+    months.push({x, lbl:mc.toLocaleDateString('pt-BR',{month:'short',year:'2-digit'})});
+    mc.setMonth(mc.getMonth()+1);
+  }
+
+  let svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}" style="display:block;font-family:'IBM Plex Sans',sans-serif">`;
+  svg+=`<rect width="${svgW}" height="${svgH}" fill="${cBg}"/>`;
+  svg+=`<rect width="${svgW}" height="${G_HDR}" fill="${cBg3}"/>`;
+
+  // Month vertical lines + labels
+  months.forEach((m,i)=>{
+    const nx=months[i+1]?months[i+1].x:svgW;
+    const cx=m.x+(nx-m.x)/2;
+    svg+=`<line x1="${m.x}" y1="0" x2="${m.x}" y2="${svgH}" stroke="${cBdr}" stroke-width="1" opacity="0.6"/>`;
+    svg+=`<text x="${cx}" y="${G_HDR/2+5}" text-anchor="middle" fill="${cTxt2}" font-size="11" font-weight="600">${m.lbl}</text>`;
+  });
+
+  // Row backgrounds + lines
+  tasks.forEach((_,i)=>{
+    const y=G_HDR+i*G_ROW;
+    if(i%2===0) svg+=`<rect x="0" y="${y}" width="${svgW}" height="${G_ROW}" fill="${cBg2}" opacity="0.45"/>`;
+    svg+=`<line x1="0" y1="${y+G_ROW}" x2="${svgW}" y2="${y+G_ROW}" stroke="${cBdr}" stroke-width="1" opacity="0.25"/>`;
+  });
+
+  // Today line
+  const todX=Math.round((today-minD)/86400000*ppd);
+  if(todX>=0&&todX<=svgW){
+    svg+=`<line x1="${todX}" y1="0" x2="${todX}" y2="${svgH}" stroke="#f05252" stroke-width="2" opacity="0.9"/>`;
+    svg+=`<rect x="${todX-18}" y="3" width="36" height="16" rx="4" fill="#f05252"/>`;
+    svg+=`<text x="${todX}" y="14" text-anchor="middle" fill="white" font-size="9" font-weight="700">HOJE</text>`;
+  }
+
+  // Bars
+  tasks.forEach((t,i)=>{
+    const y=G_HDR+i*G_ROW;
+    const s=t._startDt||(t._dlDt?new Date(t._dlDt.getTime()-30*86400000):null);
+    const e=t._dlDt||t._startDt;
+    if(!s||!e) return;
+
+    const x1=Math.round((s-minD)/86400000*ppd);
+    const x2=Math.round((e-minD)/86400000*ppd);
+    const bw=Math.max(x2-x1,6);
+    const by=y+G_BAR_Y;
+    const key=t['Chave da item']||'';
+    const isBlk=(t['Labels']||'').includes('bloqueado');
+    let clr=isBlk?'#f05252':(colorBy==='dept'?(_gDeptMap[t['Campo personalizado (Departamento)']]||'#60a5fa'):(G_STATUS_CLR[t['Status']]||'#60a5fa'));
+
+    // Bar background (dim)
+    svg+=`<rect x="${x1}" y="${by}" width="${bw}" height="${G_BAR_H}" rx="4" fill="${clr}" opacity="0.35"/>`;
+    // Progress fill
+    let pw=bw;
+    if(t['Status']==='Fazendo'){
+      const el=Math.max(0,Math.min(Date.now(),e.getTime())-s.getTime());
+      const tot=Math.max(1,e.getTime()-s.getTime());
+      pw=Math.max(4,Math.round(bw*el/tot));
+    } else if(t['Status']!=='Feito'){
+      pw=0;
+    }
+    if(pw>0) svg+=`<rect x="${x1}" y="${by}" width="${pw}" height="${G_BAR_H}" rx="4" fill="${clr}" opacity="0.9"/>`;
+    // Key label
+    if(bw>50) svg+=`<text x="${x1+6}" y="${by+G_BAR_H/2+4}" fill="white" font-size="10" font-weight="600" opacity="0.9">${key}</text>`;
+    // Clickable overlay
+    svg+=`<rect x="${x1-2}" y="${by-2}" width="${bw+4}" height="${G_BAR_H+4}" rx="5" fill="transparent" stroke="${clr}" stroke-width="0" style="cursor:pointer" onclick="ganttClick('${key}')"
+      onmouseover="this.setAttribute('stroke-width','2')" onmouseout="this.setAttribute('stroke-width','0')"/>`;
+    // Full row click area
+    svg+=`<rect x="0" y="${y}" width="${svgW}" height="${G_ROW}" fill="transparent" style="cursor:pointer" onclick="ganttClick('${key}')"/>`;
+  });
+
+  svg+='</svg>';
+  document.getElementById('ganttSvg').outerHTML=svg;
+
+  // Left rows
+  const br=getComputedStyle(document.documentElement).getPropertyValue('--border2').trim();
+  document.getElementById('gLeftRows').innerHTML=tasks.map((t,i)=>{
+    const key=t['Chave da item']||'';
+    const name=t['Resumo']||'';
+    const isBlk=(t['Labels']||'').includes('bloqueado');
+    const clr=isBlk?'#f05252':(G_STATUS_CLR[t['Status']]||'#60a5fa');
+    const bg=i%2===0?'background:var(--bg2)':'';
+    return `<div onclick="ganttClick('${key.replace(/'/g,"\\'")}') "
+      style="height:${G_ROW}px;display:flex;align-items:center;padding:0 10px;cursor:pointer;border-bottom:1px solid ${br}33;gap:7px;${bg};box-sizing:border-box;flex-shrink:0"
+      onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='${i%2===0?'var(--bg2)':''}'">
+      <div style="width:3px;height:22px;border-radius:2px;flex-shrink:0;background:${clr}"></div>
+      <div style="min-width:0;flex:1;overflow:hidden">
+        <div style="font-size:10px;font-weight:700;color:var(--text2);font-family:'IBM Plex Mono',monospace;line-height:1.2">${key}</div>
+        <div style="font-size:11px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3">${name}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('ganttMeta').textContent=`${tasks.length} projetos no período`;
+}
+
+function ganttClick(key){
+  const t=allTasks.find(x=>x['Chave da item']===key);
+  if(!t) return;
+  const det=document.getElementById('ganttDetail');
+  const status=t['Status']||'—';
+  const sc=G_STATUS_CLR[status]||'#60a5fa';
+  const dept=t['Campo personalizado (Departamento)']||'—';
+  const start=t['Campo personalizado (Start date)']||'—';
+  const due=t['Data limite']||'—';
+  const assignee=t['Responsável']||t['Assignee']||'—';
+  const isBlk=(t['Labels']||'').includes('bloqueado');
+  const overdue=t._dlDt&&t._dlDt<new Date()&&status!=='Feito';
+  det.style.display='block';
+  det.innerHTML=`
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
+      <div style="flex:1;min-width:220px">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+          <span style="font-size:11px;font-weight:700;color:var(--text2);font-family:'IBM Plex Mono',monospace">${key}</span>
+          <span style="background:${sc}22;color:${sc};border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700">${status}</span>
+          ${isBlk?'<span style="background:#f0525222;color:#f05252;border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700">🚧 bloqueado</span>':''}
+          ${overdue?'<span style="background:#f0525222;color:#f05252;border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700">⚠ fora do prazo</span>':''}
+        </div>
+        <div style="font-size:14px;font-weight:600;color:var(--text);line-height:1.4;margin-bottom:10px">${t['Resumo']||'—'}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--text2)">
+          <span>🏢 <strong style="color:var(--text)">${dept}</strong></span>
+          <span>📅 Início: <strong style="color:var(--text)">${start}</strong></span>
+          <span>🏁 Limite: <strong style="color:var(--text)">${due}</strong></span>
+          <span>👤 <strong style="color:var(--text)">${assignee}</strong></span>
+        </div>
+      </div>
+      <button onclick="document.getElementById('ganttDetail').style.display='none'"
+        style="background:transparent;border:1px solid var(--border2);border-radius:6px;padding:4px 10px;color:var(--text2);cursor:pointer;font-size:11px;flex-shrink:0">✕</button>
+    </div>`;
+  det.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 
 // ════════════════════════════════════════════════════════════════
