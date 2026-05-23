@@ -3101,7 +3101,7 @@ function renderGantt(){
     mc.setMonth(mc.getMonth()+1);
   }
 
-  let svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${totalH}" style="display:block;font-family:'IBM Plex Sans',sans-serif">`;
+  let svg=`<svg id="ganttSvg" xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${totalH}" style="display:block;font-family:'IBM Plex Sans',sans-serif">`;
   svg+=`<rect width="${svgW}" height="${totalH}" fill="${cBg}"/>`;
   svg+=`<rect width="${svgW}" height="${G_HDR}" fill="${cBg3}"/>`;
   months.forEach((m,i)=>{
