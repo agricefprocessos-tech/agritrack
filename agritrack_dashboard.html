@@ -834,8 +834,8 @@ tr:hover td{background:rgba(255,255,255,0.02)}
         </div>
       </div>
 
-      <!-- Charts row -->
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:16px">
+      <!-- Charts row 1 -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px">
         <div class="card" style="padding:16px">
           <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">Itens por Responsável</div>
           <canvas id="cmpChartResp" height="200"></canvas>
@@ -843,6 +843,21 @@ tr:hover td{background:rgba(255,255,255,0.02)}
         <div class="card" style="padding:16px">
           <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">Distribuição por Finalidade</div>
           <canvas id="cmpChartFinal" height="200"></canvas>
+        </div>
+        <div class="card" style="padding:16px">
+          <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">Previsão de Vencimentos (12 semanas)</div>
+          <canvas id="cmpChartPrev" height="200"></canvas>
+        </div>
+      </div>
+      <!-- Charts row 2 -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:16px">
+        <div class="card" style="padding:16px">
+          <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">Aging — Atraso dos Vencidos</div>
+          <canvas id="cmpChartAging" height="200"></canvas>
+        </div>
+        <div class="card" style="padding:16px">
+          <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">Top Solicitantes por Volume</div>
+          <canvas id="cmpChartSolic" height="200"></canvas>
         </div>
         <div class="card" style="padding:16px">
           <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">Entregas por Mês</div>
@@ -1827,7 +1842,7 @@ let _comprasCarregado=false;
 let _comprasTabs=[];          // [{name, gid, rows, headers}]
 let _comprasTabAtiva='all';   // 'all' ou nome da aba
 let _cmpModalData=[];         // índice→row para o modal
-let _cmpChartResp=null, _cmpChartFinal=null, _cmpChartMes=null;
+let _cmpChartResp=null, _cmpChartFinal=null, _cmpChartMes=null, _cmpChartAging=null, _cmpChartPrev=null, _cmpChartSolic=null;
 
 // Categorias operacionais — usadas no swim lane E no filtro de categoria
 const CMP_CATS=[
@@ -2363,33 +2378,94 @@ function renderComprasKPIs(){
 
 function renderComprasCharts(){
   const COLORS=['#22d37a','#60a5fa','#f59e0b','#a78bfa','#f05252','#34d399','#fb923c','#e879f9','#38bdf8','#fbbf24'];
+  const tickCfg={color:'#8b95a5',font:{size:10}};
+  const gridCfg={color:'rgba(255,255,255,0.05)'};
   const respKey=cmpKey('respons');
   const finalKey=cmpKey('finalid');
   const dtKey=cmpKey('desejada','entrega','prazo');
+  const solicKey=cmpKey('solicit','requerent','usuario','requisit');
+  const hoje=new Date(); hoje.setHours(0,0,0,0);
 
-  // — Chart 1: Itens por Responsável (top 8 barras) —
+  // — Chart 1: Itens por Responsável —
   const respCount={};
   _comprasFilt.forEach(r=>{ const v=(r[respKey]||'Sem responsável').trim(); respCount[v]=(respCount[v]||0)+1; });
   const respEntries=Object.entries(respCount).sort((a,b)=>b[1]-a[1]).slice(0,8);
-  if(_cmpChartResp) _cmpChartResp.destroy();
+  if(_cmpChartResp)_cmpChartResp.destroy();
   _cmpChartResp=new Chart(document.getElementById('cmpChartResp'),{
     type:'bar',
     data:{labels:respEntries.map(e=>e[0]),datasets:[{data:respEntries.map(e=>e[1]),backgroundColor:COLORS,borderRadius:4,borderSkipped:false}]},
-    options:{indexAxis:'y',responsive:true,plugins:{legend:{display:false}},scales:{x:{grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'#8b95a5',font:{size:10}}},y:{grid:{display:false},ticks:{color:'#cdd6f4',font:{size:10}}}}}
+    options:{indexAxis:'y',responsive:true,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${c.raw} itens`}}},scales:{x:{grid:gridCfg,ticks:tickCfg},y:{grid:{display:false},ticks:{...tickCfg,color:'#cdd6f4'}}}}
   });
 
   // — Chart 2: Distribuição por Finalidade (doughnut) —
   const finalCount={};
   _comprasFilt.forEach(r=>{ const v=(r[finalKey]||'Sem finalidade').trim(); finalCount[v]=(finalCount[v]||0)+1; });
   const finalEntries=Object.entries(finalCount).sort((a,b)=>b[1]-a[1]).slice(0,8);
-  if(_cmpChartFinal) _cmpChartFinal.destroy();
+  if(_cmpChartFinal)_cmpChartFinal.destroy();
   _cmpChartFinal=new Chart(document.getElementById('cmpChartFinal'),{
     type:'doughnut',
-    data:{labels:finalEntries.map(e=>e[0]),datasets:[{data:finalEntries.map(e=>e[1]),backgroundColor:COLORS,borderWidth:0}]},
-    options:{responsive:true,cutout:'65%',plugins:{legend:{position:'right',labels:{color:'#8b95a5',font:{size:9},boxWidth:10}}}}
+    data:{labels:finalEntries.map(e=>e[0]),datasets:[{data:finalEntries.map(e=>e[1]),backgroundColor:COLORS,borderWidth:0,hoverOffset:6}]},
+    options:{responsive:true,cutout:'60%',plugins:{legend:{position:'right',labels:{color:'#8b95a5',font:{size:9},boxWidth:10,padding:6}}}}
   });
 
-  // — Chart 3: Entregas por mês —
+  // — Chart 3: Previsão de Vencimentos — próximas 12 semanas —
+  const semCount={}; const semLabel={};
+  for(let i=0;i<12;i++){
+    const ini=new Date(hoje); ini.setDate(hoje.getDate()+i*7);
+    const fim=new Date(ini); fim.setDate(ini.getDate()+6);
+    const k=`W${String(i).padStart(2,'0')}`;
+    semCount[k]=0;
+    semLabel[k]=`${ini.getDate().toString().padStart(2,'0')}/${(ini.getMonth()+1).toString().padStart(2,'0')}`;
+  }
+  _comprasFilt.forEach(row=>{
+    const dt=parseDate(row[dtKey]);
+    if(!dt||dt<hoje) return;
+    const diffD=Math.floor((dt-hoje)/86400000);
+    const semIdx=Math.floor(diffD/7);
+    if(semIdx<12){ const k=`W${String(semIdx).padStart(2,'0')}`; semCount[k]=(semCount[k]||0)+1; }
+  });
+  const semKeys=Object.keys(semCount).sort();
+  const semVals=semKeys.map(k=>semCount[k]);
+  const semColors=semKeys.map((_,i)=>i<2?'rgba(245,158,11,0.8)':i<4?'rgba(96,165,250,0.7)':'rgba(96,165,250,0.35)');
+  if(_cmpChartPrev)_cmpChartPrev.destroy();
+  _cmpChartPrev=new Chart(document.getElementById('cmpChartPrev'),{
+    type:'bar',
+    data:{labels:semKeys.map(k=>semLabel[k]),datasets:[{label:'Vencimentos',data:semVals,backgroundColor:semColors,borderRadius:3}]},
+    options:{responsive:true,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.raw} itens`}}},scales:{x:{grid:{display:false},ticks:{...tickCfg,maxRotation:45}},y:{grid:gridCfg,ticks:tickCfg,beginAtZero:true}}}
+  });
+
+  // — Chart 4: Aging dos vencidos —
+  const agingBuckets={'≤ 7 dias':0,'8–30 dias':0,'31–60 dias':0,'61–90 dias':0,'> 90 dias':0};
+  _comprasFilt.forEach(row=>{
+    const dt=parseDate(row[dtKey]);
+    if(!dt||dt>=hoje) return;
+    const d=Math.floor((hoje-dt)/86400000);
+    if(d<=7)agingBuckets['≤ 7 dias']++;
+    else if(d<=30)agingBuckets['8–30 dias']++;
+    else if(d<=60)agingBuckets['31–60 dias']++;
+    else if(d<=90)agingBuckets['61–90 dias']++;
+    else agingBuckets['> 90 dias']++;
+  });
+  if(_cmpChartAging)_cmpChartAging.destroy();
+  _cmpChartAging=new Chart(document.getElementById('cmpChartAging'),{
+    type:'bar',
+    data:{labels:Object.keys(agingBuckets),datasets:[{data:Object.values(agingBuckets),backgroundColor:['#f59e0b','#fb923c','#f05252','#e11d48','#be185d'],borderRadius:4,borderSkipped:false}]},
+    options:{indexAxis:'y',responsive:true,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.raw} itens vencidos`}}},scales:{x:{grid:gridCfg,ticks:tickCfg},y:{grid:{display:false},ticks:{...tickCfg,color:'#cdd6f4'}}}}
+  });
+
+  // — Chart 5: Top Solicitantes —
+  const solicCount={};
+  const sKey=solicKey||respKey;
+  _comprasFilt.forEach(r=>{ const v=(r[sKey]||'Não informado').trim(); solicCount[v]=(solicCount[v]||0)+1; });
+  const solicEntries=Object.entries(solicCount).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  if(_cmpChartSolic)_cmpChartSolic.destroy();
+  _cmpChartSolic=new Chart(document.getElementById('cmpChartSolic'),{
+    type:'bar',
+    data:{labels:solicEntries.map(e=>e[0]),datasets:[{data:solicEntries.map(e=>e[1]),backgroundColor:'rgba(167,139,250,0.7)',borderRadius:4,borderSkipped:false}]},
+    options:{indexAxis:'y',responsive:true,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.raw} solicitações`}}},scales:{x:{grid:gridCfg,ticks:tickCfg},y:{grid:{display:false},ticks:{...tickCfg,color:'#cdd6f4'}}}}
+  });
+
+  // — Chart 6: Entregas por mês (últimos 8 meses) —
   const mesCount={};
   _comprasFilt.forEach(row=>{
     const dt=parseDate(row[dtKey]);
@@ -2397,12 +2473,14 @@ function renderComprasCharts(){
     const k=dt.getFullYear()+'/'+(String(dt.getMonth()+1).padStart(2,'0'));
     mesCount[k]=(mesCount[k]||0)+1;
   });
-  const mesEntries=Object.entries(mesCount).sort((a,b)=>a[0].localeCompare(b[0])).slice(-8);
-  if(_cmpChartMes) _cmpChartMes.destroy();
+  const mesEntries=Object.entries(mesCount).sort((a,b)=>a[0].localeCompare(b[0])).slice(-10);
+  const mesNow=hoje.getFullYear()+'/'+(String(hoje.getMonth()+1).padStart(2,'0'));
+  const mesBgColors=mesEntries.map(([k])=>k<mesNow?'rgba(240,82,82,0.6)':k===mesNow?'rgba(245,158,11,0.75)':'rgba(96,165,250,0.65)');
+  if(_cmpChartMes)_cmpChartMes.destroy();
   _cmpChartMes=new Chart(document.getElementById('cmpChartMes'),{
     type:'bar',
-    data:{labels:mesEntries.map(e=>e[0].replace('/','/').replace(/(\d{4})\/(\d{2})/,'$2/$1')),datasets:[{data:mesEntries.map(e=>e[1]),backgroundColor:'rgba(96,165,250,0.7)',borderRadius:4}]},
-    options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:'#8b95a5',font:{size:10}}},y:{grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'#8b95a5',font:{size:10}}}}}
+    data:{labels:mesEntries.map(([k])=>k.replace(/(\d{4})\/(\d{2})/,'$2/$1')),datasets:[{data:mesEntries.map(e=>e[1]),backgroundColor:mesBgColors,borderRadius:4}]},
+    options:{responsive:true,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.raw} itens`}}},scales:{x:{grid:{display:false},ticks:{...tickCfg,maxRotation:45}},y:{grid:gridCfg,ticks:tickCfg}}}
   });
 }
 
@@ -3310,7 +3388,21 @@ function renderGantt(){
     }
   });
   svg+='</svg>';
-  document.getElementById('gRight').innerHTML=svg;
+  // ── Render SVG preservando scroll (scroll reseta no innerHTML) ─
+  {
+    const gR=document.getElementById('gRight');
+    const prevL=gR.scrollLeft, prevT=gR.scrollTop;
+    gR.innerHTML=svg;
+    if(prevL===0&&prevT===0){
+      // Primeiro render: auto-scroll para mostrar HOJE centralizado
+      gR.scrollLeft=Math.max(0,todX-Math.round(gR.clientWidth*0.35));
+    } else {
+      // Re-render (toggle/filtro): preserva posição
+      gR.scrollLeft=prevL;
+      gR.scrollTop=prevT;
+      document.getElementById('gLeftRows').scrollTop=prevT;
+    }
+  }
 
   // ── Left panel ────────────────────────────────────────────────
   const br=getComputedStyle(document.documentElement).getPropertyValue('--border2').trim();
