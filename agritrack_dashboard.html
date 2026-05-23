@@ -705,6 +705,12 @@ tr:hover td{background:rgba(255,255,255,0.02)}
       <!-- Seletor de Abas -->
       <div id="comprasTabSelector" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"></div>
 
+      <!-- Painel CCC — exibido quando PV=CCC detectado -->
+      <div id="comprasCCCPanel" class="card" style="display:none;padding:16px;margin-bottom:16px;border:1px solid rgba(245,158,11,0.35);background:rgba(245,158,11,0.04)"></div>
+
+      <!-- KPIs por Aba — substituídos conforme aba ativa -->
+      <div id="comprasTabKPIs" style="display:none;margin-bottom:14px"></div>
+
       <!-- KPIs -->
       <div class="krow" style="grid-template-columns:repeat(5,1fr);margin-bottom:16px" id="comprasKpiRow">
         <div class="kpi"><div class="kl">Total de Itens</div><div class="kv" id="kCmpTotal">—</div><div class="kn" id="kCmpTotalN">solicitações</div><div class="kb" id="kCmpTotalB" style="width:100%"></div></div>
@@ -902,7 +908,13 @@ async function autoFetch(){
 
 function processData(data){
   // Separa tarefas e subtarefas — TODAS as tarefas são incluídas (com ou sem subtarefas)
-  allSubs=data.filter(x=>x['Tipo de item']==='Subtarefa');
+  allSubs=data.filter(x=>x['Tipo de item']==='Subtarefa').map(s=>{
+    s._plannedStartDt=pd(s['Campo personalizado (Start date)']);
+    s._plannedEndDt  =pd(s['Data limite']);
+    s._actualStartDt =pd(s['Campo personalizado (Início real)']);
+    s._actualEndDt   =pd(s['Campo personalizado (Fim real)']);
+    return s;
+  });
   allTasks=data.filter(x=>x['Tipo de item']==='Tarefa');
   // Calcula max(Data limite subtarefas) por tarefa pai — igual ao Power Query
   const maxSubDL={};
@@ -1835,10 +1847,202 @@ function _populaFiltros(){
 }
 
 function _renderTudo(){
+  renderCCCPanel();
+  renderTabKPIs();
   renderComprasKPIs();
   renderComprasCharts();
   renderComprasSwimLanes();
   renderComprasTable();
+}
+
+// ── Painel CCC — compras em Cartão de Crédito ─────────────────
+function renderCCCPanel(){
+  const el=document.getElementById('comprasCCCPanel');
+  if(!el)return;
+  const pvK=_comprasHeaders.find(h=>/\bpv\b/i.test(h))||_comprasHeaders.find(h=>/^pv/i.test(h))||'';
+  if(!pvK){el.style.display='none';return;}
+  // Sempre lê do conjunto completo de abas reais (não afetado pelo filtro de aba)
+  const allReal=[];
+  _comprasTabs.filter(t=>!t.virtual).forEach(t=>t.rows.forEach(r=>allReal.push({...r,_tab:t.name})));
+  const ccc=allReal.filter(r=>(r[pvK]||'').toUpperCase().includes('CCC'));
+  if(!ccc.length){el.style.display='none';return;}
+  el.style.display='block';
+
+  const hoje=new Date();hoje.setHours(0,0,0,0);
+  const dtK=cmpKey('desejada','entrega','prazo');
+  const respK=cmpKey('respons');
+  const solK=cmpKey('solicit');
+  const descK=cmpKey('descri','item','produto');
+  const solDateK=cmpKey('solicitac','data sol','dt sol');
+  const statusK=cmpKey('status','situac','situação');
+
+  const total=ccc.length;
+  const totalAll=allReal.length;
+  const pct=totalAll>0?((total/totalAll)*100).toFixed(1):'0.0';
+  const vencidos=ccc.filter(r=>{const d=parseDate(r[dtK]);return d&&d<hoje;}).length;
+  const em7=new Date(hoje);em7.setDate(hoje.getDate()+7);
+  const prox7=ccc.filter(r=>{const d=parseDate(r[dtK]);return d&&d>=hoje&&d<=em7;}).length;
+  const sols=new Set(ccc.map(r=>(r[solK]||r[respK]||'').trim()).filter(Boolean));
+
+  // Lead time médio
+  const leads=[];
+  ccc.forEach(r=>{const dS=parseDate(r[solDateK]);const dE=parseDate(r[dtK]);if(dS&&dE&&dE>dS)leads.push(Math.round((dE-dS)/864e5));});
+  const avgLead=leads.length?Math.round(leads.reduce((a,b)=>a+b,0)/leads.length):null;
+
+  // Trend mensal
+  const byMes={};
+  ccc.forEach(r=>{const d=parseDate(r[solDateK]||r[dtK]);if(!d)return;const k=d.getFullYear()*100+(d.getMonth()+1);byMes[k]=(byMes[k]||0)+1;});
+  const mesArr=Object.entries(byMes).sort((a,b)=>a[0]-b[0]);
+  const trending=mesArr.length>=2&&mesArr[mesArr.length-1][1]>mesArr[mesArr.length-2][1];
+
+  // Top solicitantes
+  const bySol={};
+  ccc.forEach(r=>{const s=(r[solK]||r[respK]||'N/D').trim();bySol[s]=(bySol[s]||0)+1;});
+  const topSol=Object.entries(bySol).sort((a,b)=>b[1]-a[1]).slice(0,4);
+
+  // Itens mais urgentes (vencidos + próximos)
+  const urgentes=[...ccc].sort((a,b)=>{
+    const da=parseDate(a[dtK]); const db=parseDate(b[dtK]);
+    if(!da&&!db)return 0;if(!da)return 1;if(!db)return -1;return da-db;
+  }).slice(0,6);
+
+  const alertClr=vencidos>0?'#ef4444':parseFloat(pct)>15?'#f59e0b':'#60a5fa';
+  el.innerHTML=`
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+    <div>
+      <div style="font-size:13px;font-weight:700;color:var(--text);display:flex;align-items:center;gap:8px">
+        💳 Compras em Cartão de Crédito (CCC)
+        ${trending?`<span style="background:#ef444422;color:#ef4444;border-radius:8px;padding:2px 8px;font-size:10px;font-weight:700">📈 volume crescente</span>`:`<span style="background:#22d37a22;color:#22d37a;border-radius:8px;padding:2px 8px;font-size:10px;font-weight:700">✓ estável</span>`}
+      </div>
+      <div style="font-size:11px;color:var(--text2);margin-top:3px">Itens com PV "CCC" — sem PO formal · risco de compliance · requerem atenção do gestor</div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px">
+    <div class="kpi ${vencidos>0?'r':''}"><div class="kl">Total CCC</div><div class="kv">${total}</div><div class="kn">${pct}% de todas compras</div><div class="kb" style="width:${Math.min(parseFloat(pct)*3,100)}%"></div></div>
+    <div class="kpi ${vencidos>0?'r':'g'}"><div class="kl">Vencidos CCC</div><div class="kv">${vencidos}</div><div class="kn">${vencidos>0?'⚠ comprovante pendente?':'sem atrasos ✓'}</div><div class="kb" style="width:${total?Math.round(vencidos/total*100):0}%"></div></div>
+    <div class="kpi ${prox7>0?'a':''}"><div class="kl">Vence em 7d</div><div class="kv">${prox7}</div><div class="kn">requerem follow-up</div><div class="kb a" style="width:${total?Math.round(prox7/total*100):0}%"></div></div>
+    <div class="kpi"><div class="kl">Solicitantes</div><div class="kv g">${sols.size}</div><div class="kn">usuários distintos</div><div class="kb g" style="width:60%"></div></div>
+    <div class="kpi ${avgLead&&avgLead>21?'a':''}"><div class="kl">Lead Time</div><div class="kv">${avgLead!==null?avgLead+'d':'—'}</div><div class="kn">${avgLead&&avgLead>21?'acima do esperado':'sol. → entrega'}</div><div class="kb" style="width:${avgLead?Math.min(avgLead/45*100,100):0}%"></div></div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+    <div>
+      <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Top solicitantes CCC</div>
+      ${topSol.map(([n,c])=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <div style="flex:1;font-size:11px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(n.split(' ').slice(0,2).join(' '))}</div>
+        <div style="background:${alertClr}22;color:${alertClr};border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700;flex-shrink:0">${c} item${c>1?'s':''}</div>
+      </div>`).join('')}
+    </div>
+    <div>
+      <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Itens CCC mais urgentes</div>
+      ${urgentes.map(r=>{
+        const d=parseDate(r[dtK]); const isV=d&&d<hoje;
+        const desc=(r[descK]||'').trim();
+        const dStr=d?d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}):'s/d';
+        const pv=(r[pvK]||'').trim();
+        return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;padding:5px 8px;background:var(--bg3);border-radius:5px;border-left:3px solid ${isV?'#ef4444':'#f59e0b'}">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:11px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(desc.length>28?desc.slice(0,28)+'…':desc||'—')}</div>
+            <div style="font-size:9px;color:var(--text3)">${esc(pv)}</div>
+          </div>
+          <span style="color:${isV?'#ef4444':'#f59e0b'};font-size:10px;font-weight:700;flex-shrink:0">${dStr}</span>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+// ── KPIs específicos por aba ──────────────────────────────────
+function renderTabKPIs(){
+  const el=document.getElementById('comprasTabKPIs');
+  if(!el)return;
+  const tab=_comprasTabAtiva;
+  if(tab==='all'||tab.includes('CCC')){el.style.display='none';return;}
+  const tabL=tab.toLowerCase();
+
+  const hoje=new Date();hoje.setHours(0,0,0,0);
+  const dtK=cmpKey('desejada','entrega','prazo');
+  const solDateK=cmpKey('solicitac','data sol','dt sol');
+  const respK=cmpKey('respons');
+  const frnK=cmpKey('fornecedor','forn');
+  const statusK=cmpKey('status','situac','situação');
+  const data=_comprasFilt;
+
+  let html='';
+
+  if(tabL.includes('solicit')){
+    // ── Aba Solicitações ─────────────────────────────
+    const semResp=data.filter(r=>!((r[respK]||'').trim())).length;
+    const semData=data.filter(r=>!parseDate(r[dtK])).length;
+    const uma=new Date(hoje);uma.setDate(hoje.getDate()-7);
+    const novos=data.filter(r=>{const d=parseDate(r[solDateK]);return d&&d>=uma;}).length;
+    const idades=data.map(r=>{const d=parseDate(r[solDateK]);return d?Math.round((hoje-d)/864e5):null;}).filter(v=>v!==null);
+    const idadeMed=idades.length?Math.round(idades.reduce((a,b)=>a+b,0)/idades.length):null;
+    const emAtraso=data.filter(r=>{const d=parseDate(r[dtK]);return d&&d<hoje;}).length;
+
+    html=`<div class="card" style="padding:14px;margin-bottom:0;border-left:3px solid var(--amber)">
+      <div style="font-size:10px;font-weight:700;color:var(--amber);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">📋 Indicadores — Aba Solicitações</div>
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px">
+        <div class="kpi ${novos>0?'g':''}"><div class="kl">Novas (7d)</div><div class="kv">${novos}</div><div class="kn">solicitações recentes</div><div class="kb g" style="width:${Math.min(novos*8,100)}%"></div></div>
+        <div class="kpi ${semResp>0?'r':'g'}"><div class="kl">Sem Responsável</div><div class="kv">${semResp}</div><div class="kn">${semResp>0?'⚠ ação imediata!':'todos atribuídos ✓'}</div><div class="kb" style="width:${data.length?Math.round(semResp/data.length*100):0}%"></div></div>
+        <div class="kpi ${emAtraso>0?'r':'g'}"><div class="kl">Com Atraso</div><div class="kv">${emAtraso}</div><div class="kn">prazo desejado passou</div><div class="kb" style="width:${data.length?Math.round(emAtraso/data.length*100):0}%"></div></div>
+        <div class="kpi ${idadeMed&&idadeMed>21?'a':''}"><div class="kl">Idade Média</div><div class="kv">${idadeMed!==null?idadeMed+'d':'—'}</div><div class="kn">dias em aberto</div><div class="kb" style="width:${idadeMed?Math.min(idadeMed/45*100,100):0}%"></div></div>
+        <div class="kpi ${semData>5?'a':''}"><div class="kl">Sem Prazo</div><div class="kv">${semData}</div><div class="kn">sem data desejada</div><div class="kb" style="width:${data.length?Math.round(semData/data.length*100):0}%"></div></div>
+      </div>
+    </div>`;
+
+  }else if(tabL.includes('fup')||tabL.includes('follow')){
+    // ── Aba FUP ──────────────────────────────────────
+    const em7=new Date(hoje);em7.setDate(hoje.getDate()+7);
+    const vencidos=data.filter(r=>{const d=parseDate(r[dtK]);return d&&d<hoje;}).length;
+    const prox7=data.filter(r=>{const d=parseDate(r[dtK]);return d&&d>=hoje&&d<=em7;}).length;
+    const comData=data.filter(r=>!!parseDate(r[dtK]));
+    const taxaOnTime=comData.length>0?(((comData.length-vencidos)/comData.length)*100).toFixed(0):'—';
+    const emAnd=data.filter(r=>{const s=(r[statusK]||'').toLowerCase();return s.includes('andamento')||s.includes('parcial')||s.includes('processo');}).length;
+    const vByFrn={};
+    data.forEach(r=>{const d=parseDate(r[dtK]);if(d&&d<hoje){const f=(r[frnK]||'N/D').trim();vByFrn[f]=(vByFrn[f]||0)+1;}});
+    const topFrn=Object.entries(vByFrn).sort((a,b)=>b[1]-a[1])[0];
+    const tx=taxaOnTime!=='—'?parseFloat(taxaOnTime):100;
+
+    html=`<div class="card" style="padding:14px;margin-bottom:0;border-left:3px solid var(--blue)">
+      <div style="font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">📦 Indicadores — Aba FUP (Follow-up)</div>
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px">
+        <div class="kpi ${vencidos>0?'r':'g'}"><div class="kl">Atrasados</div><div class="kv">${vencidos}</div><div class="kn">${vencidos>0?'⚠ fornecedores em atraso':'entregas no prazo ✓'}</div><div class="kb" style="width:${comData.length?Math.round(vencidos/comData.length*100):0}%"></div></div>
+        <div class="kpi ${prox7>0?'a':''}"><div class="kl">Vence em 7d</div><div class="kv">${prox7}</div><div class="kn">follow-up urgente</div><div class="kb a" style="width:${comData.length?Math.round(prox7/comData.length*100):0}%"></div></div>
+        <div class="kpi"><div class="kl">Em Andamento</div><div class="kv">${emAnd}</div><div class="kn">em processo</div><div class="kb" style="width:${data.length?Math.round(emAnd/data.length*100):0}%"></div></div>
+        <div class="kpi ${tx<70?'r':tx<85?'a':'g'}"><div class="kl">Taxa On-Time</div><div class="kv">${taxaOnTime}%</div><div class="kn">entregas no prazo</div><div class="kb ${tx>=85?'g':tx>=70?'':''}" style="width:${tx}%"></div></div>
+        <div class="kpi ${topFrn?'r':'g'}"><div class="kl">Forn. Crítico</div><div class="kv" style="font-size:15px;line-height:1.2">${topFrn?esc(topFrn[0].split(' ')[0].slice(0,11)):'✓'}</div><div class="kn">${topFrn?topFrn[1]+' atraso(s)':'sem atrasos'}</div><div class="kb" style="width:${topFrn?65:0}%"></div></div>
+      </div>
+    </div>`;
+
+  }else if(tabL.includes('conclu')||tabL.includes('finaliz')||tabL.includes('encerr')){
+    // ── Aba Concluído ─────────────────────────────────
+    const dtEntK=cmpKey('data entrega','conclus','finaliz','entrega real') || dtK;
+    const leads=[];
+    data.forEach(r=>{const dS=parseDate(r[solDateK]);const dE=parseDate(r[dtEntK]);if(dS&&dE&&dE>dS)leads.push(Math.round((dE-dS)/864e5));});
+    const avgLead=leads.length?Math.round(leads.reduce((a,b)=>a+b,0)/leads.length):null;
+    const mesAt=hoje.getFullYear()*100+(hoje.getMonth()+1);
+    const mesAn=hoje.getMonth()===0?(hoje.getFullYear()-1)*100+12:hoje.getFullYear()*100+hoje.getMonth();
+    let cntAt=0,cntAn=0;
+    data.forEach(r=>{const d=parseDate(r[dtEntK]);if(!d)return;const m=d.getFullYear()*100+(d.getMonth()+1);if(m===mesAt)cntAt++;else if(m===mesAn)cntAn++;});
+    const varM=cntAn>0?((cntAt-cntAn)/cntAn*100).toFixed(0):null;
+    const byFrn={};
+    data.forEach(r=>{const f=(r[frnK]||'').trim();if(f)byFrn[f]=(byFrn[f]||0)+1;});
+    const topFrn=Object.entries(byFrn).sort((a,b)=>b[1]-a[1])[0];
+
+    html=`<div class="card" style="padding:14px;margin-bottom:0;border-left:3px solid var(--green)">
+      <div style="font-size:10px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">✅ Indicadores — Aba Concluído</div>
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px">
+        <div class="kpi g"><div class="kl">Total</div><div class="kv">${data.length}</div><div class="kn">itens concluídos</div><div class="kb g" style="width:100%"></div></div>
+        <div class="kpi g"><div class="kl">Este Mês</div><div class="kv">${cntAt}</div><div class="kn">${cntAn>0?'vs '+cntAn+' mês ant.':''}</div><div class="kb g" style="width:${Math.min(cntAt*8,100)}%"></div></div>
+        <div class="kpi ${varM!==null&&parseFloat(varM)<0?'a':'g'}"><div class="kl">Variação</div><div class="kv">${varM!==null?(parseFloat(varM)>0?'+':'')+varM+'%':'—'}</div><div class="kn">vs mês anterior</div><div class="kb" style="width:${varM!==null?Math.min(Math.abs(parseFloat(varM)),100):50}%"></div></div>
+        <div class="kpi"><div class="kl">Lead Time Médio</div><div class="kv">${avgLead!==null?avgLead+'d':'—'}</div><div class="kn">sol. → entrega</div><div class="kb" style="width:${avgLead?Math.min(avgLead/60*100,100):0}%"></div></div>
+        <div class="kpi g"><div class="kl">Top Fornecedor</div><div class="kv" style="font-size:15px;line-height:1.2">${topFrn?esc(topFrn[0].split(' ')[0].slice(0,11)):'—'}</div><div class="kn">${topFrn?topFrn[1]+' entregas':''}</div><div class="kb g" style="width:${topFrn?70:0}%"></div></div>
+      </div>
+    </div>`;
+  }
+
+  el.innerHTML=html;
+  el.style.display=html?'block':'none';
 }
 
 function renderComprasTabSelector(){
@@ -2697,10 +2901,47 @@ async function sendChat(){
 // ════════════════════════════════════════════════════════════════
 // GANTT CHART
 // ════════════════════════════════════════════════════════════════
-const G_ROW=36, G_HDR=52, G_BAR_H=20, G_BAR_Y=8;
+// ════════════════════════════════════════════════════════════════
+// GANTT v2 — 3-dates framework + subtask dropdown
+// ════════════════════════════════════════════════════════════════
+const G_ROW=42, G_SUB_ROW=30, G_HDR=52, G_BAR_H=20, G_BAR_Y=6;
 const G_STATUS_CLR={'A Fazer':'#60a5fa','Fazendo':'#f59e0b','Feito':'#22d37a'};
 const G_DEPT_CLR=['#22d37a','#60a5fa','#f59e0b','#f05252','#a78bfa','#34d399','#fb923c','#e879f9','#38bdf8','#fbbf24','#84cc16','#06b6d4'];
+// Cores por nome de subtarefa (fase)
+const G_PHASE_CLR={'preparac':'#a78bfa','compras':'#38bdf8','fabricac':'#34d399','pré-mont':'#fb923c','pre-mont':'#fb923c','montagens':'#f59e0b','montage':'#f59e0b','testes':'#22d37a','osti':'#e879f9','alongament':'#60a5fa'};
 let _gDeptMap={};
+let _ganttExpanded={}; // {key:true} — subtasks expanded
+
+function _ganttPhaseColor(name,status){
+  if(status==='Feito') return '#22d37a';
+  const n=(name||'').toLowerCase();
+  for(const [kw,c] of Object.entries(G_PHASE_CLR)) if(n.includes(kw)) return c;
+  return '#60a5fa';
+}
+
+// Builds flat rows list: parent rows + sub rows for expanded parents
+function _ganttBuildRows(tasks){
+  const byPai={};
+  allSubs.forEach(s=>{const p=s['Chave pai'];if(!p)return;if(!byPai[p])byPai[p]=[];byPai[p].push(s);});
+  const rows=[];
+  tasks.forEach(t=>{
+    const key=t['Chave da item'];
+    const subs=(byPai[key]||[]).sort((a,b)=>{
+      const sa=a._plannedStartDt||a._actualStartDt||new Date(9999,0);
+      const sb=b._plannedStartDt||b._actualStartDt||new Date(9999,0);
+      return sa-sb;
+    });
+    rows.push({type:'parent',task:t,subs,rowH:G_ROW});
+    if(_ganttExpanded[key]) subs.forEach(s=>rows.push({type:'sub',task:s,parentKey:key,rowH:G_SUB_ROW}));
+  });
+  return rows;
+}
+
+function ganttToggle(key,e){
+  if(e){e.stopPropagation();}
+  _ganttExpanded[key]=!_ganttExpanded[key];
+  renderGantt();
+}
 
 function initGantt(){
   const msg=document.getElementById('ganttMsg');
@@ -2710,7 +2951,6 @@ function initGantt(){
     document.getElementById('ganttWrap').style.display='none';
     return;
   }
-  // Build dept filter
   const depts=[...new Set(allTasks.map(t=>t['Campo personalizado (Departamento)']).filter(Boolean))].sort();
   const fD=document.getElementById('gFDept');
   fD.innerHTML='<option value="all">Todos departamentos</option>'+depts.map(d=>`<option value="${d}">${d}</option>`).join('');
@@ -2723,211 +2963,300 @@ function renderGantt(){
   const status=document.getElementById('gFStatus').value;
   const periodo=document.getElementById('gFPeriod').value;
   const busca=(document.getElementById('gFBusca').value||'').toLowerCase().trim();
-  const ppd=parseInt(document.getElementById('gFZoom').value)||4; // px per day
+  const ppd=parseInt(document.getElementById('gFZoom').value)||4;
   const colorBy=document.getElementById('gFColor').value;
-
   const today=new Date(); today.setHours(0,0,0,0);
 
   let tasks=allTasks.filter(t=>{
     if(!t._startDt&&!t._dlDt) return false;
     if(dept!=='all'&&t['Campo personalizado (Departamento)']!==dept) return false;
     if(status!=='all'&&t['Status']!==status) return false;
-    if(busca){
-      const k=(t['Chave da item']||'').toLowerCase();
-      const r=(t['Resumo']||'').toLowerCase();
-      if(!k.includes(busca)&&!r.includes(busca)) return false;
-    }
+    if(busca){const k=(t['Chave da item']||'').toLowerCase();const r=(t['Resumo']||'').toLowerCase();if(!k.includes(busca)&&!r.includes(busca))return false;}
     return true;
   });
-
-  // Period window filter
   if(periodo!=='all'){
     const [b,f]=periodo.split(',').map(Number);
-    const wS=new Date(today); wS.setMonth(wS.getMonth()+b);
-    const wE=new Date(today); wE.setMonth(wE.getMonth()+f);
-    tasks=tasks.filter(t=>{
-      const s=t._startDt||t._dlDt;
-      const e=t._dlDt||t._startDt;
-      return s<=wE&&e>=wS;
-    });
+    const wS=new Date(today);wS.setMonth(wS.getMonth()+b);
+    const wE=new Date(today);wE.setMonth(wE.getMonth()+f);
+    tasks=tasks.filter(t=>{const s=t._startDt||t._dlDt;const e=t._dlDt||t._startDt;return s<=wE&&e>=wS;});
   }
 
   const msg=document.getElementById('ganttMsg');
   const wrap=document.getElementById('ganttWrap');
-  if(!tasks.length){
-    msg.textContent='Nenhuma tarefa encontrada para os filtros selecionados.';
-    msg.style.display='block'; wrap.style.display='none'; return;
-  }
+  if(!tasks.length){msg.textContent='Nenhuma tarefa encontrada para os filtros selecionados.';msg.style.display='block';wrap.style.display='none';return;}
   msg.style.display='none'; wrap.style.display='block';
 
-  // Sort by start date
   tasks.sort((a,b)=>{
-    const sa=(a._startDt||a._dlDt||new Date(9999,0,1)).getTime();
-    const sb=(b._startDt||b._dlDt||new Date(9999,0,1)).getTime();
+    const sa=(a._startDt||a._dlDt||new Date(9999,0)).getTime();
+    const sb=(b._startDt||b._dlDt||new Date(9999,0)).getTime();
     return sa-sb;
   });
 
-  // Date range
-  const allS=tasks.map(t=>t._startDt||t._dlDt).filter(Boolean);
-  const allE=tasks.map(t=>t._dlDt||t._startDt).filter(Boolean);
-  let minD=new Date(Math.min(...allS)); minD.setDate(minD.getDate()-14); minD.setHours(0,0,0,0);
-  let maxD=new Date(Math.max(...allE)); maxD.setDate(maxD.getDate()+28); maxD.setHours(0,0,0,0);
-  // Always include today
-  if(today<minD) minD=new Date(today.getTime()-14*86400000);
-  if(today>maxD) maxD=new Date(today.getTime()+28*86400000);
+  const rows=_ganttBuildRows(tasks);
+
+  // Date range — include all 3 dates from parents + sub dates
+  const allDt=[];
+  rows.forEach(r=>{
+    const t=r.task;
+    [t._startDt,t._dlDt,pd(t['Campo personalizado (Data alvo)']),pd(t['Campo personalizado (Data Baseline)']),
+     t._plannedStartDt,t._plannedEndDt,t._actualStartDt,t._actualEndDt].forEach(d=>{if(d)allDt.push(d);});
+  });
+  if(!allDt.length)return;
+  let minD=new Date(Math.min(...allDt));minD.setDate(minD.getDate()-14);minD.setHours(0,0,0,0);
+  let maxD=new Date(Math.max(...allDt));maxD.setDate(maxD.getDate()+28);maxD.setHours(0,0,0,0);
+  if(today<minD)minD=new Date(today.getTime()-14*86400000);
+  if(today>maxD)maxD=new Date(today.getTime()+28*86400000);
 
   const totalDays=Math.ceil((maxD-minD)/86400000);
   const svgW=totalDays*ppd;
-  const svgH=G_HDR+tasks.length*G_ROW;
+  const totalH=G_HDR+rows.reduce((s,r)=>s+r.rowH,0);
 
-  // CSS vars
   const cs=getComputedStyle(document.documentElement);
   const cBg=cs.getPropertyValue('--bg').trim()||'#0f172a';
   const cBg2=cs.getPropertyValue('--bg2').trim()||'#1e293b';
   const cBg3=cs.getPropertyValue('--bg3').trim()||'#263347';
-  const cTxt=cs.getPropertyValue('--text').trim()||'#e2e8f0';
   const cTxt2=cs.getPropertyValue('--text2').trim()||'#94a3b8';
   const cBdr=cs.getPropertyValue('--border2').trim()||'#334155';
 
   // Month grid
   const months=[];
-  let mc=new Date(minD); mc.setDate(1);
+  let mc=new Date(minD);mc.setDate(1);
   while(mc<=maxD){
     const x=Math.max(0,Math.round((mc-minD)/86400000*ppd));
-    months.push({x, lbl:mc.toLocaleDateString('pt-BR',{month:'short',year:'2-digit'})});
+    months.push({x,lbl:mc.toLocaleDateString('pt-BR',{month:'short',year:'2-digit'})});
     mc.setMonth(mc.getMonth()+1);
   }
 
-  let svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}" style="display:block;font-family:'IBM Plex Sans',sans-serif">`;
-  svg+=`<rect width="${svgW}" height="${svgH}" fill="${cBg}"/>`;
+  let svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${totalH}" style="display:block;font-family:'IBM Plex Sans',sans-serif">`;
+  svg+=`<rect width="${svgW}" height="${totalH}" fill="${cBg}"/>`;
   svg+=`<rect width="${svgW}" height="${G_HDR}" fill="${cBg3}"/>`;
-
-  // Month vertical lines + labels
   months.forEach((m,i)=>{
     const nx=months[i+1]?months[i+1].x:svgW;
     const cx=m.x+(nx-m.x)/2;
-    svg+=`<line x1="${m.x}" y1="0" x2="${m.x}" y2="${svgH}" stroke="${cBdr}" stroke-width="1" opacity="0.6"/>`;
+    svg+=`<line x1="${m.x}" y1="0" x2="${m.x}" y2="${totalH}" stroke="${cBdr}" stroke-width="1" opacity="0.5"/>`;
     svg+=`<text x="${cx}" y="${G_HDR/2+5}" text-anchor="middle" fill="${cTxt2}" font-size="11" font-weight="600">${m.lbl}</text>`;
   });
 
-  // Row backgrounds + lines
-  tasks.forEach((_,i)=>{
-    const y=G_HDR+i*G_ROW;
-    if(i%2===0) svg+=`<rect x="0" y="${y}" width="${svgW}" height="${G_ROW}" fill="${cBg2}" opacity="0.45"/>`;
-    svg+=`<line x1="0" y1="${y+G_ROW}" x2="${svgW}" y2="${y+G_ROW}" stroke="${cBdr}" stroke-width="1" opacity="0.25"/>`;
+  // Row backgrounds
+  let rowY=G_HDR;
+  rows.forEach((r,i)=>{
+    const y=rowY;
+    if(r.type==='parent'){
+      if(i%2===0)svg+=`<rect x="0" y="${y}" width="${svgW}" height="${r.rowH}" fill="${cBg2}" opacity="0.4"/>`;
+    }else{
+      svg+=`<rect x="0" y="${y}" width="${svgW}" height="${r.rowH}" fill="${cBg3}" opacity="0.25"/>`;
+      svg+=`<line x1="0" y1="${y}" x2="${svgW}" y2="${y}" stroke="${cBdr}" stroke-width="1" opacity="0.2"/>`;
+    }
+    svg+=`<line x1="0" y1="${y+r.rowH}" x2="${svgW}" y2="${y+r.rowH}" stroke="${cBdr}" stroke-width="1" opacity="0.18"/>`;
+    rowY+=r.rowH;
   });
 
   // Today line
   const todX=Math.round((today-minD)/86400000*ppd);
   if(todX>=0&&todX<=svgW){
-    svg+=`<line x1="${todX}" y1="0" x2="${todX}" y2="${svgH}" stroke="#f05252" stroke-width="2" opacity="0.9"/>`;
+    svg+=`<line x1="${todX}" y1="0" x2="${todX}" y2="${totalH}" stroke="#f05252" stroke-width="2" opacity="0.9"/>`;
     svg+=`<rect x="${todX-18}" y="3" width="36" height="16" rx="4" fill="#f05252"/>`;
     svg+=`<text x="${todX}" y="14" text-anchor="middle" fill="white" font-size="9" font-weight="700">HOJE</text>`;
   }
 
-  // Bars
-  tasks.forEach((t,i)=>{
-    const y=G_HDR+i*G_ROW;
-    const s=t._startDt||(t._dlDt?new Date(t._dlDt.getTime()-30*86400000):null);
-    const e=t._dlDt||t._startDt;
-    if(!s||!e) return;
-
-    const x1=Math.round((s-minD)/86400000*ppd);
-    const x2=Math.round((e-minD)/86400000*ppd);
-    const bw=Math.max(x2-x1,6);
-    const by=y+G_BAR_Y;
+  // ── Bars ──────────────────────────────────────────────────────
+  rowY=G_HDR;
+  rows.forEach(r=>{
+    const y=rowY; rowY+=r.rowH;
+    const t=r.task;
     const key=t['Chave da item']||'';
     const isBlk=(t['Labels']||'').includes('bloqueado');
-    let clr=isBlk?'#f05252':(colorBy==='dept'?(_gDeptMap[t['Campo personalizado (Departamento)']]||'#60a5fa'):(G_STATUS_CLR[t['Status']]||'#60a5fa'));
 
-    // Bar background (dim)
-    svg+=`<rect x="${x1}" y="${by}" width="${bw}" height="${G_BAR_H}" rx="4" fill="${clr}" opacity="0.35"/>`;
-    // Progress fill
-    let pw=bw;
-    if(t['Status']==='Fazendo'){
-      const el=Math.max(0,Math.min(Date.now(),e.getTime())-s.getTime());
-      const tot=Math.max(1,e.getTime()-s.getTime());
-      pw=Math.max(4,Math.round(bw*el/tot));
-    } else if(t['Status']!=='Feito'){
-      pw=0;
+    if(r.type==='parent'){
+      // === PARENT: 3-dates framework ===
+      const sDate=t._startDt||(t._dlDt?new Date(t._dlDt.getTime()-90*86400000):null);
+      const limitDate=t._dlDt;
+      const alvoDate=pd(t['Campo personalizado (Data alvo)']);
+      const baseDate=pd(t['Campo personalizado (Data Baseline)']);
+      if(!sDate&&!limitDate)return;
+
+      let clr=isBlk?'#f05252':(colorBy==='dept'?(_gDeptMap[t['Campo personalizado (Departamento)']]||'#60a5fa'):(G_STATUS_CLR[t['Status']]||'#60a5fa'));
+
+      const x1=Math.round(((sDate||limitDate)-minD)/86400000*ppd);
+      const xLim=limitDate?Math.round((limitDate-minD)/86400000*ppd):x1+60;
+      const xAlvo=alvoDate?Math.round((alvoDate-minD)/86400000*ppd):xLim;
+      const xBase=baseDate?Math.round((baseDate-minD)/86400000*ppd):null;
+      const by=y+G_BAR_Y;
+      const bwMain=Math.max(xAlvo-x1,6);
+
+      // Layer 1 — extensão até data limite (background fino)
+      if(xLim>xAlvo){
+        svg+=`<rect x="${xAlvo}" y="${by+6}" width="${Math.max(xLim-xAlvo,4)}" height="8" rx="3" fill="${clr}" opacity="0.18"/>`;
+      }
+      // Layer 2 — barra principal start→alvo (ou limite)
+      svg+=`<rect x="${x1}" y="${by}" width="${bwMain}" height="${G_BAR_H}" rx="4" fill="${clr}" opacity="0.28"/>`;
+
+      // Layer 3 — progress fill
+      let pw=bwMain;
+      if(t['Status']==='Fazendo'){
+        const ref=alvoDate||limitDate||today;
+        const el=Math.max(0,Math.min(Date.now(),ref.getTime())-((sDate||limitDate).getTime()));
+        const tot=Math.max(1,ref.getTime()-(sDate||limitDate).getTime());
+        pw=Math.max(4,Math.round(bwMain*el/tot));
+      }else if(t['Status']!=='Feito')pw=0;
+      if(pw>0)svg+=`<rect x="${x1}" y="${by}" width="${pw}" height="${G_BAR_H}" rx="4" fill="${clr}" opacity="0.9"/>`;
+
+      // Marcador Data alvo (linha tracejada vertical branca)
+      if(alvoDate&&xAlvo!==xLim){
+        svg+=`<line x1="${xAlvo}" y1="${by}" x2="${xAlvo}" y2="${by+G_BAR_H}" stroke="white" stroke-width="1.5" stroke-dasharray="3,2" opacity="0.6"/>`;
+      }
+      // Marcador Data limite (cap sólido)
+      if(limitDate){
+        svg+=`<rect x="${Math.max(xLim-2,x1)}" y="${by}" width="3" height="${G_BAR_H}" rx="1" fill="${clr}" opacity="1"/>`;
+      }
+      // Marcador Baseline (losango ▼)
+      if(xBase!==null){
+        const bx=xBase; const my=by+G_BAR_H+2;
+        svg+=`<polygon points="${bx},${my} ${bx-4},${my+6} ${bx},${my+12} ${bx+4},${my+6}" fill="${clr}" opacity="0.75"/>`;
+      }
+      // Label key
+      if(bwMain>48)svg+=`<text x="${x1+6}" y="${by+G_BAR_H/2+4}" fill="white" font-size="10" font-weight="600" opacity="0.9">${key}</text>`;
+
+      // Áreas clicáveis
+      svg+=`<rect x="${Math.min(x1,xBase||x1)-2}" y="${by-2}" width="${Math.max(xLim,xAlvo)-Math.min(x1,xBase||x1)+6}" height="${G_BAR_H+16}" rx="5" fill="transparent" stroke="${clr}" stroke-width="0" style="cursor:pointer" onclick="ganttClick('${key}')" onmouseover="this.setAttribute('stroke-width','1.5')" onmouseout="this.setAttribute('stroke-width','0')"/>`;
+      svg+=`<rect x="0" y="${y}" width="${svgW}" height="${r.rowH}" fill="transparent" style="cursor:pointer" onclick="ganttClick('${key}')"/>`;
+
+    }else{
+      // === SUB: barra planejada + barra real ===
+      const sName=t['Resumo']||'';
+      const subClr=_ganttPhaseColor(sName,t['Status']);
+
+      // Barra planejada (fina, translúcida) — linha inferior
+      if(t._plannedStartDt&&t._plannedEndDt){
+        const xSP=Math.round((t._plannedStartDt-minD)/86400000*ppd);
+        const xEP=Math.round((t._plannedEndDt-minD)/86400000*ppd);
+        const bwP=Math.max(xEP-xSP,4);
+        svg+=`<rect x="${xSP}" y="${y+17}" width="${bwP}" height="5" rx="2" fill="${subClr}" opacity="0.3"/>`;
+        if(bwP>30)svg+=`<text x="${xSP+3}" y="${y+24}" fill="${subClr}" font-size="7" opacity="0.55">plan</text>`;
+      }
+      // Barra real (sólida) — linha superior
+      if(t._actualStartDt){
+        const eReff=t._actualEndDt||today;
+        const xSR=Math.round((t._actualStartDt-minD)/86400000*ppd);
+        const xER=Math.round((eReff-minD)/86400000*ppd);
+        const bwR=Math.max(xER-xSR,4);
+        const opac=t._actualEndDt?0.9:0.65;
+        svg+=`<rect x="${xSR}" y="${y+5}" width="${bwR}" height="10" rx="3" fill="${subClr}" opacity="${opac}"/>`;
+        if(!t._actualEndDt)svg+=`<rect x="${xSR+bwR-2}" y="${y+5}" width="3" height="10" fill="white" opacity="0.35"/>`;
+        if(bwR>30)svg+=`<text x="${xSR+3}" y="${y+12}" fill="white" font-size="7" font-weight="600">real</text>`;
+      }
+      svg+=`<rect x="0" y="${y}" width="${svgW}" height="${r.rowH}" fill="transparent" style="cursor:pointer" onclick="ganttClick('${key}')"/>`;
     }
-    if(pw>0) svg+=`<rect x="${x1}" y="${by}" width="${pw}" height="${G_BAR_H}" rx="4" fill="${clr}" opacity="0.9"/>`;
-    // Key label
-    if(bw>50) svg+=`<text x="${x1+6}" y="${by+G_BAR_H/2+4}" fill="white" font-size="10" font-weight="600" opacity="0.9">${key}</text>`;
-    // Clickable overlay
-    svg+=`<rect x="${x1-2}" y="${by-2}" width="${bw+4}" height="${G_BAR_H+4}" rx="5" fill="transparent" stroke="${clr}" stroke-width="0" style="cursor:pointer" onclick="ganttClick('${key}')"
-      onmouseover="this.setAttribute('stroke-width','2')" onmouseout="this.setAttribute('stroke-width','0')"/>`;
-    // Full row click area
-    svg+=`<rect x="0" y="${y}" width="${svgW}" height="${G_ROW}" fill="transparent" style="cursor:pointer" onclick="ganttClick('${key}')"/>`;
   });
-
   svg+='</svg>';
   document.getElementById('ganttSvg').outerHTML=svg;
 
-  // Left rows
+  // ── Left panel ────────────────────────────────────────────────
   const br=getComputedStyle(document.documentElement).getPropertyValue('--border2').trim();
-  document.getElementById('gLeftRows').innerHTML=tasks.map((t,i)=>{
-    const key=t['Chave da item']||'';
-    const name=t['Resumo']||'';
-    const isBlk=(t['Labels']||'').includes('bloqueado');
-    const clr=isBlk?'#f05252':(G_STATUS_CLR[t['Status']]||'#60a5fa');
-    const bg=i%2===0?'background:var(--bg2)':'';
-    return `<div onclick="ganttClick('${key.replace(/'/g,"\\'")}') "
-      style="height:${G_ROW}px;display:flex;align-items:center;padding:0 10px;cursor:pointer;border-bottom:1px solid ${br}33;gap:7px;${bg};box-sizing:border-box;flex-shrink:0"
-      onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='${i%2===0?'var(--bg2)':''}'">
-      <div style="width:3px;height:22px;border-radius:2px;flex-shrink:0;background:${clr}"></div>
-      <div style="min-width:0;flex:1;overflow:hidden">
-        <div style="font-size:10px;font-weight:700;color:var(--text2);font-family:'IBM Plex Mono',monospace;line-height:1.2">${key}</div>
-        <div style="font-size:11px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3">${name}</div>
-      </div>
-    </div>`;
+  document.getElementById('gLeftRows').innerHTML=rows.map((r,i)=>{
+    const t=r.task; const key=t['Chave da item']||''; const name=t['Resumo']||'';
+    if(r.type==='parent'){
+      const isBlk=(t['Labels']||'').includes('bloqueado');
+      const clr=isBlk?'#f05252':(G_STATUS_CLR[t['Status']]||'#60a5fa');
+      const bg=i%2===0?'var(--bg2)':'transparent';
+      const isExp=_ganttExpanded[key];
+      const togBtn=r.subs.length
+        ?`<button onclick="ganttToggle('${key.replace(/'/g,"\\'")}',event)" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:10px;padding:0 2px;flex-shrink:0;line-height:1;opacity:.8">${isExp?'▼':'▶'}</button>`
+        :`<span style="display:inline-block;width:14px;flex-shrink:0"></span>`;
+      return `<div onclick="ganttClick('${key.replace(/'/g,"\\'")}') " style="height:${r.rowH}px;display:flex;align-items:center;padding:0 6px 0 8px;cursor:pointer;border-bottom:1px solid ${br}22;gap:4px;background:${bg};box-sizing:border-box;flex-shrink:0" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='${bg}'">
+        <div style="width:3px;height:22px;border-radius:2px;flex-shrink:0;background:${clr}"></div>
+        ${togBtn}
+        <div style="min-width:0;flex:1;overflow:hidden">
+          <div style="font-size:10px;font-weight:700;color:var(--text2);font-family:'IBM Plex Mono',monospace;line-height:1.2">${key}</div>
+          <div style="font-size:11px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3">${esc(name)}</div>
+        </div>
+      </div>`;
+    }else{
+      const subClr=_ganttPhaseColor(name,t['Status']);
+      const hasReal=!!t._actualStartDt;
+      return `<div onclick="ganttClick('${key.replace(/'/g,"\\'")}') " style="height:${r.rowH}px;display:flex;align-items:center;padding:0 6px 0 26px;cursor:pointer;border-bottom:1px solid ${br}15;gap:4px;background:var(--bg3);box-sizing:border-box;flex-shrink:0" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background='var(--bg3)'">
+        <div style="width:2px;height:16px;border-radius:2px;flex-shrink:0;background:${subClr}"></div>
+        <div style="min-width:0;flex:1;overflow:hidden">
+          <div style="font-size:10px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(name)}</div>
+          <div style="font-size:9px;color:var(--text3);line-height:1.3">${hasReal?'<span style="color:#22d37a">✓ real</span>':'<span>plan.</span>'} &nbsp;·&nbsp; ${t['Status']||'—'}</div>
+        </div>
+      </div>`;
+    }
   }).join('');
 
-  document.getElementById('ganttMeta').textContent=`${tasks.length} projetos no período`;
+  const nSubs=rows.filter(r=>r.type==='sub').length;
+  document.getElementById('ganttMeta').textContent=`${tasks.length} projetos`+(nSubs>0?` — ${nSubs} subtarefas expandidas`:'');
 
-  // Auto-scroll gRight so "HOJE" is visible near left edge
   requestAnimationFrame(()=>{
     const gR=document.getElementById('gRight');
-    if(!gR) return;
-    const todX=Math.round((today-minD)/86400000*ppd);
-    const offset=Math.max(0,todX-120); // 120px before today
+    if(!gR)return;
+    const offset=Math.max(0,Math.round((today-minD)/86400000*ppd)-120);
     gR.scrollLeft=offset;
   });
 }
 
 function ganttClick(key){
-  const t=allTasks.find(x=>x['Chave da item']===key);
-  if(!t) return;
+  const t=allTasks.find(x=>x['Chave da item']===key)||allSubs.find(x=>x['Chave da item']===key);
+  if(!t)return;
+  const isSub=t['Tipo de item']==='Subtarefa';
   const det=document.getElementById('ganttDetail');
   const status=t['Status']||'—';
   const sc=G_STATUS_CLR[status]||'#60a5fa';
   const dept=t['Campo personalizado (Departamento)']||'—';
-  const start=t['Campo personalizado (Start date)']||'—';
-  const due=t['Data limite']||'—';
-  const assignee=t['Responsável']||t['Assignee']||'—';
   const isBlk=(t['Labels']||'').includes('bloqueado');
   const overdue=t._dlDt&&t._dlDt<new Date()&&status!=='Feito';
+  const iL=s=>{if(!s||s==='—')return '—';const d=pd(s);return d?d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'}):'—';};
+
+  const start=t['Campo personalizado (Start date)']||'';
+  const due=t['Data limite']||'';
+  const alvo=t['Campo personalizado (Data alvo)']||'';
+  const base=t['Campo personalizado (Data Baseline)']||'';
+  const aS=t['Campo personalizado (Início real)']||'';
+  const aE=t['Campo personalizado (Fim real)']||'';
+  const assignee=t['Responsável']||'—';
+
   det.style.display='block';
-  det.innerHTML=`
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
-      <div style="flex:1;min-width:220px">
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px">
-          <span style="font-size:11px;font-weight:700;color:var(--text2);font-family:'IBM Plex Mono',monospace">${key}</span>
-          <span style="background:${sc}22;color:${sc};border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700">${status}</span>
-          ${isBlk?'<span style="background:#f0525222;color:#f05252;border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700">🚧 bloqueado</span>':''}
-          ${overdue?'<span style="background:#f0525222;color:#f05252;border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700">⚠ fora do prazo</span>':''}
+  det.innerHTML=`<div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
+    <div style="flex:1;min-width:220px">
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+        <span style="font-size:11px;font-weight:700;color:var(--text2);font-family:'IBM Plex Mono',monospace">${key}</span>
+        ${isSub?`<span style="background:#60a5fa22;color:#60a5fa;border-radius:10px;padding:2px 8px;font-size:10px">subtarefa</span>`:''}
+        <span style="background:${sc}22;color:${sc};border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700">${status}</span>
+        ${isBlk?'<span style="background:#f0525222;color:#f05252;border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700">🚧 bloqueado</span>':''}
+        ${overdue?'<span style="background:#f0525222;color:#f05252;border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700">⚠ fora do prazo</span>':''}
+      </div>
+      <div style="font-size:14px;font-weight:600;color:var(--text);line-height:1.4;margin-bottom:10px">${esc(t['Resumo']||'—')}</div>
+      ${!isSub?`
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px">
+        <div style="background:var(--bg3);border-radius:6px;padding:8px;border-top:2px solid #60a5fa">
+          <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">📅 Início plan.</div>
+          <div style="font-size:12px;font-weight:600;color:var(--text)">${iL(start)}</div>
         </div>
-        <div style="font-size:14px;font-weight:600;color:var(--text);line-height:1.4;margin-bottom:10px">${t['Resumo']||'—'}</div>
-        <div style="display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--text2)">
-          <span>🏢 <strong style="color:var(--text)">${dept}</strong></span>
-          <span>📅 Início: <strong style="color:var(--text)">${start}</strong></span>
-          <span>🏁 Limite: <strong style="color:var(--text)">${due}</strong></span>
-          <span>👤 <strong style="color:var(--text)">${assignee}</strong></span>
+        <div style="background:var(--bg3);border-radius:6px;padding:8px;border-top:2px solid #f59e0b">
+          <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">🎯 Data alvo</div>
+          <div style="font-size:12px;font-weight:600;color:var(--text)">${iL(alvo)}</div>
+        </div>
+        <div style="background:var(--bg3);border-radius:6px;padding:8px;border-top:2px solid #f05252">
+          <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">🏁 Data limite</div>
+          <div style="font-size:12px;font-weight:600;color:var(--text)">${iL(due)}</div>
         </div>
       </div>
-      <button onclick="document.getElementById('ganttDetail').style.display='none'"
-        style="background:transparent;border:1px solid var(--border2);border-radius:6px;padding:4px 10px;color:var(--text2);cursor:pointer;font-size:11px;flex-shrink:0">✕</button>
-    </div>`;
+      <div style="font-size:11px;color:var(--text2)">📌 Baseline: <strong style="color:var(--text)">${iL(base)}</strong> &nbsp;·&nbsp; 🏢 ${esc(dept)} &nbsp;·&nbsp; 👤 ${esc(assignee)}</div>
+      `:`
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <div style="background:var(--bg3);border-radius:6px;padding:8px">
+          <div style="font-size:9px;color:var(--text3);margin-bottom:3px">📅 Planejado</div>
+          <div style="font-size:11px;color:var(--text)">${iL(start)} → ${iL(due)}</div>
+        </div>
+        <div style="background:var(--bg3);border-radius:6px;padding:8px">
+          <div style="font-size:9px;color:var(--text3);margin-bottom:3px">✅ Real</div>
+          <div style="font-size:11px;color:var(--text)">${iL(aS)||'—'} → ${iL(aE)||'em andamento'}</div>
+        </div>
+      </div>
+      `}
+    </div>
+    <button onclick="document.getElementById('ganttDetail').style.display='none'" style="background:transparent;border:1px solid var(--border2);border-radius:6px;padding:4px 10px;color:var(--text2);cursor:pointer;font-size:11px;flex-shrink:0">✕</button>
+  </div>`;
   det.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 
