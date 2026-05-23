@@ -582,7 +582,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
         <option value="-3,6">Últimos 3m + próximos 6m</option>
         <option value="-6,12">Últimos 6m + próximos 12m</option>
         <option value="-12,24">Último ano + próximos 2 anos</option>
-        <option value="all">Todos os projetos</option>
+        <option value="all" selected>Todos os projetos</option>
       </select>
       <select id="gFZoom" onchange="renderGantt()" style="background:var(--bg3);border:1px solid var(--border2);border-radius:var(--rs);padding:6px 10px;color:var(--text);font-size:12px;font-family:inherit">
         <option value="10">Zoom: Semana (10px/dia)</option>
@@ -614,6 +614,92 @@ tr:hover td{background:rgba(255,255,255,0.02)}
         </div>
       </div>
     </div>
+    <!-- Legenda do Gantt -->
+    <details id="ganttLegend" style="margin-top:12px" open>
+      <summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;padding:10px 16px;border-radius:var(--rs);background:var(--bg2);border:1px solid var(--border2);font-size:11px;font-weight:600;color:var(--text2);letter-spacing:.06em;text-transform:uppercase;user-select:none">
+        <span style="font-size:13px">📋</span> Legenda — Gantt
+        <span style="margin-left:auto;font-size:10px;opacity:.6">▼ ocultar</span>
+      </summary>
+      <div style="background:var(--bg2);border:1px solid var(--border2);border-top:none;border-radius:0 0 var(--rs) var(--rs);padding:14px 16px">
+        <div style="display:flex;flex-wrap:wrap;gap:18px 32px">
+          <!-- Barras tarefa pai -->
+          <div style="min-width:200px">
+            <div style="font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Tarefa Pai</div>
+            <div style="display:flex;flex-direction:column;gap:6px;font-size:11px;color:var(--text2)">
+              <div style="display:flex;align-items:center;gap:8px">
+                <svg width="64" height="14" style="flex-shrink:0"><rect x="0" y="3" width="64" height="8" rx="2" fill="#60a5fa" opacity="0.28"/><rect x="0" y="3" width="36" height="8" rx="2" fill="#60a5fa" opacity="0.9"/></svg>
+                <span>Barra principal: Início → Data Alvo (progresso)</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <svg width="64" height="14" style="flex-shrink:0"><rect x="40" y="5" width="24" height="4" rx="2" fill="#60a5fa" opacity="0.18"/></svg>
+                <span>Extensão fina → Data Limite</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <svg width="64" height="14" style="flex-shrink:0"><line x1="40" y1="0" x2="40" y2="14" stroke="white" stroke-width="1.5" stroke-dasharray="3,2" opacity="0.65"/></svg>
+                <span>Linha tracejada = Data Alvo</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <svg width="64" height="14" style="flex-shrink:0"><rect x="61" y="3" width="3" height="8" rx="1" fill="#60a5fa"/></svg>
+                <span>Cap sólido direito = Data Limite</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <svg width="64" height="14" style="flex-shrink:0"><polygon points="32,0 28,6 32,12 36,6" fill="#60a5fa" opacity="0.75"/></svg>
+                <span>◆ Losango = Data Baseline</span>
+              </div>
+            </div>
+          </div>
+          <!-- Subtarefas -->
+          <div style="min-width:200px">
+            <div style="font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Subtarefa</div>
+            <div style="display:flex;flex-direction:column;gap:6px;font-size:11px;color:var(--text2)">
+              <div style="display:flex;align-items:center;gap:8px">
+                <svg width="64" height="14" style="flex-shrink:0"><rect x="0" y="9" width="64" height="5" rx="2" fill="#a78bfa" opacity="0.3"/></svg>
+                <span>Barra fina (baixo) = Planejado</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <svg width="64" height="14" style="flex-shrink:0"><rect x="0" y="2" width="64" height="10" rx="3" fill="#a78bfa" opacity="0.9"/></svg>
+                <span>Barra sólida (cima) = Real</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <svg width="64" height="14" style="flex-shrink:0"><line x1="7" y1="0" x2="7" y2="14" stroke="#f05252" stroke-width="2.5" opacity="0.9"/></svg>
+                <span>Linha vermelha = Hoje</span>
+              </div>
+            </div>
+          </div>
+          <!-- Cores status -->
+          <div style="min-width:140px">
+            <div style="font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Cor — Status</div>
+            <div style="display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--text2)">
+              <div style="display:flex;align-items:center;gap:7px"><div style="width:12px;height:12px;border-radius:3px;background:#60a5fa;flex-shrink:0"></div>A Fazer</div>
+              <div style="display:flex;align-items:center;gap:7px"><div style="width:12px;height:12px;border-radius:3px;background:#f59e0b;flex-shrink:0"></div>Fazendo</div>
+              <div style="display:flex;align-items:center;gap:7px"><div style="width:12px;height:12px;border-radius:3px;background:#22d37a;flex-shrink:0"></div>Feito</div>
+              <div style="display:flex;align-items:center;gap:7px"><div style="width:12px;height:12px;border-radius:3px;background:#f05252;flex-shrink:0"></div>🚧 Bloqueado</div>
+            </div>
+          </div>
+          <!-- Cores subtarefa por fase -->
+          <div style="min-width:180px">
+            <div style="font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Cor — Fase (subtarefa)</div>
+            <div style="display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--text2)">
+              <div style="display:flex;align-items:center;gap:7px"><div style="width:12px;height:12px;border-radius:3px;background:#a78bfa;flex-shrink:0"></div>Preparação</div>
+              <div style="display:flex;align-items:center;gap:7px"><div style="width:12px;height:12px;border-radius:3px;background:#38bdf8;flex-shrink:0"></div>Compras</div>
+              <div style="display:flex;align-items:center;gap:7px"><div style="width:12px;height:12px;border-radius:3px;background:#34d399;flex-shrink:0"></div>Fabricação</div>
+              <div style="display:flex;align-items:center;gap:7px"><div style="width:12px;height:12px;border-radius:3px;background:#fb923c;flex-shrink:0"></div>Pré-mont. / Montagens</div>
+              <div style="display:flex;align-items:center;gap:7px"><div style="width:12px;height:12px;border-radius:3px;background:#22d37a;flex-shrink:0"></div>Testes / Feito</div>
+            </div>
+          </div>
+          <!-- Interação -->
+          <div style="min-width:200px">
+            <div style="font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Interação</div>
+            <div style="display:flex;flex-direction:column;gap:6px;font-size:11px;color:var(--text2)">
+              <div style="display:flex;align-items:center;gap:8px"><span style="font-size:13px;color:var(--green);width:18px;text-align:center">▶</span><span>Clique na linha (painel esq.) = expandir subtarefas</span></div>
+              <div style="display:flex;align-items:center;gap:8px"><span style="font-size:13px;color:var(--green);width:18px;text-align:center">▼</span><span>Clique novamente = recolher</span></div>
+              <div style="display:flex;align-items:center;gap:8px"><span style="font-size:13px;color:var(--text2);width:18px;text-align:center">ⓘ</span><span>Botão ⓘ = abrir painel de detalhes</span></div>
+              <div style="display:flex;align-items:center;gap:8px"><span style="font-size:13px;color:var(--text2);width:18px;text-align:center">🖱</span><span>Clique na barra (SVG direito) = detalhes</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </details>
     <!-- Detail panel (shows on bar click) -->
     <div id="ganttDetail" class="card" style="margin-top:14px;display:none;padding:16px"></div>
   </div>
@@ -886,7 +972,7 @@ function nav(id){
 // AUTO-FETCH com cache localStorage (TTL = 10 min)
 // ════════════════════════════════════════════════════════════════
 let allTasks=[],allSubs=[],filtTasks=[],charts={},flt={tipo:'Tarefa',dept:'all',yr:'all'},tblD=[];
-const JIRA_CACHE_KEY='agritrack_jira_v2';
+const JIRA_CACHE_KEY='agritrack_jira_v3';
 const JIRA_CACHE_TTL=10*60*1000; // 10 min
 
 function _jiraCache(){try{const r=localStorage.getItem(JIRA_CACHE_KEY);return r?JSON.parse(r):null;}catch(e){return null;}}
@@ -2121,7 +2207,8 @@ function renderTabKPIs(){
 
 function renderComprasTabSelector(){
   const container=document.getElementById('comprasTabSelector');
-  if(!container||_comprasTabs.length<=1){if(container)container.innerHTML='';return;}
+  if(!container){return;}
+  if(_comprasTabs.length===0){container.innerHTML='';return;}
 
   const total=_comprasData.length;
   const pillStyle=(active)=>`cursor:pointer;border-radius:20px;padding:4px 12px;font-size:11px;font-weight:600;border:1px solid ${active?'var(--green)':'var(--border2)'};background:${active?'var(--green)':'transparent'};color:${active?'#000':'var(--text2)'};transition:all .15s`;
@@ -3223,7 +3310,7 @@ function renderGantt(){
     }
   });
   svg+='</svg>';
-  document.getElementById('ganttSvg').outerHTML=svg;
+  document.getElementById('gRight').innerHTML=svg;
 
   // ── Left panel ────────────────────────────────────────────────
   const br=getComputedStyle(document.documentElement).getPropertyValue('--border2').trim();
@@ -3234,16 +3321,23 @@ function renderGantt(){
       const clr=isBlk?'#f05252':(G_STATUS_CLR[t['Status']]||'#60a5fa');
       const bg=i%2===0?'var(--bg2)':'transparent';
       const isExp=_ganttExpanded[key];
-      const togBtn=r.subs.length
-        ?`<button onclick="ganttToggle('${key.replace(/'/g,"\\'")}',event)" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:10px;padding:0 2px;flex-shrink:0;line-height:1;opacity:.8">${isExp?'▼':'▶'}</button>`
-        :`<span style="display:inline-block;width:14px;flex-shrink:0"></span>`;
-      return `<div onclick="ganttClick('${key.replace(/'/g,"\\'")}') " style="height:${r.rowH}px;display:flex;align-items:center;padding:0 6px 0 8px;cursor:pointer;border-bottom:1px solid ${br}22;gap:4px;background:${bg};box-sizing:border-box;flex-shrink:0" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='${bg}'">
+      const hasSubs=r.subs.length>0;
+      const ek=key.replace(/'/g,"\\'");
+      // Clicar na linha inteira: expande/colapsa (se tem subs) ou detalhe (se não tem)
+      const rowClick=hasSubs?`ganttToggle('${ek}',event)`:`ganttClick('${ek}')`;
+      const togIcon=hasSubs
+        ?`<span style="font-size:12px;color:${isExp?'var(--green)':'var(--text2)'};width:16px;flex-shrink:0;text-align:center;line-height:1;transition:color .15s">${isExp?'▼':'▶'}</span>`
+        :`<span style="display:inline-block;width:16px;flex-shrink:0"></span>`;
+      // Botão ⓘ sempre abre o painel de detalhe
+      const detBtn=`<button onclick="event.stopPropagation();ganttClick('${ek}')" title="Detalhes" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:12px;padding:0 2px;flex-shrink:0;opacity:.45;line-height:1" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='.45'">ⓘ</button>`;
+      return `<div onclick="${rowClick}" title="${hasSubs?'Clique para '+(isExp?'recolher':'expandir')+' subtarefas':'Ver detalhes'}" style="height:${r.rowH}px;display:flex;align-items:center;padding:0 4px 0 8px;cursor:pointer;border-bottom:1px solid ${br}22;gap:3px;background:${bg};box-sizing:border-box;flex-shrink:0" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='${bg}'">
         <div style="width:3px;height:22px;border-radius:2px;flex-shrink:0;background:${clr}"></div>
-        ${togBtn}
+        ${togIcon}
         <div style="min-width:0;flex:1;overflow:hidden">
           <div style="font-size:10px;font-weight:700;color:var(--text2);font-family:'IBM Plex Mono',monospace;line-height:1.2">${key}</div>
           <div style="font-size:11px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3">${esc(name)}</div>
         </div>
+        ${detBtn}
       </div>`;
     }else{
       const subClr=_ganttPhaseColor(name,t['Status']);
