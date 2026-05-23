@@ -3150,6 +3150,7 @@ const G_DEPT_CLR=['#22d37a','#60a5fa','#f59e0b','#f05252','#a78bfa','#34d399','#
 const G_PHASE_CLR={'preparac':'#a78bfa','compras':'#38bdf8','fabricac':'#34d399','pré-mont':'#fb923c','pre-mont':'#fb923c','montagens':'#f59e0b','montage':'#f59e0b','testes':'#22d37a','osti':'#e879f9','alongament':'#60a5fa'};
 let _gDeptMap={};
 let _ganttExpanded={}; // {key:true} — subtasks expanded
+let _ganttFirstRender=true; // flag para auto-scroll só no primeiro render
 
 function _ganttPhaseColor(name,status){
   if(status==='Feito') return '#22d37a';
@@ -3183,6 +3184,7 @@ function ganttToggle(key,e){
 }
 
 function initGantt(){
+  _ganttFirstRender=true; // reseta ao entrar na aba
   const msg=document.getElementById('ganttMsg');
   if(!allTasks.length){
     msg.textContent='Sem dados. Acesse o Dashboard primeiro para carregar as tarefas do Jira.';
@@ -3393,8 +3395,9 @@ function renderGantt(){
     const gR=document.getElementById('gRight');
     const prevL=gR.scrollLeft, prevT=gR.scrollTop;
     gR.innerHTML=svg;
-    if(prevL===0&&prevT===0){
+    if(_ganttFirstRender){
       // Primeiro render: auto-scroll para mostrar HOJE centralizado
+      _ganttFirstRender=false;
       gR.scrollLeft=Math.max(0,todX-Math.round(gR.clientWidth*0.35));
     } else {
       // Re-render (toggle/filtro): preserva posição
