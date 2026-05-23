@@ -248,7 +248,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
   </nav>
   <div class="hright">
     <span class="plive" id="livePill" style="display:none">Ao vivo</span>
-    <button class="hbtn" onclick="autoFetch()" title="Atualizar dados do Jira">↺ Atualizar</button>
+    <button class="hbtn" onclick="autoFetch(true)" title="Atualizar dados do Jira">↺ Atualizar</button>
   </div>
 </div>
 
@@ -640,7 +640,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
     <div class="settings-box">
       <div class="settings-title">Cache</div>
       <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Última atualização: <span id="cfgLastUpdate">—</span></div>
-      <button class="btn-sec" onclick="autoFetch()">↺ Forçar atualização do Jira</button>
+      <button class="btn-sec" onclick="autoFetch(true)">↺ Forçar atualização do Jira</button>
     </div>
     <div class="sec" style="margin-top:20px">Inteligência Artificial</div>
     <div class="settings-box">
@@ -683,7 +683,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
   <div class="ph">
     <div><div class="ptitle">Painel de Compras</div><div class="psub" id="comprasMeta">Dados da planilha de compras — Agricef</div></div>
     <div style="display:flex;gap:8px">
-      <button class="btn-sec" onclick="loadCompras()" style="font-size:12px">↺ Atualizar</button>
+      <button class="btn-sec" onclick="loadCompras(true)" style="font-size:12px">↺ Atualizar</button>
     </div>
   </div>
   <div class="main">
@@ -878,32 +878,77 @@ function nav(id){
   if(id==='block')loadBloqueados();
   if(id==='cfg')initConfig();
   if(id==='report'&&!_rptGerado)gerarRelatorio(false);
-  if(id==='compras'&&!_comprasCarregado)loadCompras();
+  if(id==='compras')loadCompras(); // sempre chama — cache evita rebusca desnecessária
   if(id==='gantt')initGantt();
 }
 
 // ════════════════════════════════════════════════════════════════
-// AUTO-FETCH (substitui importação de CSV)
+// AUTO-FETCH com cache localStorage (TTL = 10 min)
 // ════════════════════════════════════════════════════════════════
 let allTasks=[],allSubs=[],filtTasks=[],charts={},flt={tipo:'Tarefa',dept:'all',yr:'all'},tblD=[];
+const JIRA_CACHE_KEY='agritrack_jira_v2';
+const JIRA_CACHE_TTL=10*60*1000; // 10 min
 
-async function autoFetch(){
+function _jiraCache(){try{const r=localStorage.getItem(JIRA_CACHE_KEY);return r?JSON.parse(r):null;}catch(e){return null;}}
+function _jiraCacheSet(issues){try{localStorage.setItem(JIRA_CACHE_KEY,JSON.stringify({ts:Date.now(),issues}));}catch(e){}}
+
+async function autoFetch(force=false){
+  const cache=_jiraCache();
+  const age=cache?Date.now()-cache.ts:Infinity;
+
+  // ── Servir cache imediatamente se fresco ────────────────────
+  if(!force&&cache&&age<JIRA_CACHE_TTL){
+    processData(cache.issues);
+    _rptGerado=false;
+    const mins=Math.floor(age/60000);
+    const ageStr=mins<1?'<1min':mins+'min';
+    document.getElementById('dashMeta').textContent=`📦 Cache (${ageStr}) — ${cache.issues.length} itens  ·  ↺ para atualizar`;
+    document.getElementById('cfgLastUpdate').textContent=new Date(cache.ts).toLocaleString('pt-BR');
+    document.getElementById('livePill').style.display='inline-flex';
+    // Refresh silencioso se cache tem mais de 5 min
+    if(age>5*60*1000) _jiraRefreshBg();
+    return;
+  }
+
+  // ── Cache expirado ou force → busca fresca ───────────────────
   document.getElementById('dashLoad').style.display='flex';
   document.getElementById('dash').style.display='none';
   document.getElementById('dashMeta').textContent='Buscando dados do Jira…';
   try{
-    const r=await api({action:'buscarTarefasJira'});
+    const r=await api({action:'buscarTarefasJira'},55000);
     if(!r.success)throw new Error(r.erro||'Erro desconhecido');
+    _jiraCacheSet(r.issues);
     processData(r.issues);
-    _rptGerado=false; // invalida relatório anterior para refletir dados novos
+    _rptGerado=false;
     const now=new Date().toLocaleString('pt-BR');
     document.getElementById('dashMeta').textContent='Atualizado: '+now+' — '+r.total+' itens';
     localStorage.setItem('agritrack_lastUpdate',now);
     document.getElementById('cfgLastUpdate').textContent=now;
     document.getElementById('livePill').style.display='inline-flex';
   }catch(e){
-    document.getElementById('dashLoad').innerHTML='<div style="color:var(--red);text-align:center"><div style="font-size:24px;margin-bottom:10px">⚠️</div><div>'+e.message+'</div><div style="margin-top:10px;font-size:12px;color:var(--text2)">Use "Importar CSV manualmente" como alternativa</div></div>';
+    // Fallback: usa cache antigo se disponível
+    if(cache){
+      processData(cache.issues);
+      const ago=Math.round((Date.now()-cache.ts)/60000);
+      document.getElementById('dashMeta').textContent=`⚠ Erro na busca — usando cache (${ago}min atrás) — ${cache.issues.length} itens`;
+      document.getElementById('livePill').style.display='inline-flex';
+    } else {
+      document.getElementById('dashLoad').innerHTML='<div style="color:var(--red);text-align:center"><div style="font-size:24px;margin-bottom:10px">⚠️</div><div>'+e.message+'</div><div style="margin-top:10px;font-size:12px;color:var(--text2)">Use "Importar CSV manualmente" como alternativa</div></div>';
+    }
   }
+}
+
+// Refresh silencioso em background (não mostra spinner)
+async function _jiraRefreshBg(){
+  try{
+    const r=await api({action:'buscarTarefasJira'},55000);
+    if(!r.success)return;
+    _jiraCacheSet(r.issues);
+    processData(r.issues);
+    const now=new Date().toLocaleString('pt-BR');
+    document.getElementById('dashMeta').textContent='Atualizado: '+now+' — '+r.total+' itens';
+    localStorage.setItem('agritrack_lastUpdate',now);
+  }catch(e){}
 }
 
 function processData(data){
@@ -1739,7 +1784,12 @@ function parseDate(s){
   return isNaN(d)?null:d;
 }
 
-async function loadCompras(){
+const COMPRAS_CACHE_KEY='agritrack_compras_v2';
+const COMPRAS_CACHE_TTL=15*60*1000; // 15 min
+function _comprasCache(){try{const r=localStorage.getItem(COMPRAS_CACHE_KEY);return r?JSON.parse(r):null;}catch(e){return null;}}
+function _comprasCacheSet(sid,tabs){try{localStorage.setItem(COMPRAS_CACHE_KEY,JSON.stringify({ts:Date.now(),sid,tabs}));}catch(e){}}
+
+async function loadCompras(force=false){
   const sheetId=localStorage.getItem('compras_sheet_id');
   const noConf=document.getElementById('comprasNoConfig');
   const load=document.getElementById('comprasLoad');
@@ -1747,21 +1797,33 @@ async function loadCompras(){
   const meta=document.getElementById('comprasMeta');
 
   if(!sheetId){ noConf.style.display='block'; load.style.display='none'; dash.style.display='none'; return; }
+
+  // ── Servir cache imediatamente se fresco e mesma planilha ───
+  if(!force){
+    const cache=_comprasCache();
+    if(cache&&cache.sid===sheetId&&(Date.now()-cache.ts)<COMPRAS_CACHE_TTL){
+      noConf.style.display='none'; load.style.display='none'; dash.style.display='block';
+      const mins=Math.floor((Date.now()-cache.ts)/60000);
+      _aplicarDadosCompras(cache.tabs,meta,`📦 Cache (${mins<1?'<1':mins}min) — atualizar com ↺`);
+      return;
+    }
+  }
+
   noConf.style.display='none'; dash.style.display='none'; load.style.display='block';
 
   try{
-    // Tenta carregar TODAS as abas (timeout 25s); se falhar, usa aba única
+    // Tenta carregar TODAS as abas (timeout 40s); se falhar, usa aba única
     let r=null;
     let modoFallback=false;
     try{
-      r=await api({action:'buscarTodasAbasCompras',sheetId},25000);
+      r=await api({action:'buscarTodasAbasCompras',sheetId},40000);
       if(!r||!r.success||!r.tabs) throw new Error(r&&r.erro?r.erro:'Resposta inválida');
     }catch(e1){
       modoFallback=true;
       const sheetGid=localStorage.getItem('compras_sheet_gid');
       const payload2={action:'buscarCompras',sheetId};
       if(sheetGid)payload2.gid=sheetGid;
-      const r2=await api(payload2,28000);
+      const r2=await api(payload2,35000);
       if(!r2||!r2.success) throw new Error(r2&&r2.erro?r2.erro:'Falha ao carregar planilha');
       // Normaliza para formato multi-aba
       r={success:true,tabs:[{name:r2.sheetName||'Solicitações',gid:0,headers:r2.headers,rows:r2.rows,total:r2.total}],totalTabs:1};
@@ -1772,54 +1834,66 @@ async function loadCompras(){
       noConf.innerHTML='<div style="padding:40px;text-align:center;color:var(--red);font-size:13px">Erro: '+esc(r.erro)+'</div>';
       noConf.style.display='block'; return;
     }
-
-    _comprasTabs=r.tabs.filter(t=>t.rows&&t.rows.length>0);
-    if(_comprasTabs.length===0){
-      noConf.innerHTML='<div style="padding:40px;text-align:center;color:var(--text2);font-size:13px">Nenhum dado encontrado na planilha.</div>';
-      noConf.style.display='block'; return;
-    }
-
-    // Mescla todas as abas: cada row recebe _tab com o nome da aba
-    // Headers: união de todos os headers
-    const headersSet=new Set();
-    _comprasTabs.forEach(t=>t.headers.forEach(h=>headersSet.add(h)));
-    _comprasHeaders=[..._comprasHeaders,...headersSet].filter((v,i,a)=>a.indexOf(v)===i);
-    _comprasHeaders=[...headersSet]; // re-set limpo
-
-    const allRows=[];
-    _comprasTabs.forEach(t=>{
-      t.rows.forEach(row=>{ allRows.push({...row,_tab:t.name}); });
-    });
-
-    // Aba virtual: Cartão de Crédito (CCC no campo PV)
-    const _pvK=_comprasHeaders.find(h=>/\bpv\b/i.test(h))||_comprasHeaders.find(h=>/^pv/i.test(h))||'';
-    if(_pvK){
-      const cccRows=allRows.filter(r=>(r[_pvK]||'').toUpperCase().includes('CCC'));
-      if(cccRows.length>0){
-        _comprasTabs.push({name:'💳 Cartão (CCC)',gid:-1,headers:_comprasHeaders,rows:cccRows,virtual:true});
-      }
-    }
-
-    _comprasData=allRows;
-    _comprasFilt=allRows;
-    _comprasTabAtiva='all';
-    _comprasCarregado=true;
-
-    const totalItens=allRows.length;
-    const realTabs=_comprasTabs.filter(t=>!t.virtual);
-    const nAbas=realTabs.length;
-    const hasCCC=_comprasTabs.some(t=>t.virtual&&t.name.includes('CCC'));
-    meta.textContent=totalItens+' itens'+(nAbas>1?' em '+nAbas+' abas':' — aba "'+(_comprasTabs[0]&&_comprasTabs[0].name||'—')+'"')+(hasCCC?' | 💳 CCC detectado':'')+(modoFallback?' (modo aba única)':'');
-
-    _populaFiltros();
-    renderComprasTabSelector();
-    dash.style.display='block';
-    _renderTudo();
+    // Salva no cache antes de aplicar
+    _comprasCacheSet(sheetId, r.tabs);
+    _aplicarDadosCompras(r.tabs, meta, (modoFallback?' (aba única)':''));
   }catch(e){
     load.style.display='none';
-    noConf.innerHTML='<div style="padding:40px;text-align:center;color:var(--red);font-size:13px">Erro: '+esc(e.message)+'</div>';
-    noConf.style.display='block';
+    // Fallback: usa cache expirado se disponível
+    const cache=_comprasCache();
+    if(cache&&cache.sid===sheetId){
+      const mins=Math.round((Date.now()-cache.ts)/60000);
+      _aplicarDadosCompras(cache.tabs, meta, `⚠ cache (${mins}min) — erro: ${e.message.slice(0,60)}`);
+    } else {
+      noConf.innerHTML='<div style="padding:40px;text-align:center;color:var(--red);font-size:13px">Erro: '+esc(e.message)+'</div>';
+      noConf.style.display='block';
+    }
   }
+}
+
+function _aplicarDadosCompras(tabs, metaEl, sufixo){
+  const noConf=document.getElementById('comprasNoConfig');
+  const dash=document.getElementById('comprasDashboard');
+  const load=document.getElementById('comprasLoad');
+  load.style.display='none';
+  noConf.style.display='none';
+
+  _comprasTabs=tabs.filter(t=>t.rows&&t.rows.length>0);
+  if(_comprasTabs.length===0){
+    noConf.innerHTML='<div style="padding:40px;text-align:center;color:var(--text2);font-size:13px">Nenhum dado encontrado.</div>';
+    noConf.style.display='block'; return;
+  }
+
+  // Headers unificados
+  const headersSet=new Set();
+  _comprasTabs.forEach(t=>t.headers.forEach(h=>headersSet.add(h)));
+  _comprasHeaders=[...headersSet];
+
+  const allRows=[];
+  _comprasTabs.forEach(t=>t.rows.forEach(row=>allRows.push({...row,_tab:t.name})));
+
+  // Aba virtual CCC (recriada sempre — não salva no cache)
+  _comprasTabs=_comprasTabs.filter(t=>!t.virtual); // remove virtual antiga se vier do cache
+  const pvK=_comprasHeaders.find(h=>/\bpv\b/i.test(h))||_comprasHeaders.find(h=>/^pv/i.test(h))||'';
+  if(pvK){
+    const cccRows=allRows.filter(r=>(r[pvK]||'').toUpperCase().includes('CCC'));
+    if(cccRows.length>0) _comprasTabs.push({name:'💳 Cartão (CCC)',gid:-1,headers:_comprasHeaders,rows:cccRows,virtual:true});
+  }
+
+  _comprasData=allRows;
+  _comprasFilt=allRows;
+  _comprasTabAtiva='all';
+  _comprasCarregado=true;
+
+  const nAbas=_comprasTabs.filter(t=>!t.virtual).length;
+  const hasCCC=_comprasTabs.some(t=>t.virtual&&t.name.includes('CCC'));
+  if(metaEl) metaEl.textContent=allRows.length+' itens'+(nAbas>1?' em '+nAbas+' abas':'')+
+    (hasCCC?' · 💳 CCC detectado':'')+' '+sufixo;
+
+  _populaFiltros();
+  renderComprasTabSelector();
+  dash.style.display='block';
+  _renderTudo();
 }
 
 function _populaFiltros(){
