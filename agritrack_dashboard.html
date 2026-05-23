@@ -2884,6 +2884,15 @@ function renderGantt(){
   }).join('');
 
   document.getElementById('ganttMeta').textContent=`${tasks.length} projetos no período`;
+
+  // Auto-scroll gRight so "HOJE" is visible near left edge
+  requestAnimationFrame(()=>{
+    const gR=document.getElementById('gRight');
+    if(!gR) return;
+    const todX=Math.round((today-minD)/86400000*ppd);
+    const offset=Math.max(0,todX-120); // 120px before today
+    gR.scrollLeft=offset;
+  });
 }
 
 function ganttClick(key){
