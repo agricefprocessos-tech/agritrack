@@ -3513,12 +3513,6 @@ function renderGantt(){
   const nSubs=rows.filter(r=>r.type==='sub').length;
   document.getElementById('ganttMeta').textContent=`${tasks.length} projetos`+(nSubs>0?` — ${nSubs} subtarefas expandidas`:'');
 
-  requestAnimationFrame(()=>{
-    const gR=document.getElementById('gRight');
-    if(!gR)return;
-    const offset=Math.max(0,Math.round((today-minD)/86400000*ppd)-120);
-    gR.scrollLeft=offset;
-  });
 }
 
 function ganttClick(key){
