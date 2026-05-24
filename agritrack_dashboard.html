@@ -3192,6 +3192,16 @@ function _ganttPhaseColor(name,status){
   return '#60a5fa';
 }
 
+// Extrai o nome base e número de fase de um título de tarefa.
+// Exemplos: "P157 - HAULER 8" - (SM) - F2" → {base:"P157...(SM)", phase:2}
+//           "MELHORAS KAIROS - FASE 01" → {base:"MELHORAS KAIROS", phase:1}
+//           "IRRIGADOR DE EUCALIPTOS" → {base:"IRRIGADOR DE EUCALIPTOS", phase:0}
+function _ganttParseName(title){
+  const m=(title||'').match(/^(.+?)\s*[-–]\s*((?:FASE\s*)?\d+|F\d+)\s*$/i);
+  if(m){const ph=parseInt(m[2].replace(/\D/g,''));if(ph>0&&ph<=99)return{base:m[1].trim(),phase:ph};}
+  return{base:(title||'').trim(),phase:0};
+}
+
 // Builds flat rows list: parent rows + sub rows for expanded parents
 function _ganttBuildRows(tasks){
   const byPai={};
@@ -3260,11 +3270,29 @@ function renderGantt(){
   if(!tasks.length){msg.textContent='Nenhuma tarefa encontrada para os filtros selecionados.';msg.style.display='block';wrap.style.display='none';return;}
   msg.style.display='none'; wrap.style.display='block';
 
-  tasks.sort((a,b)=>{
-    const sa=(a._startDt||a._dlDt||new Date(9999,0)).getTime();
-    const sb=(b._startDt||b._dlDt||new Date(9999,0)).getTime();
-    return sa-sb;
-  });
+  // Ordena agrupando fases do mesmo projeto (F1→F2→F3...)
+  // e posiciona os grupos cronologicamente pela data de início da fase mais antiga.
+  {
+    const _gMin={};
+    tasks.forEach(t=>{
+      const{base}=_ganttParseName(t['Resumo']||'');
+      const dt=(t._startDt||t._dlDt||new Date(9999,0)).getTime();
+      if(!_gMin[base]||dt<_gMin[base])_gMin[base]=dt;
+    });
+    tasks.sort((a,b)=>{
+      const pA=_ganttParseName(a['Resumo']||'');
+      const pB=_ganttParseName(b['Resumo']||'');
+      // 1) Grupos diferentes → ordena pelo início mais antigo do grupo
+      const gA=_gMin[pA.base]||0, gB=_gMin[pB.base]||0;
+      if(gA!==gB)return gA-gB;
+      // 2) Mesmo grupo e mesmo início → ordena alfabeticamente pelo base
+      if(pA.base!==pB.base)return pA.base.localeCompare(pB.base,'pt');
+      // 3) Mesma fase-base → fase 1 antes de fase 2 antes de fase 3...
+      if(pA.phase!==pB.phase)return pA.phase-pB.phase;
+      // 4) Mesmo tudo → mantém ordem cronológica
+      return (a._startDt||a._dlDt||new Date(9999,0)).getTime()-(b._startDt||b._dlDt||new Date(9999,0)).getTime();
+    });
+  }
 
   const rows=_ganttBuildRows(tasks);
 
