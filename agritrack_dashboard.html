@@ -987,7 +987,7 @@ function nav(id){
 // AUTO-FETCH com cache localStorage (TTL = 10 min)
 // ════════════════════════════════════════════════════════════════
 let allTasks=[],allSubs=[],filtTasks=[],charts={},flt={tipo:'Tarefa',dept:'all',yr:'all'},tblD=[];
-const JIRA_CACHE_KEY='agritrack_jira_v3';
+const JIRA_CACHE_KEY='agritrack_jira_v4';
 const JIRA_CACHE_TTL=10*60*1000; // 10 min
 
 function _jiraCache(){try{const r=localStorage.getItem(JIRA_CACHE_KEY);return r?JSON.parse(r):null;}catch(e){return null;}}
@@ -1053,6 +1053,21 @@ async function _jiraRefreshBg(){
 }
 
 function processData(data){
+  // ── Normaliza Status via _statusKey (chave invariante do Jira) ──────────────
+  // Garante que nomes customizados ("Em Andamento", "Concluído", etc.) sejam
+  // mapeados para os 3 valores canônicos usados em todos os gráficos.
+  const _skMap={'done':'Feito','indeterminate':'Fazendo','new':'A Fazer'};
+  data.forEach(x=>{
+    if(x['_statusKey']&&_skMap[x['_statusKey']]){
+      x['Status']=_skMap[x['_statusKey']];
+    } else if(!x['Status']||x['Status']===''){
+      // Fallback: tenta inferir pelo nome da Categoria do status
+      const cat=(x['Categoria do status']||'').toLowerCase();
+      if(cat.includes('conclu')||cat.includes('feito')||cat==='done')x['Status']='Feito';
+      else if(cat.includes('andamento')||cat.includes('progress')||cat.includes('fazendo'))x['Status']='Fazendo';
+      else x['Status']='A Fazer';
+    }
+  });
   // Separa tarefas e subtarefas — TODAS as tarefas são incluídas (com ou sem subtarefas)
   allSubs=data.filter(x=>x['Tipo de item']==='Subtarefa').map(s=>{
     s._plannedStartDt=pd(s['Campo personalizado (Start date)']);
