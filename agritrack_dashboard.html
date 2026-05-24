@@ -3427,16 +3427,17 @@ function renderGantt(){
       const pF=_ganttBarPos[lk.from], pT=_ganttBarPos[lk.to];
       if(!pF||!pT)return;
       const rel=(lk.rel||'').toLowerCase();
-      const arwClr=rel.includes('block')||rel.includes('bloque')?'#f59e0b':
-                   rel.includes('depend')?'#60a5fa':'#8896b0';
-      // Path: fim de F → gap → cotovelo → início de T → arrowhead
-      const xF=pF.x2+2, yF=pF.cy, xT=pT.x1-6, yT=pT.cy;
-      const gap=10;
-      const mx=xF+gap;
-      if(Math.abs(xT-xF)<4&&Math.abs(yT-yF)<4)return; // mesmo ponto, ignora
-      svg+=`<path d="M${xF},${yF} L${mx},${yF} L${mx},${yT} L${xT},${yT}" fill="none" stroke="${arwClr}" stroke-width="1.5" stroke-dasharray="5,3" opacity="0.7"/>`;
-      // Arrowhead
-      svg+=`<polygon points="${xT+6},${yT} ${xT-1},${yT-4} ${xT-1},${yT+4}" fill="${arwClr}" opacity="0.85"/>`;
+      // Cor estilo Jira: vermelho=blocks, azul=depends, cinza=outros
+      const arwClr=rel.includes('block')||rel.includes('bloque')?'#ef4444':
+                   rel.includes('depend')?'#3b82f6':'#94a3b8';
+      // Bezier S-curve estilo Jira: saí da direita do bar F → entro pela esquerda do bar T
+      const xF=pF.x2+4, yF=pF.cy;
+      const xT=pT.x1-4, yT=pT.cy;
+      if(Math.abs(xT-xF)<2&&Math.abs(yT-yF)<2)return;
+      const curve=Math.max(36,Math.abs(xT-xF)*0.4);
+      svg+=`<path d="M${xF},${yF} C${xF+curve},${yF} ${xT-curve},${yT} ${xT},${yT}" fill="none" stroke="${arwClr}" stroke-width="2" opacity="0.85"/>`;
+      // Arrowhead — triângulo apontando direita (→) na ponta da curva
+      svg+=`<polygon points="${xT},${yT} ${xT-8},${yT-4} ${xT-8},${yT+4}" fill="${arwClr}" opacity="0.9"/>`;
     });
   }
   svg+='</svg>';
