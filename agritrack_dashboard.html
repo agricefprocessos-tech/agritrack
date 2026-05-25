@@ -3192,14 +3192,24 @@ function _ganttPhaseColor(name,status){
   return '#60a5fa';
 }
 
-// Extrai o nome base e número de fase de um título de tarefa.
-// Exemplos: "P157 - HAULER 8" - (SM) - F2" → {base:"P157...(SM)", phase:2}
-//           "MELHORAS KAIROS - FASE 01" → {base:"MELHORAS KAIROS", phase:1}
-//           "IRRIGADOR DE EUCALIPTOS" → {base:"IRRIGADOR DE EUCALIPTOS", phase:0}
+// Extrai base + fase de um título. A fase pode estar em qualquer posição:
+//   "P157 - HAULER - F1 - Viralco"  → base:"p157 - hauler", phase:1
+//   "P157 - HAULER - F2 - viralco"  → base:"p157 - hauler", phase:2  (agrupa com F1 acima)
+//   "KAIROS - FASE 01"              → base:"kairos", phase:1
+//   "IRRIGADOR DE EUCALIPTOS"       → base:"irrigador de eucaliptos", phase:0
+// Retorna { base (display), normBase (lowercase+espaço colapsado, para comparação), phase }
 function _ganttParseName(title){
-  const m=(title||'').match(/^(.+?)\s*[-–]\s*((?:FASE\s*)?\d+|F\d+)\s*$/i);
-  if(m){const ph=parseInt(m[2].replace(/\D/g,''));if(ph>0&&ph<=99)return{base:m[1].trim(),phase:ph};}
-  return{base:(title||'').trim(),phase:0};
+  const s=(title||'').trim();
+  // Encontra a PRIMEIRA ocorrência de "- F\d+" ou "- FASE \d+" em qualquer posição
+  const m=s.match(/^(.*?)\s*[-–]\s*(F(?:ASE\s*)?\d+)\b/i);
+  if(m){
+    const ph=parseInt(m[2].replace(/\D/g,''));
+    if(ph>0&&ph<=99){
+      const base=m[1].trim();
+      return{base,normBase:base.toLowerCase().replace(/\s+/g,' '),phase:ph};
+    }
+  }
+  return{base:s,normBase:s.toLowerCase().replace(/\s+/g,' '),phase:0};
 }
 
 // Builds flat rows list: parent rows + sub rows for expanded parents
@@ -3270,26 +3280,81 @@ function renderGantt(){
   if(!tasks.length){msg.textContent='Nenhuma tarefa encontrada para os filtros selecionados.';msg.style.display='block';wrap.style.display='none';return;}
   msg.style.display='none'; wrap.style.display='block';
 
-  // Ordena agrupando fases do mesmo projeto (F1→F2→F3...)
-  // e posiciona os grupos cronologicamente pela data de início da fase mais antiga.
+  // ── Ordena tarefas agrupando fases e respeitando dependências Jira ──────────
+  // Estratégia em 3 camadas:
+  //  1. normBase: identifica o grupo de projeto (ex: "p157 - hauler 8 - (sm)")
+  //  2. Topológico: Kahn's algorithm sobre o grafo de allLinks (Blocks)
+  //     → grupos predecessores sempre antes de grupos sucessores
+  //  3. Fase: dentro do mesmo grupo, F1 → F2 → F3...
   {
+    // a) Min-start por normBase (para tiebreaking e ancoragem cronológica)
     const _gMin={};
     tasks.forEach(t=>{
-      const{base}=_ganttParseName(t['Resumo']||'');
+      const{normBase}=_ganttParseName(t['Resumo']||'');
       const dt=(t._startDt||t._dlDt||new Date(9999,0)).getTime();
-      if(!_gMin[base]||dt<_gMin[base])_gMin[base]=dt;
+      if(!_gMin[normBase]||dt<_gMin[normBase])_gMin[normBase]=dt;
     });
+
+    // b) Mapa taskKey → normBase (inclui subtarefas para resolver links)
+    const _tkGrp={};
+    tasks.forEach(t=>{_tkGrp[t['Chave da item']]=_ganttParseName(t['Resumo']||'').normBase;});
+    allSubs.forEach(s=>{
+      const pai=s['Chave pai'];
+      if(pai&&_tkGrp[pai])_tkGrp[s['Chave da item']]=_tkGrp[pai];
+    });
+
+    // c) Constrói grafo de dependências entre grupos a partir de allLinks
+    const _allNB=new Set(Object.values(_tkGrp));
+    const _adjFwd={};  // normBase → Set(normBase que devem vir DEPOIS)
+    const _inDeg={};   // normBase → quantos predecessores ainda na fila
+    _allNB.forEach(nb=>{_adjFwd[nb]=new Set();_inDeg[nb]=0;});
+    allLinks.forEach(lk=>{
+      const f=_tkGrp[lk.from],t2=_tkGrp[lk.to];
+      if(!f||!t2||f===t2)return;
+      const rel=(lk.rel||'').toLowerCase();
+      // "Blocks": from bloqueia to → from vem ANTES de to
+      if(rel.includes('block')||rel.includes('bloque')){
+        if(!_adjFwd[f].has(t2)){_adjFwd[f].add(t2);_inDeg[t2]++;}
+      }
+    });
+
+    // d) Kahn's algorithm: fila ordenada por _gMin (cronológico dentro do mesmo nível)
+    const _sorted=[];
+    const _q=[..._allNB].filter(nb=>_inDeg[nb]===0).sort((a,b)=>(_gMin[a]||0)-(_gMin[b]||0));
+    while(_q.length){
+      const nb=_q.shift();
+      _sorted.push(nb);
+      [..._adjFwd[nb]].forEach(nxt=>{
+        _inDeg[nxt]--;
+        if(_inDeg[nxt]===0){
+          // Insere na posição correta mantendo ordem cronológica
+          let pos=_q.findIndex(q=>(_gMin[q]||0)>(_gMin[nxt]||0));
+          if(pos===-1)_q.push(nxt); else _q.splice(pos,0,nxt);
+        }
+      });
+    }
+    // Grupos restantes (ciclos) → no final, por data
+    [..._allNB].filter(nb=>!_sorted.includes(nb))
+      .sort((a,b)=>(_gMin[a]||0)-(_gMin[b]||0))
+      .forEach(nb=>_sorted.push(nb));
+    const _grpOrd=Object.fromEntries(_sorted.map((nb,i)=>[nb,i]));
+
+    // e) Sort final
     tasks.sort((a,b)=>{
       const pA=_ganttParseName(a['Resumo']||'');
       const pB=_ganttParseName(b['Resumo']||'');
-      // 1) Grupos diferentes → ordena pelo início mais antigo do grupo
-      const gA=_gMin[pA.base]||0, gB=_gMin[pB.base]||0;
-      if(gA!==gB)return gA-gB;
-      // 2) Mesmo grupo e mesmo início → ordena alfabeticamente pelo base
-      if(pA.base!==pB.base)return pA.base.localeCompare(pB.base,'pt');
-      // 3) Mesma fase-base → fase 1 antes de fase 2 antes de fase 3...
+      // 1) Grupos diferentes → ordem topológica (dep. Jira) com fallback cronológico
+      if(pA.normBase!==pB.normBase){
+        const oA=_grpOrd[pA.normBase]??999999;
+        const oB=_grpOrd[pB.normBase]??999999;
+        if(oA!==oB)return oA-oB;
+        const gA=_gMin[pA.normBase]||0,gB=_gMin[pB.normBase]||0;
+        if(gA!==gB)return gA-gB;
+        return pA.normBase.localeCompare(pB.normBase,'pt');
+      }
+      // 2) Mesmo grupo → fase em ordem crescente
       if(pA.phase!==pB.phase)return pA.phase-pB.phase;
-      // 4) Mesmo tudo → mantém ordem cronológica
+      // 3) Mesma fase → data de início
       return (a._startDt||a._dlDt||new Date(9999,0)).getTime()-(b._startDt||b._dlDt||new Date(9999,0)).getTime();
     });
   }
