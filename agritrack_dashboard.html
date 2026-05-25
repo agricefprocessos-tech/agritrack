@@ -3287,8 +3287,8 @@ function renderGantt(){
   // Camadas: 0) Filtra [TESTE]  1) Union-Find p/ mesclar grupos similares
   //          2) Kahn's topológico via Blocks  3) Fase crescente dentro do grupo
   {
-    // 0. Remove itens de teste (títulos com [TESTE])
-    tasks=tasks.filter(t=>!/\[teste\]/i.test(t['Resumo']||''));
+    // 0. Remove itens de teste (títulos com [TESTE] ou prefixo PTEST-)
+    tasks=tasks.filter(t=>!/\[teste\]|ptest/i.test(t['Resumo']||''));
 
     // a) Min-start por normBase
     const _gMin={};
