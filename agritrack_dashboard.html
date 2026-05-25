@@ -3440,8 +3440,63 @@ function renderGantt(){
     svg+=`<text x="${todX}" y="14" text-anchor="middle" fill="white" font-size="9" font-weight="700">HOJE</text>`;
   }
 
+  // ── Pré-passo: calcular posições para renderizar setas ANTES das barras ──
+  _ganttBarPos={};
+  {
+    let _pY=G_HDR;
+    rows.forEach(r=>{
+      const py=_pY; _pY+=r.rowH;
+      const t=r.task; const key=t['Chave da item']||'';
+      if(r.type==='parent'){
+        const sDate=t._startDt||(t._dlDt?new Date(t._dlDt.getTime()-90*86400000):null);
+        const limitDate=t._dlDt;
+        if(!sDate&&!limitDate)return;
+        const alvoDate=pd(t['Campo personalizado (Data alvo)']);
+        const x1=Math.round(((sDate||limitDate)-minD)/86400000*ppd);
+        const xLim=limitDate?Math.round((limitDate-minD)/86400000*ppd):x1+60;
+        const xAlvo=alvoDate?Math.round((alvoDate-minD)/86400000*ppd):xLim;
+        _ganttBarPos[key]={x1,x2:Math.max(xAlvo,xLim),cy:py+G_BAR_Y+Math.round(G_BAR_H/2)};
+      }else{
+        if(t._plannedStartDt&&t._plannedEndDt){
+          const xSP=Math.round((t._plannedStartDt-minD)/86400000*ppd);
+          const xEP=Math.round((t._plannedEndDt-minD)/86400000*ppd);
+          const hasReal=!!t._actualStartDt;
+          const pY2=hasReal?py+24:py+9; const pH=hasReal?8:18;
+          _ganttBarPos[key]={x1:xSP,x2:xEP,cy:Math.round(pY2+pH/2)};
+        }
+        if(t._actualStartDt){
+          const eReff=t._actualEndDt||today;
+          const xSR=Math.round((t._actualStartDt-minD)/86400000*ppd);
+          const xER=Math.round((eReff-minD)/86400000*ppd);
+          _ganttBarPos[key]={x1:xSR,x2:xER,cy:py+11};
+        }
+      }
+    });
+  }
+  // ── Setas renderizadas ANTES das barras (ficam visualmente atrás) ──
+  if(allLinks.length){
+    svg+='<g pointer-events="none">';
+    const _seen=new Set();
+    allLinks.forEach(lk=>{
+      const dedup=lk.from+'→'+lk.to;
+      if(_seen.has(dedup))return; _seen.add(dedup);
+      const pF=_ganttBarPos[lk.from], pT=_ganttBarPos[lk.to];
+      if(!pF||!pT)return;
+      const rel=(lk.rel||'').toLowerCase();
+      const arwClr=rel.includes('block')||rel.includes('bloque')?'#ef4444':
+                   rel.includes('depend')?'#3b82f6':'#94a3b8';
+      const xF=pF.x2+4, yF=pF.cy;
+      const xT=pT.x1-4, yT=pT.cy;
+      if(Math.abs(xT-xF)<2&&Math.abs(yT-yF)<2)return;
+      const curve=Math.max(36,Math.abs(xT-xF)*0.4);
+      svg+=`<path d="M${xF},${yF} C${xF+curve},${yF} ${xT-curve},${yT} ${xT},${yT}" fill="none" stroke="${arwClr}" stroke-width="2" opacity="0.7"/>`;
+      svg+=`<polygon points="${xT},${yT} ${xT-8},${yT-4} ${xT-8},${yT+4}" fill="${arwClr}" opacity="0.75"/>`;
+    });
+    svg+='</g>';
+  }
+
   // ── Bars ──────────────────────────────────────────────────────
-  _ganttBarPos={};   // reset a cada render
+  _ganttBarPos={};   // reset — repopulado pelo loop das barras
   rowY=G_HDR;
   rows.forEach(r=>{
     const y=rowY; rowY+=r.rowH;
@@ -3540,28 +3595,7 @@ function renderGantt(){
       svg+=`<rect x="0" y="${y}" width="${svgW}" height="${r.rowH}" fill="transparent" style="cursor:pointer" onclick="ganttClick('${key}')"/>`;
     }
   });
-  // ── Setas de dependência (issuelinks) ─────────────────────────
-  if(allLinks.length){
-    const seen=new Set();
-    allLinks.forEach(lk=>{
-      const dedup=lk.from+'→'+lk.to;
-      if(seen.has(dedup))return; seen.add(dedup);
-      const pF=_ganttBarPos[lk.from], pT=_ganttBarPos[lk.to];
-      if(!pF||!pT)return;
-      const rel=(lk.rel||'').toLowerCase();
-      // Cor estilo Jira: vermelho=blocks, azul=depends, cinza=outros
-      const arwClr=rel.includes('block')||rel.includes('bloque')?'#ef4444':
-                   rel.includes('depend')?'#3b82f6':'#94a3b8';
-      // Bezier S-curve estilo Jira: saí da direita do bar F → entro pela esquerda do bar T
-      const xF=pF.x2+4, yF=pF.cy;
-      const xT=pT.x1-4, yT=pT.cy;
-      if(Math.abs(xT-xF)<2&&Math.abs(yT-yF)<2)return;
-      const curve=Math.max(36,Math.abs(xT-xF)*0.4);
-      svg+=`<path d="M${xF},${yF} C${xF+curve},${yF} ${xT-curve},${yT} ${xT},${yT}" fill="none" stroke="${arwClr}" stroke-width="2" opacity="0.85"/>`;
-      // Arrowhead — triângulo apontando direita (→) na ponta da curva
-      svg+=`<polygon points="${xT},${yT} ${xT-8},${yT-4} ${xT-8},${yT+4}" fill="${arwClr}" opacity="0.9"/>`;
-    });
-  }
+  // (setas já renderizadas antes das barras — ver pré-passo acima)
   svg+='</svg>';
   // ── Render SVG preservando scroll (scroll reseta no innerHTML) ─
   {
