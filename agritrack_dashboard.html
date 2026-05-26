@@ -227,6 +227,20 @@ tr:hover td{background:rgba(255,255,255,0.02)}
 .chat-dot:nth-child(2){animation-delay:.2s}.chat-dot:nth-child(3){animation-delay:.4s}
 @keyframes chatdot{0%,100%{opacity:.3;transform:translateY(0)}50%{opacity:1;transform:translateY(-3px)}}
 
+/* ── HAULER BOM ── */
+.hauler-filter{padding:4px 12px;border:1px solid var(--border2);background:var(--bg3);color:var(--text2);border-radius:20px;font-family:inherit;font-size:11px;cursor:pointer;transition:all .15s}
+.hauler-filter:hover{color:var(--text)}
+.hauler-filter.on{background:var(--gdim);border-color:var(--green);color:var(--green)}
+.hauler-badge{display:inline-block;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap}
+.hb-comprar{background:rgba(96,165,250,0.15);color:var(--blue)}
+.hb-serra{background:rgba(167,139,250,0.15);color:var(--purple)}
+.hb-solda{background:rgba(245,158,11,0.15);color:var(--amber)}
+.hb-usinagem{background:rgba(240,82,82,0.15);color:var(--red)}
+.hb-montagem{background:rgba(34,211,122,0.15);color:var(--green)}
+.hb-corte{background:rgba(255,255,255,0.08);color:var(--text2)}
+.hb-misto{background:rgba(255,255,255,0.05);color:var(--text3)}
+#haulerTable tr:hover{background:rgba(255,255,255,0.03)}
+#haulerTable td{padding:6px 10px;border-bottom:1px solid var(--border)}
 /* ── RESPONSIVE ── */
 @media(max-width:860px){.g2,.g3,.gw,.form-grid{grid-template-columns:1fr}.card.full{grid-column:auto}.nav{gap:0}.ntab{padding:6px 10px;font-size:12px}}
 @media(max-width:600px){.hdr{padding:0 14px}.main{padding:0 14px}.fbar{margin:10px 14px}}
@@ -247,6 +261,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
     <button class="ntab" onclick="nav('report')">📋 Relatório Semanal</button>
     <button class="ntab" onclick="nav('compras')">🛒 Compras</button>
     <button class="ntab" onclick="nav('gantt')">📅 Gantt</button>
+    <button class="ntab" onclick="nav('hauler')">🔩 Hauler BOM</button>
     <button class="ntab" onclick="nav('cfg')">⚙️ Config</button>
   </nav>
   <div class="hright">
@@ -789,6 +804,62 @@ tr:hover td{background:rgba(255,255,255,0.02)}
   </div>
 </div>
 
+<!-- ══ PAGE: HAULER BOM ══════════════════════════════════════════ -->
+<div id="pg-hauler" class="pg">
+  <div class="ph">
+    <div><div class="ptitle">Hauler — Rastreamento BOM</div><div class="psub" id="haulerMeta">Lista de peças e localização atual no processo produtivo</div></div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <label class="btn-sec" style="cursor:pointer;font-size:12px">📂 Carregar CSV
+        <input type="file" id="haulerCsvInput" accept=".csv" style="display:none" onchange="loadHaulerCsv(this)">
+      </label>
+      <button class="btn-sec" style="font-size:12px" onclick="exportHaulerReport()">📋 Exportar</button>
+    </div>
+  </div>
+  <div class="main">
+    <!-- KPIs -->
+    <div id="haulerKpis" style="display:none;margin-top:16px">
+      <div class="krow" id="haulerKpiRow"></div>
+    </div>
+    <!-- Filters -->
+    <div id="haulerFilters" style="display:none;margin:14px 0;display:none;flex-wrap:wrap;gap:8px;align-items:center">
+      <span style="font-size:11px;color:var(--text2)">Filtrar:</span>
+      <button class="hauler-filter on" data-f="all" onclick="filtrarHauler('all',this)">Todos</button>
+      <button class="hauler-filter" data-f="comprar" onclick="filtrarHauler('comprar',this)">🛒 Comprar</button>
+      <button class="hauler-filter" data-f="serra" onclick="filtrarHauler('serra',this)">⚙️ Serra</button>
+      <button class="hauler-filter" data-f="solda" onclick="filtrarHauler('solda',this)">🔥 Solda</button>
+      <button class="hauler-filter" data-f="usinagem" onclick="filtrarHauler('usinagem',this)">🔧 Usinagem</button>
+      <button class="hauler-filter" data-f="montagem" onclick="filtrarHauler('montagem',this)">🏗️ Montagem</button>
+      <button class="hauler-filter" data-f="corte" onclick="filtrarHauler('corte',this)">✂️ Corte Chapa</button>
+      <input id="haulerSearch" type="text" placeholder="Buscar código ou descrição…" style="padding:5px 10px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--rs);color:var(--text);font-size:12px;font-family:inherit;width:240px" oninput="filtrarHauler(null,null)">
+    </div>
+    <!-- Table -->
+    <div id="haulerTableWrap" class="tw" style="display:none">
+      <table id="haulerTable" style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr style="background:var(--bg3);text-align:left">
+            <th style="padding:8px 10px;color:var(--text2);font-weight:600;white-space:nowrap">Nível</th>
+            <th style="padding:8px 10px;color:var(--text2);font-weight:600">Código</th>
+            <th style="padding:8px 10px;color:var(--text2);font-weight:600">Descrição</th>
+            <th style="padding:8px 10px;color:var(--text2);font-weight:600">Qtd</th>
+            <th style="padding:8px 10px;color:var(--text2);font-weight:600">Tipo</th>
+            <th style="padding:8px 10px;color:var(--text2);font-weight:600">Etapa/Fornecedor</th>
+            <th style="padding:8px 10px;color:var(--text2);font-weight:600">Estado</th>
+          </tr>
+        </thead>
+        <tbody id="haulerTbody"></tbody>
+      </table>
+    </div>
+    <!-- Empty state -->
+    <div id="haulerEmpty" style="text-align:center;padding:60px 20px;color:var(--text2)">
+      <div style="font-size:40px;margin-bottom:16px">🔩</div>
+      <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:8px">Rastreamento BOM do Hauler</div>
+      <div style="font-size:13px;max-width:400px;margin:0 auto;line-height:1.6">
+        Carregue o arquivo CSV da lista de peças (401095 - THOMAS.csv) para visualizar a hierarquia completa com classificação automática de etapas produtivas.
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ══ PAGE: COMPRAS ════════════════════════════════════════════ -->
 <div id="pg-compras" class="pg">
   <div class="ph">
@@ -1100,13 +1171,14 @@ function nav(id){
   document.querySelectorAll('.ntab').forEach(t=>t.classList.remove('on'));
   document.getElementById('pg-'+id).classList.add('on');
   const tabs=document.querySelectorAll('.ntab');
-  const idx={'dash':0,'form':1,'block':2,'report':3,'compras':4,'gantt':5,'cfg':6};
+  const idx={'dash':0,'form':1,'block':2,'report':3,'compras':4,'gantt':5,'hauler':6,'cfg':7};
   if(idx[id]!==undefined)tabs[idx[id]].classList.add('on');
   if(id==='block')loadBloqueados();
   if(id==='cfg')initConfig();
   if(id==='report'){_populaRptDeptTabs();if(!_rptGerado)gerarRelatorio(false);}
   if(id==='compras')loadCompras(); // sempre chama — cache evita rebusca desnecessária
   if(id==='gantt')initGantt();
+  if(id==='hauler')initHauler();
   // Retoma rotação ao voltar ao Dashboard
   if(id==='dash'&&_dashRotDepts.length>1&&!_dashRotTimer){
     _dashRotTimer=setInterval(_rotarDashDept,7000);
@@ -1849,23 +1921,10 @@ async function gerarRelatorio(manual){
     if(concl7d.length>0)
       acoes.push(`${n++}. **[INFO] Homologar entregas:** ${concl7d.length} entrega(s) concluída(s) na semana aguardam revisão e homologação final.`);
 
-    // ── Mini-cronograma (só no relatório por departamento) ────────
-    let mdCronograma='';
-    if(isDeptFiltro&&data.length>0){
-      const fmt=d=>{if(!d)return '—';const o=pd(d);return o?o.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'}):d;};
-      const linhas=data
-        .filter(t=>t['Status']!=='Feito'||pd(t['Resolvido'])>=semanaPassada)
-        .sort((a,b)=>(a._startDt||new Date(9999,0))-(b._startDt||new Date(9999,0)))
-        .map(t=>{
-          const st=t['Status']==='Feito'?'✅':t['Status']==='Fazendo'?'🔵':'⬜';
-          const fp=t._prazo==='FORA DO PRAZO'&&t['Status']!=='Feito'?' ⚠':'';
-          const blk=(t['Labels']||'').includes('bloqueado')?' 🚧':'';
-          return `| ${st} ${t['Chave da item']} | ${t['Resumo']?.slice(0,45)||'—'}${t['Resumo']?.length>45?'…':''} | ${fmt(t['Campo personalizado (Start date)'])} | ${fmt(t['Data limite'])} | ${t['Status']}${fp}${blk} |`;
-        });
-      if(linhas.length>0){
-        mdCronograma=`\n## 📅 Cronograma — ${_rptDept}\n\n| Status | Projeto | Início | Prazo | Situação |\n|:---:|---|:---:|:---:|---|\n${linhas.join('\n')}\n`;
-      }
-    }
+    // ── Mini-cronograma visual (injetado após render em HTML) ─────
+    const cronProjs=isDeptFiltro?data
+      .filter(t=>t['Status']!=='Feito'||( pd(t['Resolvido'])&&pd(t['Resolvido'])>=semanaPassada ))
+      .sort((a,b)=>(a._startDt||new Date(9999,0))-(b._startDt||new Date(9999,0))):[];
 
     // ── Monta markdown ────────────────────────────────────────────
     const tituloRpt=isDeptFiltro?`📋 Relatório — ${_rptDept}`:'📋 Relatório Semanal AgriTrack';
@@ -1876,7 +1935,7 @@ async function gerarRelatorio(manual){
 ## 📌 Resumo Executivo
 
 ${bullets.map(b=>`- ${b}`).join('\n')}
-${mdCronograma}
+
 ## 📊 Status por Departamento
 
 | Departamento | Total | Em Andamento | Concluídos | Fora Prazo | Bloqueados |
@@ -1912,6 +1971,10 @@ ${concl7d.length>0?listConcl7d:'_Nenhum projeto concluído na semana._'}
     document.getElementById('rptLoad').style.display='none';
     document.getElementById('rptBox').style.display='block';
     document.getElementById('rptBox').innerHTML=mdToHtml(md);
+    // Injetar cronograma visual (barra Gantt HTML)
+    if(isDeptFiltro&&cronProjs.length>0) _injetarCronogramaVisual(cronProjs,_rptDept);
+    // Injetar análise de riscos com IA (assíncrono)
+    _injetarAnaliseAI(data,bloqueados,foraPrazo,proxVenc,isDeptFiltro,_rptDept);
     _rptGerado=true;
     _rptTexto=md;
     document.getElementById('rptMeta').textContent='Gerado em '+new Date().toLocaleString('pt-BR')+' — '+allTasks.length+' tarefas analisadas';
@@ -1925,6 +1988,290 @@ ${concl7d.length>0?listConcl7d:'_Nenhum projeto concluído na semana._'}
 }
 
 let _rptTexto='';
+
+// ════════════════════════════════════════════════════════════════
+// CRONOGRAMA VISUAL (injetado no relatório)
+// ════════════════════════════════════════════════════════════════
+function _injetarCronogramaVisual(projetos, deptNome){
+  if(!projetos||!projetos.length)return;
+  const hoje=new Date();
+  const datas=projetos.flatMap(t=>[pd(t['Campo personalizado (Start date)']),pd(t['Data limite'])]).filter(Boolean);
+  let minDate=datas.length?new Date(Math.min(...datas)):new Date(hoje.getFullYear(),hoje.getMonth()-1,1);
+  let maxDate=datas.length?new Date(Math.max(...datas)):new Date(hoje.getFullYear(),hoje.getMonth()+2,1);
+  // Ensure range is at least 30 days
+  if((maxDate-minDate)<30*864e5){maxDate=new Date(minDate.getTime()+60*864e5);}
+  const span=maxDate-minDate||1;
+  const pct=v=>Math.max(0,Math.min(100,((v-minDate)/span*100))).toFixed(2);
+  const fmtD=d=>d instanceof Date?d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}):d;
+  const hojeLeft=pct(hoje);
+  const corStatus={'Feito':'var(--green)','Fazendo':'var(--blue)','A Fazer':'var(--text3)'};
+  const linhas=projetos.map(t=>{
+    const s=pd(t['Campo personalizado (Start date)'])||hoje;
+    const e=pd(t['Data limite'])||new Date(hoje.getTime()+14*864e5);
+    const left=pct(s);
+    const w=Math.max(1,(pct(e)-pct(s)));
+    const isFP=t._prazo==='FORA DO PRAZO'&&t['Status']!=='Feito';
+    const isBlk=(t['Labels']||'').includes('bloqueado');
+    const cor=isFP?'var(--red)':corStatus[t['Status']]||'var(--text3)';
+    const icon=t['Status']==='Feito'?'✅':isFP?'⚠️':isBlk?'🚧':'🔵';
+    const resumo=(t['Resumo']||'').slice(0,35)+(t['Resumo']?.length>35?'…':'');
+    return `<div style="display:grid;grid-template-columns:180px 1fr;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border)">
+      <div style="font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(t['Resumo']||'').replace(/"/g,'')}">
+        ${icon} <strong style="color:var(--text);font-size:10px">${t['Chave da item']||''}</strong> <span style="color:var(--text2)">${resumo}</span>
+      </div>
+      <div style="position:relative;height:20px;background:var(--bg3);border-radius:4px;overflow:visible">
+        <div style="position:absolute;left:${left}%;width:${w}%;min-width:4px;height:100%;background:${cor};border-radius:4px;opacity:${t['Status']==='A Fazer'?0.4:0.85};transition:all .3s"></div>
+        ${isFP?`<div style="position:absolute;right:2px;top:1px;font-size:9px" title="Fora do prazo">⚠️</div>`:''}
+        ${isBlk&&!isFP?`<div style="position:absolute;right:2px;top:1px;font-size:9px" title="Bloqueado">🚧</div>`:''}
+      </div>
+    </div>`;
+  }).join('');
+  const div=document.createElement('div');
+  div.style.cssText='margin:20px 0';
+  div.innerHTML=`
+    <h2 style="font-size:14px;border-bottom:1px solid var(--border);padding-bottom:6px;margin:0 0 12px;color:var(--text)">📅 Cronograma — ${deptNome}</h2>
+    <div style="display:grid;grid-template-columns:180px 1fr;gap:8px;margin-bottom:4px">
+      <div></div>
+      <div style="position:relative;height:8px">
+        <div style="position:absolute;left:${hojeLeft}%;width:2px;height:500px;background:rgba(245,158,11,0.4);top:-4px;pointer-events:none;z-index:1"></div>
+        <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text2)">
+          <span>${fmtD(minDate)}</span>
+          <span style="color:var(--amber);font-weight:600">▲ hoje (${fmtD(hoje)})</span>
+          <span>${fmtD(maxDate)}</span>
+        </div>
+      </div>
+    </div>
+    <div style="font-size:11px">${linhas}</div>
+    <div style="display:flex;gap:14px;margin-top:10px;font-size:10px;color:var(--text2);flex-wrap:wrap">
+      <span>🔵 Em Andamento</span><span>✅ Concluído</span><span>⬜ A Fazer</span><span>⚠️ Fora do Prazo</span><span>🚧 Bloqueado</span>
+    </div>`;
+  const rptBox=document.getElementById('rptBox');
+  const h2s=rptBox.querySelectorAll('h2');
+  let insertBefore=null;
+  h2s.forEach(h=>{if(h.textContent.includes('Status por Departamento'))insertBefore=h;});
+  if(insertBefore)rptBox.insertBefore(div,insertBefore);
+  else rptBox.appendChild(div);
+}
+
+// ════════════════════════════════════════════════════════════════
+// ANÁLISE DE RISCOS COM IA (Gemini)
+// ════════════════════════════════════════════════════════════════
+async function _injetarAnaliseAI(data,bloqueados,foraPrazo,proxVenc,isDeptFiltro,deptNome){
+  const geminiKey=localStorage.getItem('gemini_key');
+  if(!geminiKey)return;
+  const rptBox=document.getElementById('rptBox');
+  const aiDiv=document.createElement('div');
+  aiDiv.id='rpt-ai-section';
+  aiDiv.style.cssText='margin:20px 0';
+  aiDiv.innerHTML=`
+    <h2 style="font-size:14px;border-bottom:1px solid var(--border);padding-bottom:6px;margin:0 0 12px;color:var(--text)">🗣 Pauta Sugerida para Reunião</h2>
+    <div style="display:flex;align-items:center;gap:8px;color:var(--text2);font-size:12px;padding:10px 0">
+      <div class="spinner" style="width:16px;height:16px;border-width:2px;flex-shrink:0"></div>
+      Gerando análise com Gemini AI…
+    </div>`;
+  rptBox.appendChild(aiDiv);
+  const bloqInfo=bloqueados.slice(0,10).map(t=>`- ${t['Chave da item']}: "${t['Resumo']}" [${t['Campo personalizado (Departamento)']||'?'}]`).join('\n');
+  const fpInfo=foraPrazo.slice(0,10).map(t=>`- ${t['Chave da item']}: "${t['Resumo']}" (DL: ${t['Data limite']}) [${t['Campo personalizado (Departamento)']||'?'}]`).join('\n');
+  const pvInfo=proxVenc.slice(0,8).map(t=>`- ${t['Chave da item']}: "${t['Resumo']}" (DL: ${t['Data limite']}) [${t['Campo personalizado (Departamento)']||'?'}]`).join('\n');
+  const prompt=`Você é um gestor de projetos experiente analisando o portfólio de projetos industriais da Agricef.
+
+CONTEXTO${isDeptFiltro?` — Departamento: ${deptNome}`:''}:
+Total de projetos: ${data.length}
+
+Projetos BLOQUEADOS (${bloqueados.length}):
+${bloqInfo||'Nenhum'}
+
+Projetos FORA DO PRAZO (${foraPrazo.length}):
+${fpInfo||'Nenhum'}
+
+Projetos com prazo nos PRÓXIMOS 7 DIAS (${proxVenc.length}):
+${pvInfo||'Nenhum'}
+
+Gere uma PAUTA OBJETIVA para a reunião semanal de alinhamento. Para cada item:
+- Use emoji de prioridade: 🔴 Urgente | 🟠 Alta | 🟡 Média
+- Descreva o que deve ser discutido e qual resultado esperado
+- Máximo 7 itens, ordenados por prioridade
+- Se não há problemas críticos, indique os próximos riscos a monitorar
+
+Responda em português, direto ao ponto, sem introdução.`;
+  try{
+    const resp=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.65,maxOutputTokens:900}})
+    });
+    const json=await resp.json();
+    if(!resp.ok)throw new Error(json.error?.message||resp.statusText);
+    const text=json.candidates?.[0]?.content?.parts?.[0]?.text||'Não foi possível gerar a análise.';
+    const inner=aiDiv.querySelector('div:last-child');
+    inner.style.cssText='font-size:13px;line-height:1.75;color:var(--text)';
+    inner.innerHTML=mdToHtml(text);
+  }catch(e){
+    aiDiv.querySelector('div:last-child').innerHTML=`<span style="color:var(--red);font-size:12px">⚠️ Erro ao chamar Gemini: ${e.message}. Verifique a chave em ⚙️ Config.</span>`;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// HAULER BOM TRACKER
+// ════════════════════════════════════════════════════════════════
+let _haulerData=null;
+let _haulerFiltro='all';
+
+function initHauler(){
+  if(_haulerData)renderHaulerTable(_haulerData);
+}
+
+function loadHaulerCsv(input){
+  const file=input.files[0];
+  if(!file)return;
+  document.getElementById('haulerMeta').textContent='Carregando…';
+  Papa.parse(file,{
+    header:true,
+    delimiter:';',
+    encoding:'UTF-8',
+    skipEmptyLines:true,
+    complete:function(results){
+      // Try UTF-16 fallback if columns look wrong
+      const rows=results.data.filter(r=>r['CODIGO']||r['Nível']);
+      if(!rows.length){
+        // Re-read with different encoding detection
+        const reader=new FileReader();
+        reader.onload=function(e){
+          const txt=e.target.result;
+          const parsed=Papa.parse(txt,{header:true,delimiter:';',skipEmptyLines:true});
+          _haulerData=classificarHauler(parsed.data);
+          renderHaulerTable(_haulerData);
+        };
+        reader.readAsText(file,'UTF-16LE');
+        return;
+      }
+      _haulerData=classificarHauler(rows);
+      renderHaulerTable(_haulerData);
+    },
+    error:function(e){document.getElementById('haulerMeta').textContent='Erro: '+e.message;}
+  });
+}
+
+function classificarHauler(rows){
+  return rows.map(r=>{
+    const nivelRaw=String(r['Nível']||r['Nivel']||'').trim();
+    const codigo=String(r['CODIGO']||'').trim();
+    const desc=String(r['DESCRICAO']||'').trim();
+    const qtd=String(r['QNTDE']||'1').trim();
+    const comercial=String(r['ITEM COMERCIAL']||'').trim().toUpperCase();
+    const corteChapa=String(r['CORTE CHAPA']||'').trim();
+    const cortePerfil=String(r['CORTE PERFIL']||'').trim();
+    const soldagem=String(r['SOLDAGEM']||'').trim();
+    const usinagem=String(r['USINAGEM']||'').trim();
+    const montagem=String(r['MONTAGEM']||'').trim().toUpperCase();
+    const fabricante=String(r['FABRICANTE']||'').trim();
+    const estado=String(r['ESTADO']||'').trim();
+    const nivel=nivelRaw.replace(/\s+/g,'');
+    const depth=nivel.split('.').length-1;
+    // Classify
+    const tipos=[];
+    if(comercial==='SIM') tipos.push('comprar');
+    if(cortePerfil&&cortePerfil!=='.') tipos.push('serra');
+    if(corteChapa&&corteChapa!=='.') tipos.push('corte');
+    if(soldagem&&soldagem!=='.') tipos.push('solda');
+    if(usinagem&&usinagem!=='.') tipos.push('usinagem');
+    if(montagem==='MONTAGEM') tipos.push('montagem');
+    const tipo=tipos.length===0?'misto':tipos[0];
+    const tipoAll=tipos.length===0?['misto']:tipos;
+    return {nivel,depth,codigo,desc,qtd,tipo,tipoAll,fabricante,estado,comercial,
+      corteChapa,cortePerfil,soldagem,usinagem,montagem,_raw:r};
+  }).filter(r=>r.nivel||r.codigo||r.desc);
+}
+
+const _haulerBadge={
+  comprar:'<span class="hauler-badge hb-comprar">🛒 Comprar</span>',
+  serra:'<span class="hauler-badge hb-serra">⚙️ Serra</span>',
+  corte:'<span class="hauler-badge hb-corte">✂️ Corte Chapa</span>',
+  solda:'<span class="hauler-badge hb-solda">🔥 Solda</span>',
+  usinagem:'<span class="hauler-badge hb-usinagem">🔧 Usinagem</span>',
+  montagem:'<span class="hauler-badge hb-montagem">🏗️ Montagem</span>',
+  misto:'<span class="hauler-badge hb-misto">—</span>',
+};
+
+function _haulerEtapa(row){
+  if(row.tipo==='comprar')return row.fabricante||'Fornecedor externo';
+  const etapas=[];
+  if(row.tipoAll.includes('serra'))etapas.push('Serra');
+  if(row.tipoAll.includes('corte'))etapas.push('Corte Chapa');
+  if(row.tipoAll.includes('solda'))etapas.push('Solda');
+  if(row.tipoAll.includes('usinagem'))etapas.push('Usinagem');
+  if(row.tipoAll.includes('montagem'))etapas.push('Montagem');
+  return etapas.join(' → ')||'—';
+}
+
+function renderHaulerTable(rows){
+  // Compute KPIs
+  const total=rows.length;
+  const comprar=rows.filter(r=>r.tipoAll.includes('comprar')).length;
+  const fabricar=rows.filter(r=>!r.tipoAll.includes('comprar')&&r.tipo!=='misto').length;
+  const misto=rows.filter(r=>r.tipo==='misto').length;
+  const fornecedores=[...new Set(rows.filter(r=>r.fabricante).map(r=>r.fabricante))].length;
+  document.getElementById('haulerKpiRow').innerHTML=`
+    <div class="kpi b"><div class="kl">Total de Itens</div><div class="kv">${total}</div><div class="kn">BOM completo</div><div class="kb" style="width:100%"></div></div>
+    <div class="kpi b"><div class="kl">Comprar</div><div class="kv">${comprar}</div><div class="kn">Itens comerciais</div><div class="kb" style="width:${Math.round(comprar/total*100)}%"></div></div>
+    <div class="kpi g"><div class="kl">Fabricar</div><div class="kv">${fabricar}</div><div class="kn">Produção interna</div><div class="kb" style="width:${Math.round(fabricar/total*100)}%"></div></div>
+    <div class="kpi a"><div class="kl">Fornecedores</div><div class="kv">${fornecedores}</div><div class="kn">Distintos</div><div class="kb" style="width:100%"></div></div>
+    <div class="kpi n"><div class="kl">Sem Classif.</div><div class="kv">${misto}</div><div class="kn">Subconjuntos</div><div class="kb" style="width:${Math.round(misto/total*100)}%"></div></div>`;
+  document.getElementById('haulerKpis').style.display='block';
+  document.getElementById('haulerFilters').style.display='flex';
+  document.getElementById('haulerTableWrap').style.display='block';
+  document.getElementById('haulerEmpty').style.display='none';
+  document.getElementById('haulerMeta').textContent=`${total} itens carregados — ${comprar} para comprar, ${fabricar} para fabricar`;
+  _renderHaulerRows(rows);
+}
+
+function _renderHaulerRows(rows){
+  const q=(document.getElementById('haulerSearch').value||'').toLowerCase();
+  const f=_haulerFiltro;
+  const filtered=rows.filter(r=>{
+    if(f!=='all'&&!r.tipoAll.includes(f))return false;
+    if(q&&!(r.codigo.toLowerCase().includes(q)||r.desc.toLowerCase().includes(q)||r.fabricante.toLowerCase().includes(q)))return false;
+    return true;
+  });
+  const tbody=document.getElementById('haulerTbody');
+  tbody.innerHTML=filtered.map(r=>{
+    const indent=r.depth*16;
+    const badges=r.tipoAll.map(t=>_haulerBadge[t]||'').join(' ');
+    const etapa=_haulerEtapa(r);
+    const estadoColor=r.estado==='Aprovado'?'var(--green)':r.estado==='Criação e Edição'?'var(--amber)':r.estado==='Itens Comerciais'?'var(--blue)':'var(--text2)';
+    return `<tr>
+      <td style="font-size:10px;color:var(--text2);white-space:nowrap">${r.nivel}</td>
+      <td style="font-family:'IBM Plex Mono',monospace;font-size:11px;white-space:nowrap;color:var(--blue)">${r.codigo||'—'}</td>
+      <td style="padding-left:${10+indent}px;max-width:320px">
+        <span style="font-size:11px;color:var(--text)" title="${r.desc.replace(/"/g,'')}">${r.desc.slice(0,60)}${r.desc.length>60?'…':''}</span>
+      </td>
+      <td style="text-align:center;font-size:11px;color:var(--text2)">${r.qtd}</td>
+      <td>${badges||_haulerBadge.misto}</td>
+      <td style="font-size:11px;color:var(--text2)">${etapa}</td>
+      <td style="font-size:10px;color:${estadoColor}">${r.estado||'—'}</td>
+    </tr>`;
+  }).join('');
+  if(!filtered.length)tbody.innerHTML=`<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--text2)">Nenhum item encontrado</td></tr>`;
+}
+
+function filtrarHauler(f,btn){
+  if(f!==null){
+    _haulerFiltro=f;
+    document.querySelectorAll('.hauler-filter').forEach(b=>b.classList.remove('on'));
+    if(btn)btn.classList.add('on');
+  }
+  if(_haulerData)_renderHaulerRows(_haulerData);
+}
+
+function exportHaulerReport(){
+  if(!_haulerData){alert('Carregue o CSV primeiro.');return;}
+  const rows=_haulerData;
+  const csv='Nível;Código;Descrição;Qtd;Tipo;Etapa/Fornecedor;Estado\n'+
+    rows.map(r=>`${r.nivel};${r.codigo};"${r.desc}";${r.qtd};${r.tipo};${_haulerEtapa(r)};${r.estado}`).join('\n');
+  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='hauler_bom_classificado.csv';a.click();
+}
 
 async function enviarEmail(){
   if(!_rptTexto){alert('Gere o relatório primeiro.');return;}
