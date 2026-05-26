@@ -3832,7 +3832,13 @@ function ganttClick(key){
     </div>
     <button onclick="document.getElementById('ganttDetail').style.display='none'" style="background:transparent;border:1px solid var(--border2);border-radius:6px;padding:4px 10px;color:var(--text2);cursor:pointer;font-size:11px;flex-shrink:0">✕</button>
   </div>`;
-  det.scrollIntoView({behavior:'smooth',block:'nearest'});
+  // Scroll so the panel top is clearly visible below the sticky header (56px + 12px margin)
+  const detTop=det.getBoundingClientRect().top+window.scrollY-70;
+  window.scrollTo({top:Math.max(0,detTop),behavior:'smooth'});
+  // Highlight the panel briefly to draw attention
+  det.style.transition='box-shadow .2s';
+  det.style.boxShadow='0 0 0 2px var(--green)';
+  setTimeout(()=>{det.style.boxShadow='';},1200);
 }
 
 function ganttRegistrarBloqueio(key,summary,duedate){
