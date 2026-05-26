@@ -2049,8 +2049,13 @@ function _injetarCronogramaVisual(projetos, deptNome){
   const h2s=rptBox.querySelectorAll('h2');
   let insertBefore=null;
   h2s.forEach(h=>{if(h.textContent.includes('Status por Departamento'))insertBefore=h;});
-  if(insertBefore)insertBefore.parentNode.insertBefore(div,insertBefore);
-  else rptBox.appendChild(div);
+  // Subir na árvore até encontrar filho direto do rptBox
+  if(insertBefore){
+    let el=insertBefore;
+    while(el.parentElement&&el.parentElement!==rptBox)el=el.parentElement;
+    if(el.parentElement===rptBox)rptBox.insertBefore(div,el);
+    else rptBox.appendChild(div);
+  }else rptBox.appendChild(div);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -2314,10 +2319,10 @@ function mdToHtml(md){
     .replace(/\*(.+?)\*/g,'<em>$1</em>')
     .replace(/`(.+?)`/g,'<code>$1</code>')
     .replace(/^\| (.+) \|$/gm,(m,p)=>'<tr>'+p.split('|').map(c=>`<td>${c.trim()}</td>`).join('')+'</tr>')
-    .replace(/(<tr>.*<\/tr>)/gs,'<table>$1</table>')
-    .replace(/^- (.+)$/gm,'<li>$1</li>').replace(/(<li>.*<\/li>)/gs,'<ul>$1</ul>')
+    .replace(/((?:<tr>[^\n]*\n?)+)/g,'<table>$1</table>')
+    .replace(/^[-•] (.+)$/gm,'<li>$1</li>')
     .replace(/^\d+\. (.+)$/gm,'<li>$1</li>')
-    .replace(/^• (.+)$/gm,'<li>$1</li>')
+    .replace(/((?:<li>[^\n]*\n?)+)/g,'<ul>$1</ul>')
     .replace(/\n\n/g,'</p><p>').replace(/^(?!<[hultop])(.+)$/gm,'<p>$1</p>')
     .replace(/<p><\/p>/g,'');
 }
