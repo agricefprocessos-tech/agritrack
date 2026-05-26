@@ -502,6 +502,16 @@ tr:hover td{background:rgba(255,255,255,0.02)}
               <option value="Janela agrícola crítica">Janela agrícola crítica</option>
               <option value="Outro">Outro</option>
             </select></div>
+          <div class="fg"><label>Fase Afetada</label>
+            <select id="bFase">
+              <option value="">— Geral —</option>
+              <option value="Compras">Compras</option>
+              <option value="Fabricação">Fabricação</option>
+              <option value="Pré-Montagem">Pré-Montagem</option>
+              <option value="Montagens">Montagens</option>
+              <option value="Testes">Testes</option>
+              <option value="Outro">Outro</option>
+            </select></div>
           <div class="fg"><label>Impacto</label>
             <select id="bImpacto">
               <option value="Alto (>5 dias)">🔴 Alto — mais de 5 dias de atraso</option>
@@ -959,8 +969,8 @@ tr:hover td{background:rgba(255,255,255,0.02)}
       <div style="font-size:13px;font-weight:600;color:var(--text);margin-top:4px;line-height:1.4" id="blkMSum"></div>
     </div>
 
-    <!-- tipo + impacto -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+    <!-- tipo + fase + impacto -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
       <div>
         <label style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:6px">Tipo de Bloqueio *</label>
         <select id="blkMTipo" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--rs);padding:8px 10px;color:var(--text);font-size:12px;font-family:inherit">
@@ -973,6 +983,18 @@ tr:hover td{background:rgba(255,255,255,0.02)}
           <option>Atraso de fornecedor</option>
           <option>Janela agrícola crítica</option>
           <option>Outro</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:6px">Fase Afetada</label>
+        <select id="blkMFase" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--rs);padding:8px 10px;color:var(--text);font-size:12px;font-family:inherit">
+          <option value="">— Geral —</option>
+          <option value="Compras">Compras</option>
+          <option value="Fabricação">Fabricação</option>
+          <option value="Pré-Montagem">Pré-Montagem</option>
+          <option value="Montagens">Montagens</option>
+          <option value="Testes">Testes</option>
+          <option value="Outro">Outro</option>
         </select>
       </div>
       <div>
@@ -1622,6 +1644,7 @@ async function submitBloqueio(){
       action:'registrarBloqueio',
       issueKey:key,
       tipoBloqueio:tipo,
+      faseBloqueio:document.getElementById('bFase').value||'',
       descricao:descr,
       impacto:document.getElementById('bImpacto').value,
       responsavel:document.getElementById('bResponsavel').value,
@@ -3846,6 +3869,7 @@ function ganttRegistrarBloqueio(key,summary,duedate){
   document.getElementById('blkMKey').textContent=key;
   document.getElementById('blkMSum').textContent=summary;
   document.getElementById('blkMTipo').value='';
+  document.getElementById('blkMFase').value='';
   document.getElementById('blkMImpacto').value='Alto (>5 dias)';
   document.getElementById('blkMDescricao').value='';
   document.getElementById('blkMResp').value='';
@@ -3883,6 +3907,7 @@ async function submitBlkModal(apenasData){
     }:{
       action:'registrarBloqueio',issueKey:key,
       tipoBloqueio:tipo,
+      faseBloqueio:document.getElementById('blkMFase').value||'',
       descricao:document.getElementById('blkMDescricao').value,
       impacto:document.getElementById('blkMImpacto').value,
       responsavel:document.getElementById('blkMResp').value,
