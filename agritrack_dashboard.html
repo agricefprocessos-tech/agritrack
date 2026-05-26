@@ -2429,9 +2429,12 @@ function parseDate(s){
 }
 
 const COMPRAS_CACHE_KEY='agritrack_compras_v2';
-const COMPRAS_CACHE_TTL=15*60*1000; // 15 min
+const COMPRAS_CACHE_TTL=60*60*1000; // 1 hora (GAS CacheService também usa 1h)
 function _comprasCache(){try{const r=localStorage.getItem(COMPRAS_CACHE_KEY);return r?JSON.parse(r):null;}catch(e){return null;}}
 function _comprasCacheSet(sid,tabs){try{localStorage.setItem(COMPRAS_CACHE_KEY,JSON.stringify({ts:Date.now(),sid,tabs}));}catch(e){}}
+
+// Flag para evitar refresh simultâneo em background
+let _comprasRefreshing=false;
 
 async function loadCompras(force=false){
   const sheetId=localStorage.getItem('compras_sheet_id');
@@ -2442,56 +2445,79 @@ async function loadCompras(force=false){
 
   if(!sheetId){ noConf.style.display='block'; load.style.display='none'; dash.style.display='none'; return; }
 
-  // ── Servir cache imediatamente se fresco e mesma planilha ───
-  if(!force){
-    const cache=_comprasCache();
-    if(cache&&cache.sid===sheetId&&(Date.now()-cache.ts)<COMPRAS_CACHE_TTL){
-      noConf.style.display='none'; load.style.display='none'; dash.style.display='block';
-      const mins=Math.floor((Date.now()-cache.ts)/60000);
-      _aplicarDadosCompras(cache.tabs,meta,`📦 Cache (${mins<1?'<1':mins}min) — atualizar com ↺`);
-      return;
-    }
+  const cache=_comprasCache();
+  const cacheOk=cache&&cache.sid===sheetId;
+  const cacheFresh=cacheOk&&(Date.now()-cache.ts)<COMPRAS_CACHE_TTL;
+
+  // ── STALE-WHILE-REVALIDATE: mostra cache imediatamente, sempre ──
+  if(cacheOk&&!force){
+    noConf.style.display='none'; load.style.display='none'; dash.style.display='block';
+    const mins=Math.floor((Date.now()-cache.ts)/60000);
+    const label=cacheFresh
+      ?`📦 Cache (${mins<1?'<1':mins}min) — atualizar com ↺`
+      :`⟳ Atualizando… (dados de ${mins}min atrás)`;
+    _aplicarDadosCompras(cache.tabs, meta, label);
+    if(cacheFresh) return; // Cache fresco, não precisa atualizar
+    // Cache velho — atualiza em background sem bloquear UI
+    _refreshComprasBg(sheetId, meta);
+    return;
   }
 
+  // ── Sem cache: mostra spinner e carrega ──────────────────────
   noConf.style.display='none'; dash.style.display='none'; load.style.display='block';
-
   try{
-    // Tenta carregar TODAS as abas (timeout 40s); se falhar, usa aba única
-    let r=null;
-    let modoFallback=false;
-    try{
-      r=await api({action:'buscarTodasAbasCompras',sheetId},40000);
-      if(!r||!r.success||!r.tabs) throw new Error(r&&r.erro?r.erro:'Resposta inválida');
-    }catch(e1){
-      modoFallback=true;
-      const sheetGid=localStorage.getItem('compras_sheet_gid');
-      const payload2={action:'buscarCompras',sheetId};
-      if(sheetGid)payload2.gid=sheetGid;
-      const r2=await api(payload2,35000);
-      if(!r2||!r2.success) throw new Error(r2&&r2.erro?r2.erro:'Falha ao carregar planilha');
-      // Normaliza para formato multi-aba
-      r={success:true,tabs:[{name:r2.sheetName||'Solicitações',gid:0,headers:r2.headers,rows:r2.rows,total:r2.total}],totalTabs:1};
-    }
-
+    const tabs=await _fetchComprasTabs(sheetId);
+    _comprasCacheSet(sheetId, tabs);
     load.style.display='none';
-    if(!r.success){
-      noConf.innerHTML='<div style="padding:40px;text-align:center;color:var(--red);font-size:13px">Erro: '+esc(r.erro)+'</div>';
-      noConf.style.display='block'; return;
-    }
-    // Salva no cache antes de aplicar
-    _comprasCacheSet(sheetId, r.tabs);
-    _aplicarDadosCompras(r.tabs, meta, (modoFallback?' (aba única)':''));
+    _aplicarDadosCompras(tabs, meta, '');
   }catch(e){
     load.style.display='none';
-    // Fallback: usa cache expirado se disponível
-    const cache=_comprasCache();
-    if(cache&&cache.sid===sheetId){
-      const mins=Math.round((Date.now()-cache.ts)/60000);
-      _aplicarDadosCompras(cache.tabs, meta, `⚠ cache (${mins}min) — erro: ${e.message.slice(0,60)}`);
-    } else {
-      noConf.innerHTML='<div style="padding:40px;text-align:center;color:var(--red);font-size:13px">Erro: '+esc(e.message)+'</div>';
-      noConf.style.display='block';
-    }
+    noConf.innerHTML=`<div style="padding:40px;text-align:center;color:var(--red);font-size:13px">Erro: ${esc(e.message)}<br><br><button class="btn-sec" onclick="loadCompras(true)">↺ Tentar novamente</button></div>`;
+    noConf.style.display='block';
+  }
+}
+
+// Atualiza dados em background sem bloquear UI
+async function _refreshComprasBg(sheetId, metaEl){
+  if(_comprasRefreshing) return;
+  _comprasRefreshing=true;
+  try{
+    const tabs=await _fetchComprasTabs(sheetId);
+    _comprasCacheSet(sheetId, tabs);
+    // Só re-aplica se a aba compras ainda estiver visível
+    const dash=document.getElementById('comprasDashboard');
+    if(dash&&dash.style.display!=='none') _aplicarDadosCompras(tabs, metaEl, '✅ Atualizado');
+  }catch(e){
+    // Falha silenciosa — usuário já está vendo os dados do cache
+    if(metaEl) metaEl.textContent=metaEl.textContent.replace('⟳ Atualizando…','⚠ Falha ao atualizar •');
+  }finally{_comprasRefreshing=false;}
+}
+
+// Busca dados — tenta multi-aba, fallback single-sheet
+async function _fetchComprasTabs(sheetId){
+  try{
+    const r=await api({action:'buscarTodasAbasCompras',sheetId},55000);
+    if(r&&r.success&&r.tabs&&r.tabs.length) return r.tabs;
+    throw new Error(r&&r.erro?r.erro:'Resposta vazia');
+  }catch(e1){
+    // Fallback: lê aba única
+    const sheetGid=localStorage.getItem('compras_sheet_gid');
+    const payload={action:'buscarCompras',sheetId};
+    if(sheetGid) payload.gid=sheetGid;
+    const r2=await api(payload,50000);
+    if(!r2||!r2.success) throw new Error(r2&&r2.erro?r2.erro:'Falha ao carregar planilha');
+    return [{name:r2.sheetName||'Solicitações',gid:0,headers:r2.headers,rows:r2.rows,total:r2.total}];
+  }
+}
+
+// Pré-carrega compras em background quando o dashboard abre (sem bloquear)
+function _preloadComprasBg(){
+  const sheetId=localStorage.getItem('compras_sheet_id');
+  if(!sheetId) return;
+  const cache=_comprasCache();
+  const cacheFresh=cache&&cache.sid===sheetId&&(Date.now()-cache.ts)<COMPRAS_CACHE_TTL;
+  if(!cacheFresh&&!_comprasRefreshing){
+    _refreshComprasBg(sheetId, null);
   }
 }
 
@@ -2502,7 +2528,8 @@ function _aplicarDadosCompras(tabs, metaEl, sufixo){
   load.style.display='none';
   noConf.style.display='none';
 
-  _comprasTabs=tabs.filter(t=>t.rows&&t.rows.length>0);
+  // Aceita todas as abas, inclusive vazias (mostradas como "0 itens")
+  _comprasTabs=tabs.filter(t=>t&&t.name);
   if(_comprasTabs.length===0){
     noConf.innerHTML='<div style="padding:40px;text-align:center;color:var(--text2);font-size:13px">Nenhum dado encontrado.</div>';
     noConf.style.display='block'; return;
@@ -4417,6 +4444,8 @@ function setRptDept(dept,btn){
   }
   // Auto-fetch Jira on load
   autoFetch();
+  // Pré-carrega Compras em background após 8s (não bloqueia o carregamento inicial)
+  setTimeout(_preloadComprasBg, 8000);
 })();
 </script>
 </body>
