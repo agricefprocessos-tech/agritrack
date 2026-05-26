@@ -2125,36 +2125,41 @@ function loadHaulerCsv(input){
   const file=input.files[0];
   if(!file)return;
   document.getElementById('haulerMeta').textContent='Carregando…';
-  Papa.parse(file,{
-    header:true,
-    delimiter:';',
-    encoding:'UTF-8',
-    skipEmptyLines:true,
-    complete:function(results){
-      // Try UTF-16 fallback if columns look wrong
-      const rows=results.data.filter(r=>r['CODIGO']||r['Nível']);
-      if(!rows.length){
-        // Re-read with different encoding detection
-        const reader=new FileReader();
-        reader.onload=function(e){
-          const txt=e.target.result;
-          const parsed=Papa.parse(txt,{header:true,delimiter:';',skipEmptyLines:true});
-          _haulerData=classificarHauler(parsed.data);
-          renderHaulerTable(_haulerData);
-        };
-        reader.readAsText(file,'UTF-16LE');
-        return;
-      }
+  // Tenta UTF-16LE primeiro (encoding padrão do THOMAS.csv)
+  const reader=new FileReader();
+  reader.onload=function(e){
+    let txt=e.target.result;
+    // Remove BOM (U+FEFF) se presente
+    if(txt.charCodeAt(0)===0xFEFF)txt=txt.slice(1);
+    const parsed=Papa.parse(txt,{header:true,delimiter:';',skipEmptyLines:true});
+    const rows=parsed.data.filter(r=>
+      Object.values(r).some(v=>v&&String(v).trim()&&String(v).trim()!=='.')
+    );
+    if(rows.length>5){
       _haulerData=classificarHauler(rows);
       renderHaulerTable(_haulerData);
-    },
-    error:function(e){document.getElementById('haulerMeta').textContent='Erro: '+e.message;}
-  });
+    } else {
+      // Fallback UTF-8
+      const r2=new FileReader();
+      r2.onload=function(e2){
+        const parsed2=Papa.parse(e2.target.result,{header:true,delimiter:';',skipEmptyLines:true});
+        _haulerData=classificarHauler(parsed2.data);
+        renderHaulerTable(_haulerData);
+      };
+      r2.onerror=function(){document.getElementById('haulerMeta').textContent='Erro ao ler arquivo.';};
+      r2.readAsText(file,'UTF-8');
+    }
+  };
+  reader.onerror=function(){document.getElementById('haulerMeta').textContent='Erro ao ler arquivo.';};
+  reader.readAsText(file,'UTF-16LE');
 }
 
 function classificarHauler(rows){
+  // Detecta coluna Nível (pode ter prefixo BOM ﻿)
+  const _keys0=rows[0]?Object.keys(rows[0]):[];
+  const _nivelKey=_keys0.find(k=>k.replace(/﻿/g,'').trim()==='Nível'||k.replace(/﻿/g,'').trim()==='Nivel')||_keys0[0]||'Nível';
   return rows.map(r=>{
-    const nivelRaw=String(r['Nível']||r['Nivel']||'').trim();
+    const nivelRaw=String(r[_nivelKey]||r['Nível']||r['Nivel']||'').trim();
     const codigo=String(r['CODIGO']||'').trim();
     const desc=String(r['DESCRICAO']||'').trim();
     const qtd=String(r['QNTDE']||'1').trim();
