@@ -2049,7 +2049,7 @@ function _injetarCronogramaVisual(projetos, deptNome){
   const h2s=rptBox.querySelectorAll('h2');
   let insertBefore=null;
   h2s.forEach(h=>{if(h.textContent.includes('Status por Departamento'))insertBefore=h;});
-  if(insertBefore)rptBox.insertBefore(div,insertBefore);
+  if(insertBefore)insertBefore.parentNode.insertBefore(div,insertBefore);
   else rptBox.appendChild(div);
 }
 
