@@ -2493,21 +2493,53 @@ async function _refreshComprasBg(sheetId, metaEl){
   }finally{_comprasRefreshing=false;}
 }
 
-// Busca dados — tenta multi-aba, fallback single-sheet
+// Busca dados — 2 etapas: lista abas (rápido) → carrega cada aba em paralelo
 async function _fetchComprasTabs(sheetId){
+  const loadEl=document.getElementById('comprasLoad');
+  function _setMsg(msg){if(loadEl)loadEl.innerHTML=`<div style="padding:40px;text-align:center;color:var(--text2);font-size:13px">${msg}</div>`;}
+
+  // ── Etapa 1: listar abas (listarAbasCompras é rápido, ~2-5s quando GAS aquecido) ──
+  let metaTabs=null;
   try{
-    const r=await api({action:'buscarTodasAbasCompras',sheetId},55000);
-    if(r&&r.success&&r.tabs&&r.tabs.length) return r.tabs;
-    throw new Error(r&&r.erro?r.erro:'Resposta vazia');
-  }catch(e1){
-    // Fallback: lê aba única
+    _setMsg('🔎 Listando abas da planilha…');
+    const r=await api({action:'listarAbasCompras',sheetId},50000);
+    if(r&&r.success&&r.tabs&&r.tabs.length) metaTabs=r.tabs;
+  }catch(e){}
+
+  if(!metaTabs){
+    // Fallback: aba única
+    _setMsg('📥 Carregando planilha…');
     const sheetGid=localStorage.getItem('compras_sheet_gid');
     const payload={action:'buscarCompras',sheetId};
     if(sheetGid) payload.gid=sheetGid;
-    const r2=await api(payload,50000);
+    const r2=await api(payload,55000);
     if(!r2||!r2.success) throw new Error(r2&&r2.erro?r2.erro:'Falha ao carregar planilha');
     return [{name:r2.sheetName||'Solicitações',gid:0,headers:r2.headers,rows:r2.rows,total:r2.total}];
   }
+
+  // ── Etapa 2: carregar dados de cada aba em lotes paralelos ──
+  const nonEmpty=metaTabs.filter(t=>!t.empty);
+  const emptyTabs=metaTabs.filter(t=>t.empty).map(t=>({name:t.name,gid:t.gid,headers:[],rows:[],total:0,empty:true}));
+  const loaded=[];
+  const BATCH=3; // 3 abas em paralelo por vez
+
+  for(let i=0;i<nonEmpty.length;i+=BATCH){
+    const batch=nonEmpty.slice(i,i+BATCH);
+    _setMsg(`📥 Carregando abas ${i+1}–${Math.min(i+BATCH,nonEmpty.length)} de ${nonEmpty.length}…`);
+    const results=await Promise.all(batch.map(async tab=>{
+      try{
+        const r=await api({action:'buscarCompras',sheetId,gid:tab.gid},50000);
+        if(r&&r.success) return {name:tab.name,gid:tab.gid,headers:r.headers||[],rows:r.rows||[],total:r.total||0};
+      }catch(e){}
+      return {name:tab.name,gid:tab.gid,headers:[],rows:[],total:tab.total||0,empty:true};
+    }));
+    loaded.push(...results);
+  }
+
+  // Une e ordena conforme a planilha
+  const all=[...loaded,...emptyTabs];
+  all.sort((a,b)=>metaTabs.findIndex(t=>t.name===a.name)-metaTabs.findIndex(t=>t.name===b.name));
+  return all;
 }
 
 // Pré-carrega compras em background quando o dashboard abre (sem bloquear)
