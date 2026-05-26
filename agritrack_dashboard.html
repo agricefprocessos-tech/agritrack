@@ -180,6 +180,9 @@ tr:hover td{background:rgba(255,255,255,0.02)}
 .blk-empty{text-align:center;color:var(--text2);font-size:13px;padding:40px 0}
 
 /* ── RELATÓRIO ── */
+.rpt-dept-tab{padding:8px 16px;background:none;border:none;border-bottom:2px solid transparent;color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .15s}
+.rpt-dept-tab:hover{color:var(--text)}
+.rpt-dept-tab.on{border-bottom-color:var(--green);color:var(--text)}
 .rpt-box{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:24px;min-height:300px;line-height:1.7}
 .rpt-box h1,.rpt-box h2,.rpt-box h3{color:var(--text);margin:16px 0 8px}
 .rpt-box h2{font-size:14px;border-bottom:1px solid var(--border);padding-bottom:6px;margin-bottom:10px}
@@ -283,10 +286,18 @@ tr:hover td{background:rgba(255,255,255,0.02)}
       <button class="fp2" data-k="tipo" data-v="all" onclick="setF('tipo',this)">Todos</button>
       <div class="fsep"></div>
       <span class="fl">Departamento</span>
-      <select class="fsel" id="fD" onchange="go()"><option value="all">Todos</option></select>
+      <select class="fsel" id="fD" onchange="stopDashRot();go()"><option value="all">Todos</option></select>
       <div class="fsep"></div>
       <span class="fl">Ano</span>
       <select class="fsel" id="fY" onchange="go()"><option value="all">Todos</option></select>
+    </div>
+    <!-- Barra de rotação automática por departamento -->
+    <div id="dashRotBar" style="display:none;padding:6px 28px;background:var(--bg3);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <button id="dashRotBtn" onclick="toggleDashRot()" title="Play/Pause rotação" style="background:none;border:1px solid var(--border2);border-radius:20px;padding:3px 10px;color:var(--green);cursor:pointer;font-size:12px;font-family:inherit;line-height:1.4">⏸ Pausar</button>
+      <span style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Dept:</span>
+      <span id="dashRotLabel" style="font-size:12px;font-weight:700;color:var(--text)">Todos</span>
+      <div id="dashRotDots" style="display:flex;gap:4px;align-items:center"></div>
+      <span style="font-size:10px;color:var(--text3);margin-left:auto">rotação automática · 7s por departamento</span>
     </div>
     <div class="main">
       <div class="sec">Visão Geral</div>
@@ -555,6 +566,10 @@ tr:hover td{background:rgba(255,255,255,0.02)}
       <button class="btn-sec" onclick="enviarEmail()" id="emailBtn" style="font-size:12px">📧 Enviar Email</button>
       <button class="btn-sec" onclick="gerarRelatorio(true)" id="rptBtn" style="font-size:12px">🔄 Atualizar</button>
     </div>
+  </div>
+  <!-- Tabs por departamento -->
+  <div id="rptDeptTabs" style="padding:0 28px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border);background:var(--bg2)">
+    <button class="rpt-dept-tab on" data-dept="all" onclick="setRptDept('all',this)" style="padding:8px 16px;background:none;border:none;border-bottom:2px solid var(--green);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">📊 Geral</button>
   </div>
   <div class="main" style="max-width:900px">
     <div id="rptLoad" style="display:none" class="load">
@@ -1079,6 +1094,8 @@ async function api(payload, timeoutMs=28000){
 let _rptGerado=false; // controla se já foi gerado nesta sessão
 
 function nav(id){
+  // Pausa rotação ao sair do Dashboard
+  if(id!=='dash')stopDashRot();
   document.querySelectorAll('.pg').forEach(p=>p.classList.remove('on'));
   document.querySelectorAll('.ntab').forEach(t=>t.classList.remove('on'));
   document.getElementById('pg-'+id).classList.add('on');
@@ -1087,9 +1104,14 @@ function nav(id){
   if(idx[id]!==undefined)tabs[idx[id]].classList.add('on');
   if(id==='block')loadBloqueados();
   if(id==='cfg')initConfig();
-  if(id==='report'&&!_rptGerado)gerarRelatorio(false);
+  if(id==='report'){_populaRptDeptTabs();if(!_rptGerado)gerarRelatorio(false);}
   if(id==='compras')loadCompras(); // sempre chama — cache evita rebusca desnecessária
   if(id==='gantt')initGantt();
+  // Retoma rotação ao voltar ao Dashboard
+  if(id==='dash'&&_dashRotDepts.length>1&&!_dashRotTimer){
+    _dashRotTimer=setInterval(_rotarDashDept,7000);
+    const btn=document.getElementById('dashRotBtn');if(btn)btn.innerHTML='⏸ Pausar';
+  }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1221,6 +1243,8 @@ function processData(data){
   document.getElementById('dashLoad').style.display='none';
   document.getElementById('dash').style.display='block';
   buildFilters();go();
+  // Inicia rotação automática por departamento após dados carregados
+  setTimeout(initDashRot,800);
 }
 
 // CSV fallback
@@ -1695,14 +1719,21 @@ async function gerarRelatorio(manual){
 
   try{
     // Busca dados se ainda não tiver
-    let data=allTasks;
-    if(!data.length){
+    let baseData=allTasks;
+    if(!baseData.length){
       document.getElementById('rptLoadTxt').textContent='Buscando dados do Jira…';
       const r=await api({action:'buscarTarefasJira'});
       if(r.success)processData(r.issues);
-      data=allTasks;
+      baseData=allTasks;
     }
     document.getElementById('rptLoadTxt').textContent='Analisando portfólio…';
+
+    // Popula abas de departamento na primeira execução
+    _populaRptDeptTabs();
+
+    // Filtra pelo departamento selecionado
+    const isDeptFiltro=_rptDept&&_rptDept!=='all';
+    const data=isDeptFiltro?baseData.filter(t=>(t['Campo personalizado (Departamento)']||'')=== _rptDept):baseData;
 
     const hoje=new Date();
     const semanaPassada=new Date(hoje); semanaPassada.setDate(hoje.getDate()-7);
@@ -1818,15 +1849,34 @@ async function gerarRelatorio(manual){
     if(concl7d.length>0)
       acoes.push(`${n++}. **[INFO] Homologar entregas:** ${concl7d.length} entrega(s) concluída(s) na semana aguardam revisão e homologação final.`);
 
+    // ── Mini-cronograma (só no relatório por departamento) ────────
+    let mdCronograma='';
+    if(isDeptFiltro&&data.length>0){
+      const fmt=d=>{if(!d)return '—';const o=pd(d);return o?o.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'}):d;};
+      const linhas=data
+        .filter(t=>t['Status']!=='Feito'||pd(t['Resolvido'])>=semanaPassada)
+        .sort((a,b)=>(a._startDt||new Date(9999,0))-(b._startDt||new Date(9999,0)))
+        .map(t=>{
+          const st=t['Status']==='Feito'?'✅':t['Status']==='Fazendo'?'🔵':'⬜';
+          const fp=t._prazo==='FORA DO PRAZO'&&t['Status']!=='Feito'?' ⚠':'';
+          const blk=(t['Labels']||'').includes('bloqueado')?' 🚧':'';
+          return `| ${st} ${t['Chave da item']} | ${t['Resumo']?.slice(0,45)||'—'}${t['Resumo']?.length>45?'…':''} | ${fmt(t['Campo personalizado (Start date)'])} | ${fmt(t['Data limite'])} | ${t['Status']}${fp}${blk} |`;
+        });
+      if(linhas.length>0){
+        mdCronograma=`\n## 📅 Cronograma — ${_rptDept}\n\n| Status | Projeto | Início | Prazo | Situação |\n|:---:|---|:---:|:---:|---|\n${linhas.join('\n')}\n`;
+      }
+    }
+
     // ── Monta markdown ────────────────────────────────────────────
+    const tituloRpt=isDeptFiltro?`📋 Relatório — ${_rptDept}`:'📋 Relatório Semanal AgriTrack';
     const md=
-`# 📋 Relatório Semanal AgriTrack
-**${dataStr}** — ${total} projetos analisados
+`# ${tituloRpt}
+**${dataStr}** — ${total} projeto(s)${isDeptFiltro?' · Departamento: '+_rptDept:' analisados'}
 
 ## 📌 Resumo Executivo
 
 ${bullets.map(b=>`- ${b}`).join('\n')}
-
+${mdCronograma}
 ## 📊 Status por Departamento
 
 | Departamento | Total | Em Andamento | Concluídos | Fora Prazo | Bloqueados |
@@ -3929,6 +3979,79 @@ async function submitBlkModal(apenasData){
       msg.textContent='Erro: '+(r.erro||JSON.stringify(r));msg.className='form-msg err';
     }
   }catch(e){msg.textContent='Erro: '+e.message;msg.className='form-msg err';}
+}
+
+// ════════════════════════════════════════════════════════════════
+// DASHBOARD AUTO-ROTATION (Feature 1)
+// ════════════════════════════════════════════════════════════════
+let _dashRotTimer=null;
+let _dashRotIdx=0;
+let _dashRotDepts=[]; // ['all','Engenharia','Compras',...]
+
+function initDashRot(){
+  const depts=['all',...[...new Set(allTasks.map(t=>t['Campo personalizado (Departamento)']).filter(Boolean))].sort()];
+  _dashRotDepts=depts;
+  _dashRotIdx=0;
+  const bar=document.getElementById('dashRotBar');
+  if(bar)bar.style.display='flex';
+  _renderRotDots();
+  if(!_dashRotTimer) _dashRotTimer=setInterval(_rotarDashDept,7000);
+  document.getElementById('dashRotBtn').innerHTML='⏸ Pausar';
+}
+
+function stopDashRot(){
+  clearInterval(_dashRotTimer);_dashRotTimer=null;
+  const btn=document.getElementById('dashRotBtn');
+  if(btn)btn.innerHTML='▶ Retomar';
+}
+
+function toggleDashRot(){
+  if(_dashRotTimer){stopDashRot();}
+  else{
+    if(_dashRotDepts.length<2)initDashRot();
+    else{_dashRotTimer=setInterval(_rotarDashDept,7000);document.getElementById('dashRotBtn').innerHTML='⏸ Pausar';}
+  }
+}
+
+function _rotarDashDept(){
+  if(!_dashRotDepts.length)return;
+  _dashRotIdx=(_dashRotIdx+1)%_dashRotDepts.length;
+  const dept=_dashRotDepts[_dashRotIdx];
+  const sel=document.getElementById('fD');
+  if(sel)sel.value=dept;
+  const lbl=document.getElementById('dashRotLabel');
+  if(lbl)lbl.textContent=dept==='all'?'Todos os Departamentos':dept;
+  _renderRotDots();
+  go();
+}
+
+function _renderRotDots(){
+  const el=document.getElementById('dashRotDots');
+  if(!el||!_dashRotDepts.length)return;
+  el.innerHTML=_dashRotDepts.map((d,i)=>
+    `<div title="${d==='all'?'Todos':d}" style="width:${i===_dashRotIdx?'18':'6'}px;height:6px;border-radius:3px;background:${i===_dashRotIdx?'var(--green)':'var(--border2)'};transition:all .35s;cursor:pointer" onclick="stopDashRot();document.getElementById('fD').value='${d}';_dashRotIdx=${i};_renderRotDots();go()"></div>`
+  ).join('');
+}
+
+// ════════════════════════════════════════════════════════════════
+// RELATÓRIO POR DEPARTAMENTO (Feature 2)
+// ════════════════════════════════════════════════════════════════
+let _rptDept='all';
+
+function _populaRptDeptTabs(){
+  const container=document.getElementById('rptDeptTabs');
+  if(!container||!allTasks.length)return;
+  const depts=[...new Set(allTasks.map(t=>t['Campo personalizado (Departamento)']).filter(Boolean))].sort();
+  container.innerHTML=
+    `<button class="rpt-dept-tab on" data-dept="all" onclick="setRptDept('all',this)">📊 Geral</button>`+
+    depts.map(d=>`<button class="rpt-dept-tab" data-dept="${esc(d)}" onclick="setRptDept('${esc(d)}',this)">${esc(d)}</button>`).join('');
+}
+
+function setRptDept(dept,btn){
+  _rptDept=dept;
+  document.querySelectorAll('.rpt-dept-tab').forEach(b=>b.classList.remove('on'));
+  if(btn)btn.classList.add('on');
+  gerarRelatorio(true);
 }
 
 // ════════════════════════════════════════════════════════════════
