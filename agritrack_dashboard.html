@@ -3691,6 +3691,12 @@ function ganttClick(key){
   const aS=t['Campo personalizado (Início real)']||'';
   const aE=t['Campo personalizado (Fim real)']||'';
   const assignee=t['Responsável']||'—';
+  // detalhes extras
+  const nSubs=!isSub?allSubs.filter(s=>s['Chave pai']===key).length:0;
+  const lbls=(t['Labels']||'').split(' ').filter(l=>l&&l!=='bloqueado');
+  const sumEsc=(t['Resumo']||'').replace(/'/g,"\\'");
+  const dueEsc=(due||'').replace(/'/g,"\\'");
+  const jiraUrl='https://agricefprojetos.atlassian.net/browse/'+key;
 
   det.style.display='block';
   det.innerHTML=`<div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
@@ -3701,6 +3707,7 @@ function ganttClick(key){
         <span style="background:${sc}22;color:${sc};border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700">${status}</span>
         ${isBlk?'<span style="background:#f0525222;color:#f05252;border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700">🚧 bloqueado</span>':''}
         ${overdue?'<span style="background:#f0525222;color:#f05252;border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700">⚠ fora do prazo</span>':''}
+        ${lbls.map(l=>`<span style="background:var(--bg3);color:var(--text2);border-radius:10px;padding:2px 8px;font-size:10px;border:1px solid var(--border2)">${esc(l)}</span>`).join('')}
       </div>
       <div style="font-size:14px;font-weight:600;color:var(--text);line-height:1.4;margin-bottom:10px">${esc(t['Resumo']||'—')}</div>
       ${!isSub?`
@@ -3718,7 +3725,7 @@ function ganttClick(key){
           <div style="font-size:12px;font-weight:600;color:var(--text)">${iL(due)}</div>
         </div>
       </div>
-      <div style="font-size:11px;color:var(--text2)">📌 Baseline: <strong style="color:var(--text)">${iL(base)}</strong> &nbsp;·&nbsp; 🏢 ${esc(dept)} &nbsp;·&nbsp; 👤 ${esc(assignee)}</div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:0">📌 Baseline: <strong style="color:var(--text)">${iL(base)}</strong> &nbsp;·&nbsp; 🏢 ${esc(dept)} &nbsp;·&nbsp; 👤 ${esc(assignee)}${nSubs>0?` &nbsp;·&nbsp; 📂 <strong style="color:var(--text)">${nSubs}</strong> subtarefa${nSubs!==1?'s':''}`:''}</div>
       `:`
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
         <div style="background:var(--bg3);border-radius:6px;padding:8px">
@@ -3731,10 +3738,32 @@ function ganttClick(key){
         </div>
       </div>
       `}
+      <div style="display:flex;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border);flex-wrap:wrap;align-items:center">
+        <button onclick="ganttRegistrarBloqueio('${key}','${sumEsc}','${dueEsc}')" style="padding:7px 14px;background:#f0525211;border:1px solid #f05252;color:#f05252;border-radius:var(--rs);cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;transition:all .15s" onmouseover="this.style.background='#f0525222'" onmouseout="this.style.background='#f0525211'">🚧 Registrar Bloqueio</button>
+        <a href="${jiraUrl}" target="_blank" style="padding:7px 14px;background:transparent;border:1px solid var(--border2);color:var(--text2);border-radius:var(--rs);font-size:12px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:4px">↗ Abrir no Jira</a>
+      </div>
     </div>
     <button onclick="document.getElementById('ganttDetail').style.display='none'" style="background:transparent;border:1px solid var(--border2);border-radius:6px;padding:4px 10px;color:var(--text2);cursor:pointer;font-size:11px;flex-shrink:0">✕</button>
   </div>`;
   det.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+function ganttRegistrarBloqueio(key,summary,duedate){
+  // Navega para a aba de Bloqueios
+  nav('block');
+  // Pré-preenche o formulário com os dados do projeto
+  document.getElementById('bKey').value=key;
+  document.getElementById('bSummary').value=summary;
+  if(duedate)document.getElementById('bNewDue').value=duedate;
+  // Limpa estado anterior
+  document.getElementById('bIssueInfo').style.display='none';
+  document.getElementById('bMsg').style.display='none';
+  document.querySelectorAll('.blk-item').forEach(el=>el.classList.remove('sel'));
+  // Foca no campo da chave para o utilizador completar o resto
+  setTimeout(()=>{
+    const el=document.getElementById('bKey');
+    if(el){el.scrollIntoView({behavior:'smooth',block:'center'});}
+  },200);
 }
 
 // ════════════════════════════════════════════════════════════════
