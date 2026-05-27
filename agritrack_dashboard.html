@@ -2452,7 +2452,7 @@ async function loadCompras(force=false){
   if(!sheetId){ noConf.style.display='block'; load.style.display='none'; dash.style.display='none'; return; }
 
   const cache=_comprasCache();
-  const cacheOk=cache&&cache.sid===sheetId;
+  const cacheOk=cache&&cache.sid===sheetId&&Array.isArray(cache.tabs)&&cache.tabs.length>1;
   const cacheFresh=cacheOk&&(Date.now()-cache.ts)<COMPRAS_CACHE_TTL;
 
   // ── STALE-WHILE-REVALIDATE: mostra cache imediatamente, sempre ──
@@ -2553,7 +2553,7 @@ function _preloadComprasBg(){
   const sheetId=localStorage.getItem('compras_sheet_id');
   if(!sheetId) return;
   const cache=_comprasCache();
-  const cacheFresh=cache&&cache.sid===sheetId&&(Date.now()-cache.ts)<COMPRAS_CACHE_TTL;
+  const cacheFresh=cache&&cache.sid===sheetId&&Array.isArray(cache.tabs)&&cache.tabs.length>1&&(Date.now()-cache.ts)<COMPRAS_CACHE_TTL;
   if(!cacheFresh&&!_comprasRefreshing){
     _refreshComprasBg(sheetId, null);
   }
