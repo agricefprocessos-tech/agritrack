@@ -2103,7 +2103,7 @@ Responda em português, direto ao ponto, sem introdução.`;
     const resp=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.65,maxOutputTokens:900}})
+      body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.65,maxOutputTokens:2000}})
     });
     const json=await resp.json();
     if(!resp.ok)throw new Error(json.error?.message||resp.statusText);
@@ -2321,7 +2321,7 @@ function mdToHtml(md){
     .replace(/`(.+?)`/g,'<code>$1</code>')
     .replace(/^\| (.+) \|$/gm,(m,p)=>'<tr>'+p.split('|').map(c=>`<td>${c.trim()}</td>`).join('')+'</tr>')
     .replace(/((?:<tr>[^\n]*\n?)+)/g,'<table>$1</table>')
-    .replace(/^[-•] (.+)$/gm,'<li>$1</li>')
+    .replace(/^[-•*] (.+)$/gm,'<li>$1</li>')
     .replace(/^\d+\. (.+)$/gm,'<li>$1</li>')
     .replace(/((?:<li>[^\n]*\n?)+)/g,'<ul>$1</ul>')
     .replace(/\n\n/g,'</p><p>').replace(/^(?!<[hultop])(.+)$/gm,'<p>$1</p>')
