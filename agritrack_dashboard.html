@@ -241,6 +241,11 @@ tr:hover td{background:rgba(255,255,255,0.02)}
 .hb-misto{background:rgba(255,255,255,0.05);color:var(--text3)}
 #haulerTable tr:hover{background:rgba(255,255,255,0.03)}
 #haulerTable td{padding:6px 10px;border-bottom:1px solid var(--border)}
+.hauler-stab{padding:7px 16px;border:none;background:transparent;color:var(--text2);font-family:inherit;font-size:12px;cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap}
+.hauler-stab:hover{color:var(--text)}
+.hauler-stab.on{color:var(--green);border-bottom-color:var(--green);font-weight:600}
+.hauler-apont-found{background:rgba(34,211,122,0.08);border-left:3px solid var(--green)}
+.hauler-apont-missing{background:rgba(240,82,82,0.05)}
 /* ── RESPONSIVE ── */
 @media(max-width:860px){.g2,.g3,.gw,.form-grid{grid-template-columns:1fr}.card.full{grid-column:auto}.nav{gap:0}.ntab{padding:6px 10px;font-size:12px}}
 @media(max-width:600px){.hdr{padding:0 14px}.main{padding:0 14px}.fbar{margin:10px 14px}}
@@ -816,45 +821,80 @@ tr:hover td{background:rgba(255,255,255,0.02)}
     </div>
   </div>
   <div class="main">
-    <!-- KPIs -->
-    <div id="haulerKpis" style="display:none;margin-top:16px">
-      <div class="krow" id="haulerKpiRow"></div>
+
+    <!-- Sub-nav (shown after CSV loaded) -->
+    <div id="haulerSubNav" style="display:none;border-bottom:1px solid var(--border);margin-bottom:16px;display:flex;gap:0;overflow-x:auto">
+      <button class="hauler-stab on" onclick="haulerSubTab('bom',this)">📋 Lista BOM</button>
+      <button class="hauler-stab" onclick="haulerSubTab('analise',this)">📊 Análise</button>
+      <button class="hauler-stab" onclick="haulerSubTab('etapas',this)">🏭 Por Etapa</button>
+      <button class="hauler-stab" onclick="haulerSubTab('apont',this)">⏱ Apontamentos</button>
     </div>
-    <!-- Filters -->
-    <div id="haulerFilters" style="display:none;margin:14px 0;display:none;flex-wrap:wrap;gap:8px;align-items:center">
-      <span style="font-size:11px;color:var(--text2)">Filtrar:</span>
-      <button class="hauler-filter on" data-f="all" onclick="filtrarHauler('all',this)">Todos</button>
-      <button class="hauler-filter" data-f="comprar" onclick="filtrarHauler('comprar',this)">🛒 Comprar</button>
-      <button class="hauler-filter" data-f="serra" onclick="filtrarHauler('serra',this)">⚙️ Serra</button>
-      <button class="hauler-filter" data-f="solda" onclick="filtrarHauler('solda',this)">🔥 Solda</button>
-      <button class="hauler-filter" data-f="usinagem" onclick="filtrarHauler('usinagem',this)">🔧 Usinagem</button>
-      <button class="hauler-filter" data-f="montagem" onclick="filtrarHauler('montagem',this)">🏗️ Montagem</button>
-      <button class="hauler-filter" data-f="corte" onclick="filtrarHauler('corte',this)">✂️ Corte Chapa</button>
-      <input id="haulerSearch" type="text" placeholder="Buscar código ou descrição…" style="padding:5px 10px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--rs);color:var(--text);font-size:12px;font-family:inherit;width:240px" oninput="filtrarHauler(null,null)">
+
+    <!-- SP: Lista BOM -->
+    <div id="hauler-sp-bom">
+      <!-- KPIs -->
+      <div id="haulerKpis" style="display:none;margin-top:4px">
+        <div class="krow" id="haulerKpiRow"></div>
+      </div>
+      <!-- Filters -->
+      <div id="haulerFilters" style="display:none;margin:14px 0;flex-wrap:wrap;gap:8px;align-items:center">
+        <span style="font-size:11px;color:var(--text2)">Filtrar:</span>
+        <button class="hauler-filter on" data-f="all" onclick="filtrarHauler('all',this)">Todos</button>
+        <button class="hauler-filter" data-f="comprar" onclick="filtrarHauler('comprar',this)">🛒 Comprar</button>
+        <button class="hauler-filter" data-f="serra" onclick="filtrarHauler('serra',this)">⚙️ Serra</button>
+        <button class="hauler-filter" data-f="solda" onclick="filtrarHauler('solda',this)">🔥 Solda</button>
+        <button class="hauler-filter" data-f="usinagem" onclick="filtrarHauler('usinagem',this)">🔧 Usinagem</button>
+        <button class="hauler-filter" data-f="montagem" onclick="filtrarHauler('montagem',this)">🏗️ Montagem</button>
+        <button class="hauler-filter" data-f="corte" onclick="filtrarHauler('corte',this)">✂️ Corte Chapa</button>
+        <input id="haulerSearch" type="text" placeholder="Buscar código ou descrição…" style="padding:5px 10px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--rs);color:var(--text);font-size:12px;font-family:inherit;width:240px" oninput="filtrarHauler(null,null)">
+      </div>
+      <!-- Table -->
+      <div id="haulerTableWrap" class="tw" style="display:none">
+        <table id="haulerTable" style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="background:var(--bg3);text-align:left">
+              <th style="padding:8px 10px;color:var(--text2);font-weight:600;white-space:nowrap">Nível</th>
+              <th style="padding:8px 10px;color:var(--text2);font-weight:600">Código</th>
+              <th style="padding:8px 10px;color:var(--text2);font-weight:600">Descrição</th>
+              <th style="padding:8px 10px;color:var(--text2);font-weight:600">Qtd</th>
+              <th style="padding:8px 10px;color:var(--text2);font-weight:600">Tipo</th>
+              <th style="padding:8px 10px;color:var(--text2);font-weight:600">Etapa/Fornecedor</th>
+              <th style="padding:8px 10px;color:var(--text2);font-weight:600">Estado</th>
+            </tr>
+          </thead>
+          <tbody id="haulerTbody"></tbody>
+        </table>
+      </div>
     </div>
-    <!-- Table -->
-    <div id="haulerTableWrap" class="tw" style="display:none">
-      <table id="haulerTable" style="width:100%;border-collapse:collapse;font-size:12px">
-        <thead>
-          <tr style="background:var(--bg3);text-align:left">
-            <th style="padding:8px 10px;color:var(--text2);font-weight:600;white-space:nowrap">Nível</th>
-            <th style="padding:8px 10px;color:var(--text2);font-weight:600">Código</th>
-            <th style="padding:8px 10px;color:var(--text2);font-weight:600">Descrição</th>
-            <th style="padding:8px 10px;color:var(--text2);font-weight:600">Qtd</th>
-            <th style="padding:8px 10px;color:var(--text2);font-weight:600">Tipo</th>
-            <th style="padding:8px 10px;color:var(--text2);font-weight:600">Etapa/Fornecedor</th>
-            <th style="padding:8px 10px;color:var(--text2);font-weight:600">Estado</th>
-          </tr>
-        </thead>
-        <tbody id="haulerTbody"></tbody>
-      </table>
+
+    <!-- SP: Análise -->
+    <div id="hauler-sp-analise" style="display:none">
+      <div id="haulerAnaliseContent"></div>
     </div>
-    <!-- Empty state -->
+
+    <!-- SP: Por Etapa -->
+    <div id="hauler-sp-etapas" style="display:none">
+      <div id="haulerEtapasContent"></div>
+    </div>
+
+    <!-- SP: Apontamentos -->
+    <div id="hauler-sp-apont" style="display:none">
+      <div id="haulerApontContent">
+        <div style="text-align:center;padding:60px 20px;color:var(--text2)">
+          <div style="font-size:32px;margin-bottom:12px">⏱</div>
+          <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:8px">Apontamentos do Hauler</div>
+          <div style="font-size:12px;margin-bottom:20px">Carregue o CSV do BOM e clique em conectar para cruzar com os apontamentos de produção.</div>
+          <button class="btn-sec" onclick="loadHaulerApontamentos()" style="font-size:12px">🔗 Conectar Apontamentos</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Empty state (before CSV) -->
     <div id="haulerEmpty" style="text-align:center;padding:60px 20px;color:var(--text2)">
       <div style="font-size:40px;margin-bottom:16px">🔩</div>
       <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:8px">Rastreamento BOM do Hauler</div>
       <div style="font-size:13px;max-width:400px;margin:0 auto;line-height:1.6">
-        Carregue o arquivo CSV da lista de peças (401095 - THOMAS.csv) para visualizar a hierarquia completa com classificação automática de etapas produtivas.
+        Carregue o arquivo CSV da lista de peças (401095 - THOMAS.csv) para visualizar a hierarquia completa com classificação automática e análise de etapas produtivas.
       </div>
     </div>
   </div>
@@ -2231,6 +2271,7 @@ function renderHaulerTable(rows){
   document.getElementById('haulerFilters').style.display='flex';
   document.getElementById('haulerTableWrap').style.display='block';
   document.getElementById('haulerEmpty').style.display='none';
+  document.getElementById('haulerSubNav').style.display='flex';
   document.getElementById('haulerMeta').textContent=`${total} itens carregados — ${comprar} para comprar, ${fabricar} para fabricar`;
   _renderHaulerRows(rows);
 }
@@ -2281,6 +2322,387 @@ function exportHaulerReport(){
   const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
   a.download='hauler_bom_classificado.csv';a.click();
+}
+
+// ════════════════════════════════════════════════════════════════
+// HAULER — SUB-PAINÉIS
+// ════════════════════════════════════════════════════════════════
+let _haulerActiveTab='bom';
+function haulerSubTab(tab,btn){
+  _haulerActiveTab=tab;
+  document.querySelectorAll('.hauler-stab').forEach(b=>b.classList.remove('on'));
+  if(btn)btn.classList.add('on');
+  ['bom','analise','etapas','apont'].forEach(t=>{
+    const el=document.getElementById(`hauler-sp-${t}`);
+    if(el)el.style.display=t===tab?'block':'none';
+  });
+  if(tab==='analise')renderHaulerAnalise();
+  if(tab==='etapas')renderHaulerEtapas();
+}
+
+// ── Análise (BOM data only)
+function renderHaulerAnalise(){
+  if(!_haulerData)return;
+  const rows=_haulerData;
+  const el=document.getElementById('haulerAnaliseContent');
+  const total=rows.length;
+  const comprar=rows.filter(r=>r.tipoAll.includes('comprar'));
+  const fabricar=rows.filter(r=>!r.tipoAll.includes('comprar')&&r.tipo!=='misto');
+  const misto=rows.filter(r=>r.tipo==='misto');
+  const buyPct=total?Math.round(comprar.length/total*100):0;
+  const makePct=total?Math.round(fabricar.length/total*100):0;
+  const stages={
+    '⚙️ Serra':{n:rows.filter(r=>r.tipoAll.includes('serra')).length,color:'var(--purple)',key:'serra'},
+    '✂️ Corte Chapa':{n:rows.filter(r=>r.tipoAll.includes('corte')).length,color:'var(--text2)',key:'corte'},
+    '🔥 Solda':{n:rows.filter(r=>r.tipoAll.includes('solda')).length,color:'var(--amber)',key:'solda'},
+    '🔧 Usinagem':{n:rows.filter(r=>r.tipoAll.includes('usinagem')).length,color:'var(--red)',key:'usinagem'},
+    '🏗️ Montagem':{n:rows.filter(r=>r.tipoAll.includes('montagem')).length,color:'var(--green)',key:'montagem'},
+  };
+  // Suppliers
+  const suppliers={};
+  comprar.forEach(r=>{if(r.fabricante)suppliers[r.fabricante]=(suppliers[r.fabricante]||0)+1;});
+  const topSup=Object.entries(suppliers).sort((a,b)=>b[1]-a[1]).slice(0,12);
+  // Items with codes
+  const comCodigo=rows.filter(r=>r.codigo).length;
+  const codPct=total?Math.round(comCodigo/total*100):0;
+  // donut offset: buyPct on blue, rest green
+  const circumference=100;
+  el.innerHTML=`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <!-- Make vs Buy -->
+      <div class="card" style="padding:20px">
+        <div style="font-size:11px;font-weight:600;color:var(--text2);letter-spacing:.5px;margin-bottom:14px">MAKE vs BUY</div>
+        <div style="display:flex;gap:20px;align-items:center">
+          <div style="position:relative;width:90px;height:90px;flex-shrink:0">
+            <svg viewBox="0 0 36 36" style="width:90px;height:90px;transform:rotate(-90deg)">
+              <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--bg3)" stroke-width="4"/>
+              <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--green)" stroke-width="4"
+                stroke-dasharray="${makePct} ${100-makePct}" stroke-dashoffset="0"/>
+              <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--blue)" stroke-width="4"
+                stroke-dasharray="${buyPct} ${100-buyPct}" stroke-dashoffset="${-(100-makePct)}"/>
+            </svg>
+            <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+              <div style="font-size:16px;font-weight:700">${total}</div>
+              <div style="font-size:9px;color:var(--text2)">itens</div>
+            </div>
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column;gap:10px">
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+                <span style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:50%;background:var(--blue);display:inline-block"></span>🛒 Comprar</span>
+                <strong>${comprar.length} (${buyPct}%)</strong>
+              </div>
+              <div style="height:3px;background:var(--bg3);border-radius:2px"><div style="height:3px;background:var(--blue);border-radius:2px;width:${buyPct}%"></div></div>
+            </div>
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+                <span style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:50%;background:var(--green);display:inline-block"></span>🏭 Fabricar</span>
+                <strong>${fabricar.length} (${makePct}%)</strong>
+              </div>
+              <div style="height:3px;background:var(--bg3);border-radius:2px"><div style="height:3px;background:var(--green);border-radius:2px;width:${makePct}%"></div></div>
+            </div>
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+                <span style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:50%;background:var(--text3);display:inline-block"></span>— Subconjuntos</span>
+                <strong>${misto.length}</strong>
+              </div>
+              <div style="height:3px;background:var(--bg3);border-radius:2px"><div style="height:3px;background:var(--text3);border-radius:2px;width:${total?Math.round(misto.length/total*100):0}%"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Stages -->
+      <div class="card" style="padding:20px">
+        <div style="font-size:11px;font-weight:600;color:var(--text2);letter-spacing:.5px;margin-bottom:14px">OPERAÇÕES DE FABRICAÇÃO</div>
+        ${Object.entries(stages).map(([name,s])=>{
+          const pct=fabricar.length?Math.round(s.n/fabricar.length*100):0;
+          return `<div style="margin-bottom:10px">
+            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+              <span style="color:${s.color}">${name}</span>
+              <span style="color:var(--text2)">${s.n} itens ${pct?`(${pct}% de fab.)`:'(nenhum)'}</span>
+            </div>
+            <div style="height:4px;background:var(--bg3);border-radius:2px">
+              <div style="height:4px;background:${s.color};border-radius:2px;width:${pct}%;opacity:0.8"></div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+    <!-- Cobertura de Códigos -->
+    <div class="card" style="padding:16px;margin-bottom:16px;display:flex;gap:24px;align-items:center">
+      <div style="text-align:center;flex-shrink:0">
+        <div style="font-size:28px;font-weight:700;color:${codPct>=90?'var(--green)':codPct>=70?'var(--amber)':'var(--red)'}">${codPct}%</div>
+        <div style="font-size:11px;color:var(--text2)">códigos preenchidos</div>
+      </div>
+      <div style="flex:1">
+        <div style="height:8px;background:var(--bg3);border-radius:4px;margin-bottom:6px">
+          <div style="height:8px;background:${codPct>=90?'var(--green)':codPct>=70?'var(--amber)':'var(--red)'};border-radius:4px;width:${codPct}%"></div>
+        </div>
+        <div style="font-size:12px;color:var(--text2)">${comCodigo} de ${total} itens têm código de peça — ${total-comCodigo} sem código (subconjuntos/rótulos)</div>
+      </div>
+    </div>
+    <!-- Top Fornecedores -->
+    ${topSup.length?`
+    <div class="card" style="padding:20px">
+      <div style="font-size:11px;font-weight:600;color:var(--text2);letter-spacing:.5px;margin-bottom:14px">FORNECEDORES MAPEADOS NO BOM (${topSup.length} encontrados)</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px">
+        ${topSup.map(([name,count])=>`
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--bg3);border-radius:6px">
+            <span style="font-size:12px;color:var(--text)">${esc(name)}</span>
+            <span class="hauler-badge hb-comprar">${count} ${count===1?'item':'itens'}</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>`:''}
+  `;
+}
+
+// ── Por Etapa
+function renderHaulerEtapas(){
+  if(!_haulerData)return;
+  const el=document.getElementById('haulerEtapasContent');
+  const rows=_haulerData;
+  const stages=[
+    {key:'comprar',label:'🛒 Comprar (Externo)',color:'var(--blue)',badge:'hb-comprar',desc:'Itens comerciais adquiridos de fornecedores externos'},
+    {key:'serra',label:'⚙️ Serra',color:'var(--purple)',badge:'hb-serra',desc:'Corte de perfis e tubos na serra'},
+    {key:'corte',label:'✂️ Corte de Chapa',color:'var(--text2)',badge:'hb-corte',desc:'Corte de chapas na guilhotina ou plasma'},
+    {key:'solda',label:'🔥 Soldagem',color:'var(--amber)',badge:'hb-solda',desc:'Processos de soldagem MIG/MAG/TIG'},
+    {key:'usinagem',label:'🔧 Usinagem',color:'var(--red)',badge:'hb-usinagem',desc:'Torneamento, fresamento e furação'},
+    {key:'montagem',label:'🏗️ Montagem',color:'var(--green)',badge:'hb-montagem',desc:'Montagem de subconjuntos e conjunto final'},
+    {key:'misto',label:'— Subconjuntos / Não Classificado',color:'var(--text3)',badge:'hb-misto',desc:'Itens de nível hierárquico sem operação direta'},
+  ];
+  el.innerHTML=stages.map(stage=>{
+    const items=rows.filter(r=>r.tipoAll.includes(stage.key));
+    if(!items.length)return'';
+    const comCod=items.filter(r=>r.codigo).length;
+    return`<div class="card" style="padding:0;margin-bottom:12px;overflow:hidden">
+      <div style="padding:12px 16px;background:var(--bg3);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:13px;font-weight:600;color:${stage.color}">${stage.label}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">${stage.desc}</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span style="font-size:11px;color:var(--text2)">${comCod} com código</span>
+          <span class="hauler-badge ${stage.badge}">${items.length} itens</span>
+        </div>
+      </div>
+      <div style="overflow-x:auto;max-height:320px;overflow-y:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+          <thead style="position:sticky;top:0;background:var(--bg2);z-index:1">
+            <tr>
+              <th style="padding:6px 10px;color:var(--text2);text-align:left;font-weight:600;white-space:nowrap">Nível</th>
+              <th style="padding:6px 10px;color:var(--text2);text-align:left;font-weight:600">Código</th>
+              <th style="padding:6px 10px;color:var(--text2);text-align:left;font-weight:600">Descrição</th>
+              <th style="padding:6px 10px;color:var(--text2);text-align:center;font-weight:600">Qtd</th>
+              <th style="padding:6px 10px;color:var(--text2);text-align:left;font-weight:600">Operações</th>
+              <th style="padding:6px 10px;color:var(--text2);text-align:left;font-weight:600">Fornecedor</th>
+              <th style="padding:6px 10px;color:var(--text2);text-align:left;font-weight:600">Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.map(r=>{
+              const ops=r.tipoAll.filter(t=>t!=='comprar'&&t!=='misto').map(t=>_haulerBadge[t]||'').join(' ');
+              const estadoColor=r.estado==='Aprovado'?'var(--green)':r.estado==='Criação e Edição'?'var(--amber)':r.estado==='Itens Comerciais'?'var(--blue)':'var(--text2)';
+              return`<tr style="border-bottom:1px solid var(--border)">
+                <td style="padding:5px 10px;font-size:10px;color:var(--text2);white-space:nowrap">${r.nivel}</td>
+                <td style="padding:5px 10px;font-family:monospace;color:var(--blue);white-space:nowrap">${r.codigo||'—'}</td>
+                <td style="padding:5px 10px;color:var(--text)">${esc(r.desc.slice(0,55))}${r.desc.length>55?'…':''}</td>
+                <td style="padding:5px 10px;text-align:center;color:var(--text2)">${r.qtd}</td>
+                <td style="padding:5px 10px">${ops||'—'}</td>
+                <td style="padding:5px 10px;color:var(--text2);font-size:11px">${esc(r.fabricante)||'—'}</td>
+                <td style="padding:5px 10px;font-size:10px;color:${estadoColor}">${r.estado||'—'}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── Apontamentos (cross-reference with GAS)
+let _haulerApontData=null;
+async function loadHaulerApontamentos(){
+  if(!_haulerData){
+    document.getElementById('haulerApontContent').innerHTML='<div style="padding:40px;text-align:center;color:var(--amber)">⚠ Carregue o CSV do BOM primeiro.</div>';
+    return;
+  }
+  const el=document.getElementById('haulerApontContent');
+  el.innerHTML='<div style="text-align:center;padding:50px"><div class="spinner" style="margin:0 auto 12px"></div><div style="font-size:12px;color:var(--text2)">Buscando apontamentos do Hauler… (pode levar ~30s no primeiro acesso)</div></div>';
+  try{
+    const url=`${getApi()}?action=buscarApontamentosHauler`;
+    const resp=await fetch(url);
+    if(!resp.ok)throw new Error(`HTTP ${resp.status}`);
+    const data=await resp.json();
+    if(data.error)throw new Error(data.error);
+    _haulerApontData=data;
+    _renderHaulerApontamentos(data);
+  }catch(e){
+    el.innerHTML=`<div style="padding:40px;text-align:center;color:var(--red);font-size:13px">
+      ❌ Erro ao carregar apontamentos: ${esc(e.message)}<br><br>
+      <button class="btn-sec" onclick="loadHaulerApontamentos()" style="font-size:12px">↺ Tentar novamente</button>
+    </div>`;
+  }
+}
+
+function _renderHaulerApontamentos(data){
+  const el=document.getElementById('haulerApontContent');
+  const {saldo=[],tempos={},operacoes=[],series=[]}=data;
+  const bomCodigos=new Set(_haulerData.map(r=>r.codigo).filter(Boolean));
+  const apontCodigos=new Set(Object.keys(tempos));
+  const found=_haulerData.filter(r=>r.codigo&&apontCodigos.has(r.codigo));
+  const notFound=_haulerData.filter(r=>r.codigo&&!apontCodigos.has(r.codigo));
+  const coverage=bomCodigos.size?Math.round(found.length/bomCodigos.size*100):0;
+  // Saldo por série
+  const saldoBySerie={};
+  saldo.forEach(s=>{
+    if(!saldoBySerie[s.nrSerie])saldoBySerie[s.nrSerie]={pending:0,done:0};
+    if(Number(s.qtdRestante)>0)saldoBySerie[s.nrSerie].pending++;
+    else saldoBySerie[s.nrSerie].done++;
+  });
+  const seriesList=Object.entries(saldoBySerie);
+  el.innerHTML=`
+    <!-- KPIs -->
+    <div class="krow" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+      <div class="kpi ${coverage>=80?'g':coverage>=50?'a':'r'}">
+        <div class="kl">Cobertura BOM</div><div class="kv">${coverage}%</div>
+        <div class="kn">${found.length} de ${bomCodigos.size} itens</div>
+        <div class="kb" style="width:${coverage}%"></div>
+      </div>
+      <div class="kpi g">
+        <div class="kl">Com Apontamento</div><div class="kv">${found.length}</div>
+        <div class="kn">itens registrados</div><div class="kb" style="width:100%"></div>
+      </div>
+      <div class="kpi r">
+        <div class="kl">Sem Apontamento</div><div class="kv">${notFound.length}</div>
+        <div class="kn">não encontrados</div><div class="kb" style="width:100%"></div>
+      </div>
+      <div class="kpi">
+        <div class="kl">Séries Hauler</div><div class="kv">${seriesList.length}</div>
+        <div class="kn">${operacoes.length} tipos de operação</div><div class="kb" style="width:100%"></div>
+      </div>
+    </div>
+
+    <!-- Saldo por Série -->
+    ${seriesList.length?`
+    <div class="card" style="padding:16px;margin-bottom:12px">
+      <div style="font-size:11px;font-weight:600;color:var(--text2);letter-spacing:.5px;margin-bottom:12px">SALDO POR SÉRIE HAULER</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px">
+        ${seriesList.map(([serie,s])=>{
+          const total2=s.pending+s.done;
+          const pct=total2?Math.round(s.done/total2*100):0;
+          return`<div style="padding:12px;background:var(--bg3);border-radius:8px">
+            <div style="font-size:12px;font-weight:600;color:var(--green);margin-bottom:6px;font-family:monospace">${serie}</div>
+            <div style="height:5px;background:var(--bg2);border-radius:3px;margin-bottom:6px">
+              <div style="height:5px;background:var(--green);border-radius:3px;width:${pct}%"></div>
+            </div>
+            <div style="font-size:11px;color:var(--text2)">${s.done} conc. / ${s.pending} pend. (${pct}%)</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`:''}
+
+    <!-- Lead Times -->
+    ${found.length?`
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:12px">
+      <div style="padding:12px 16px;background:var(--bg3);border-bottom:1px solid var(--border)">
+        <div style="font-size:13px;font-weight:600">⏱ Lead Time por Item (Média das operações)</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:2px">Tempo médio entre ABERTURA e FECHAMENTO nos apontamentos HAULER</div>
+      </div>
+      <div style="overflow-x:auto;max-height:420px;overflow-y:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+          <thead style="position:sticky;top:0;background:var(--bg2);z-index:1">
+            <tr>
+              <th style="padding:7px 10px;color:var(--text2);text-align:left;font-weight:600">Código</th>
+              <th style="padding:7px 10px;color:var(--text2);text-align:left;font-weight:600">Descrição</th>
+              <th style="padding:7px 10px;color:var(--text2);text-align:left;font-weight:600">Operação</th>
+              <th style="padding:7px 10px;color:var(--text2);text-align:center;font-weight:600">Média</th>
+              <th style="padding:7px 10px;color:var(--text2);text-align:center;font-weight:600">Min</th>
+              <th style="padding:7px 10px;color:var(--text2);text-align:center;font-weight:600">Máx</th>
+              <th style="padding:7px 10px;color:var(--text2);text-align:center;font-weight:600">Registros</th>
+              <th style="padding:7px 10px;color:var(--text2);text-align:left;font-weight:600">Último</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${found.flatMap(bomRow=>{
+              const ops=tempos[bomRow.codigo]||{};
+              return Object.entries(ops).map(([op,t])=>`
+                <tr style="border-bottom:1px solid var(--border)">
+                  <td style="padding:5px 10px;font-family:monospace;color:var(--blue);white-space:nowrap">${bomRow.codigo}</td>
+                  <td style="padding:5px 10px;color:var(--text)">${esc(bomRow.desc.slice(0,40))}${bomRow.desc.length>40?'…':''}</td>
+                  <td style="padding:5px 10px;color:var(--amber);font-size:10px;white-space:nowrap">${esc(op)}</td>
+                  <td style="padding:5px 10px;text-align:center;font-weight:700;color:var(--text)">${_fmtHoras(t.avg)}</td>
+                  <td style="padding:5px 10px;text-align:center;color:var(--green)">${_fmtHoras(t.min)}</td>
+                  <td style="padding:5px 10px;text-align:center;color:var(--red)">${_fmtHoras(t.max)}</td>
+                  <td style="padding:5px 10px;text-align:center;color:var(--text2)">${t.count}×</td>
+                  <td style="padding:5px 10px;color:var(--text3);font-size:10px">${t.ultimo?new Date(t.ultimo).toLocaleDateString('pt-BR'):'—'}</td>
+                </tr>`);
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`:''}
+
+    <!-- Saldo detalhado -->
+    ${saldo.length?`
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:12px">
+      <div style="padding:12px 16px;background:var(--bg3);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:13px;font-weight:600">📦 Saldo Atual (Saldo_Parcial)</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:2px">Quantidade restante a produzir por série × item × operação</div>
+        </div>
+        <span class="hauler-badge hb-comprar">${saldo.length} registros</span>
+      </div>
+      <div style="overflow-x:auto;max-height:350px;overflow-y:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+          <thead style="position:sticky;top:0;background:var(--bg2);z-index:1">
+            <tr>
+              <th style="padding:7px 10px;color:var(--text2);font-weight:600">Nº Série</th>
+              <th style="padding:7px 10px;color:var(--text2);font-weight:600">Código</th>
+              <th style="padding:7px 10px;color:var(--text2);font-weight:600">Descrição</th>
+              <th style="padding:7px 10px;color:var(--text2);text-align:center;font-weight:600">Op.</th>
+              <th style="padding:7px 10px;color:var(--text2);text-align:center;font-weight:600">Restante</th>
+              <th style="padding:7px 10px;color:var(--text2);font-weight:600">Atualiz.</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${saldo.slice(0,300).map(s=>{
+              const bi=_haulerData.find(r=>r.codigo===String(s.codItem));
+              const qtd=Number(s.qtdRestante);
+              return`<tr style="border-bottom:1px solid var(--border);${qtd===0?'opacity:0.5':''}">
+                <td style="padding:5px 10px;font-family:monospace;color:var(--green)">${esc(String(s.nrSerie))}</td>
+                <td style="padding:5px 10px;font-family:monospace;color:var(--blue)">${esc(String(s.codItem))}</td>
+                <td style="padding:5px 10px;color:var(--text)">${bi?esc(bi.desc.slice(0,40))+'…':'—'}</td>
+                <td style="padding:5px 10px;text-align:center;color:var(--amber);font-size:10px">${s.operacao}</td>
+                <td style="padding:5px 10px;text-align:center;font-weight:700;color:${qtd>0?'var(--red)':'var(--green)'}">${qtd>0?qtd:'✅'}</td>
+                <td style="padding:5px 10px;color:var(--text3);font-size:10px">${s.ultimaAtualizacao?new Date(s.ultimaAtualizacao).toLocaleDateString('pt-BR'):'—'}</td>
+              </tr>`;
+            }).join('')}
+            ${saldo.length>300?`<tr><td colspan="6" style="padding:8px 10px;text-align:center;color:var(--text3);font-size:11px">...e mais ${saldo.length-300} registros</td></tr>`:''}
+          </tbody>
+        </table>
+      </div>
+    </div>`:''}
+
+    <!-- Items sem apontamento -->
+    ${notFound.length?`
+    <div class="card" style="padding:16px">
+      <div style="font-size:12px;font-weight:600;color:var(--red);margin-bottom:10px">❌ ${notFound.length} itens do BOM sem apontamentos registrados</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${notFound.slice(0,60).map(r=>`
+          <span title="${esc(r.desc)}" style="padding:3px 8px;background:var(--bg3);border-radius:4px;font-size:11px;font-family:monospace;color:var(--text2)">${r.codigo||esc(r.desc.slice(0,20))}</span>
+        `).join('')}
+        ${notFound.length>60?`<span style="font-size:11px;color:var(--text3)">...+${notFound.length-60}</span>`:''}
+      </div>
+    </div>`:''}
+  `;
+}
+
+function _fmtHoras(h){
+  if(h==null||isNaN(h))return'—';
+  if(h<1)return`${Math.round(h*60)}min`;
+  if(h<24)return`${h.toFixed(1)}h`;
+  return`${(h/24).toFixed(1)}d`;
 }
 
 async function enviarEmail(){
