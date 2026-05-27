@@ -2530,10 +2530,7 @@ async function loadHaulerApontamentos(){
   const el=document.getElementById('haulerApontContent');
   el.innerHTML='<div style="text-align:center;padding:50px"><div class="spinner" style="margin:0 auto 12px"></div><div style="font-size:12px;color:var(--text2)">Buscando apontamentos do Hauler… (pode levar ~30s no primeiro acesso)</div></div>';
   try{
-    const url=`${getApi()}?action=buscarApontamentosHauler`;
-    const resp=await fetch(url);
-    if(!resp.ok)throw new Error(`HTTP ${resp.status}`);
-    const data=await resp.json();
+    const data=await api({action:'buscarApontamentosHauler'},90000);
     if(data.error)throw new Error(data.error);
     _haulerApontData=data;
     _renderHaulerApontamentos(data);
@@ -2545,13 +2542,19 @@ async function loadHaulerApontamentos(){
   }
 }
 
+function _normCod(c){return String(c||'').trim().replace(/^0+/,'').toUpperCase();}
 function _renderHaulerApontamentos(data){
   const el=document.getElementById('haulerApontContent');
   const {saldo=[],tempos={},operacoes=[],series=[]}=data;
-  const bomCodigos=new Set(_haulerData.map(r=>r.codigo).filter(Boolean));
-  const apontCodigos=new Set(Object.keys(tempos));
-  const found=_haulerData.filter(r=>r.codigo&&apontCodigos.has(r.codigo));
-  const notFound=_haulerData.filter(r=>r.codigo&&!apontCodigos.has(r.codigo));
+  // Normaliza códigos dos dois lados para evitar mismatches por zeros/espaços
+  const bomRows=_haulerData.filter(r=>r.codigo);
+  const bomCodigos=new Set(bomRows.map(r=>_normCod(r.codigo)));
+  // Mapa normCod→tempoData para lookup rápido
+  const temposNorm={};
+  Object.entries(tempos).forEach(([cod,ops])=>{temposNorm[_normCod(cod)]=ops;});
+  const apontCodigos=new Set(Object.keys(temposNorm));
+  const found=bomRows.filter(r=>apontCodigos.has(_normCod(r.codigo)));
+  const notFound=bomRows.filter(r=>!apontCodigos.has(_normCod(r.codigo)));
   const coverage=bomCodigos.size?Math.round(found.length/bomCodigos.size*100):0;
   // Saldo por série
   const saldoBySerie={};
@@ -2625,7 +2628,7 @@ function _renderHaulerApontamentos(data){
           </thead>
           <tbody>
             ${found.flatMap(bomRow=>{
-              const ops=tempos[bomRow.codigo]||{};
+              const ops=temposNorm[_normCod(bomRow.codigo)]||{};
               return Object.entries(ops).map(([op,t])=>`
                 <tr style="border-bottom:1px solid var(--border)">
                   <td style="padding:5px 10px;font-family:monospace;color:var(--blue);white-space:nowrap">${bomRow.codigo}</td>
@@ -2667,7 +2670,7 @@ function _renderHaulerApontamentos(data){
           </thead>
           <tbody>
             ${saldo.slice(0,300).map(s=>{
-              const bi=_haulerData.find(r=>r.codigo===String(s.codItem));
+              const bi=_haulerData.find(r=>_normCod(r.codigo)===_normCod(s.codItem));
               const qtd=Number(s.qtdRestante);
               return`<tr style="border-bottom:1px solid var(--border);${qtd===0?'opacity:0.5':''}">
                 <td style="padding:5px 10px;font-family:monospace;color:var(--green)">${esc(String(s.nrSerie))}</td>
@@ -2688,13 +2691,32 @@ function _renderHaulerApontamentos(data){
     ${notFound.length?`
     <div class="card" style="padding:16px">
       <div style="font-size:12px;font-weight:600;color:var(--red);margin-bottom:10px">❌ ${notFound.length} itens do BOM sem apontamentos registrados</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Estes itens existem no BOM mas não foram encontrados nos apontamentos de produção do Hauler. Podem ser itens comprados (sem apontamento de fabricação), novos ou ainda não produzidos.</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px">
-        ${notFound.slice(0,60).map(r=>`
-          <span title="${esc(r.desc)}" style="padding:3px 8px;background:var(--bg3);border-radius:4px;font-size:11px;font-family:monospace;color:var(--text2)">${r.codigo||esc(r.desc.slice(0,20))}</span>
+        ${notFound.slice(0,80).map(r=>`
+          <span title="${esc(r.desc)}" style="padding:3px 8px;background:var(--bg3);border-radius:4px;font-size:11px;font-family:monospace;color:${r.tipoAll.includes('comprar')?'var(--blue)':'var(--text2)'}">${r.codigo||esc(r.desc.slice(0,20))}</span>
         `).join('')}
-        ${notFound.length>60?`<span style="font-size:11px;color:var(--text3)">...+${notFound.length-60}</span>`:''}
+        ${notFound.length>80?`<span style="font-size:11px;color:var(--text3)">...+${notFound.length-80}</span>`:''}
       </div>
+      <div style="margin-top:10px;font-size:11px;color:var(--text3)">🔵 Azul = item de compra (esperado sem apontamento de fab.) &nbsp;⬜ Branco = fabricado mas sem registro</div>
     </div>`:''}
+
+    <!-- Diagnóstico de matching -->
+    <details style="margin-top:8px">
+      <summary style="font-size:11px;color:var(--text3);cursor:pointer;padding:8px">🔍 Diagnóstico de cruzamento de códigos</summary>
+      <div class="card" style="padding:16px;margin-top:6px;font-size:11px">
+        <div style="color:var(--text2);margin-bottom:8px"><strong>Códigos nos apontamentos HAULER (${apontCodigos.size} únicos):</strong></div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px">
+          ${[...apontCodigos].slice(0,30).map(c=>`<span style="padding:2px 6px;background:var(--bg3);border-radius:3px;font-family:monospace;color:var(--amber)">${c}</span>`).join('')}
+          ${apontCodigos.size>30?`<span style="color:var(--text3)">...+${apontCodigos.size-30}</span>`:''}
+        </div>
+        <div style="color:var(--text2);margin-bottom:8px"><strong>Códigos no BOM (${bomCodigos.size} únicos, normalizados):</strong></div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px">
+          ${[...bomCodigos].slice(0,30).map(c=>`<span style="padding:2px 6px;background:var(--bg3);border-radius:3px;font-family:monospace;color:var(--blue)">${c}</span>`).join('')}
+          ${bomCodigos.size>30?`<span style="color:var(--text3)">...+${bomCodigos.size-30}</span>`:''}
+        </div>
+      </div>
+    </details>
   `;
 }
 
