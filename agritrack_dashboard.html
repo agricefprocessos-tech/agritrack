@@ -3050,7 +3050,13 @@ function renderHaulerSerial(data){
   }
 
   // KPIs de resumo
-  const avgPct=seriais.length?Math.round(seriais.reduce((a,s)=>a+(s.pctGeral||0),0)/seriais.length):0;
+  function calcPct_(s){
+    const fc=s.fases.compras,ff=s.fases.fabricacao,fp=s.fases.preMontagem,fm=s.fases.montagem;
+    const P={compras:10,fabricacao:30,preMontagem:25,montagem:35};
+    const cc=fc.nPedidos>0?(fc.nEntregues||0)/fc.nPedidos*P.compras:fc.status==='concluida'?P.compras:fc.status==='em_andamento'?P.compras*0.5:0;
+    return Math.round(cc+(ff.status==='concluida'?P.fabricacao:ff.status==='em_andamento'?P.fabricacao*0.5:0)+(fp.status==='concluida'?P.preMontagem:fp.status==='em_andamento'?P.preMontagem*0.5:0)+(fm.status==='concluida'?P.montagem:fm.status==='em_andamento'?P.montagem*0.5:0));
+  }
+  const avgPct=seriais.length?Math.round(seriais.reduce((a,s)=>a+calcPct_(s),0)/seriais.length):0;
   const emAndamento=seriais.filter(s=>s.opsAbertas&&s.opsAbertas.length>0).length;
   const comCompras=seriais.filter(s=>s.fases.compras.status!=='sem_dados').length;
   const totalPedidos=seriais.reduce((a,s)=>a+(s.fases.compras.nPedidos||0),0);
@@ -3067,34 +3073,33 @@ function renderHaulerSerial(data){
     <div class="kpi">${FASES.map(f=>`<div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:2px"><span style="color:${f.color}">${f.label}</span><span style="font-weight:700">${resumo[f.key]||0}</span></div>`).join('')}</div>
   </div>`;
 
-  // Cartões por serial (agrupados por fase)
-  const cardsHtml=FASES.map(fase=>{
-    const group=seriais.filter(s=>s.faseAtual===fase.key);
-    if(!group.length)return'';
-    return`<div style="margin-bottom:24px">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid ${fase.color}">
-        <span style="font-size:13px;font-weight:700;color:${fase.color}">${fase.label}</span>
-        <span style="background:${fase.color};color:#fff;border-radius:10px;padding:1px 8px;font-size:11px;font-weight:600">${group.length}</span>
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px">
-        ${group.map(s=>{
+  // Cartões por serial — grid plano ordenado por progresso desc
+  const FASE_MAP=Object.fromEntries(FASES.map(f=>[f.key,f]));
+  const sortedSeriais=[...seriais].sort((a,b)=>(b.pctGeral||0)-(a.pctGeral||0));
+  const cardsHtml=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px">
+    ${sortedSeriais.map(s=>{
           const fc=s.fases.compras, ff=s.fases.fabricacao, fp=s.fases.preMontagem, fm=s.fases.montagem;
-          const pct=s.pctGeral||0;
-          const pctComp=s.pctComprasEntregues;
+          const pct=calcPct_(s);
+          const pctComp=fc.nPedidos>0?Math.round((fc.nEntregues||0)/fc.nPedidos*100):null;
           const diasProd=s.diasProd;
           const opsAb=s.opsAbertas||[];
           const ops=s.operadores||[];
+          // Fase atual com badge colorido
+          const faseAtualObj=FASE_MAP[s.faseAtual]||null;
           // Cor do card: verde se >75%, amarelo 40-75%, vermelho <40%
-          const cardAccent=pct>=75?'var(--green)':pct>=40?fase.color:'var(--red)';
+          const cardAccent=pct>=75?'var(--green)':pct>=40?'var(--amber)':'var(--red)';
 
-          return`<div class="card" style="padding:0;overflow:hidden;border-top:3px solid ${cardAccent}">
+          return`<div class="card" style="padding:0;border-top:3px solid ${cardAccent};border-radius:8px">
             <!-- Header do card -->
-            <div style="padding:12px 14px;background:var(--bg3);display:flex;justify-content:space-between;align-items:center">
-              <div>
-                <div style="font-size:16px;font-weight:800;font-family:monospace;color:${cardAccent};letter-spacing:1px">${s.serial}</div>
-                <div style="font-size:10px;color:var(--text3)">${esc(s.nrSerie)}${diasProd?` · ${diasProd}d em produção`:''}</div>
+            <div style="padding:12px 14px;background:var(--bg3);display:flex;justify-content:space-between;align-items:center;border-radius:5px 5px 0 0">
+              <div style="min-width:0">
+                <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">
+                  <span style="font-size:16px;font-weight:800;font-family:monospace;color:${cardAccent};letter-spacing:1px">${s.serial}</span>
+                  ${faseAtualObj?`<span style="background:${faseAtualObj.color};color:#fff;border-radius:10px;padding:1px 7px;font-size:9px;font-weight:700;white-space:nowrap">${faseAtualObj.label}</span>`:''}
+                </div>
+                <div style="font-size:10px;color:var(--text3);margin-top:2px">${esc(s.nrSerie)}${diasProd?` · ${diasProd}d em produção`:''}</div>
               </div>
-              <div style="text-align:center">
+              <div style="text-align:center;flex-shrink:0">
                 ${circle(pct,cardAccent,44)}
                 <div style="font-size:9px;color:var(--text3);margin-top:2px">geral</div>
               </div>
@@ -3202,9 +3207,7 @@ function renderHaulerSerial(data){
             })()}
           </div>`;
         }).join('')}
-      </div>
-    </div>`;
-  }).join('');
+  </div>`;
 
   // Tabela resumida
   const tabelaHtml=`
@@ -3224,7 +3227,10 @@ function renderHaulerSerial(data){
         </tr></thead>
         <tbody>
           ${seriais.map(s=>{
-            const pct=s.pctGeral||0;
+            const _fc=s.fases.compras,_ff=s.fases.fabricacao,_fp=s.fases.preMontagem,_fm=s.fases.montagem;
+            const _PESOS={compras:10,fabricacao:30,preMontagem:25,montagem:35};
+            const _cc=_fc.nPedidos>0?(_fc.nEntregues||0)/_fc.nPedidos*_PESOS.compras:_fc.status==='concluida'?_PESOS.compras:_fc.status==='em_andamento'?_PESOS.compras*0.5:0;
+            const pct=Math.round(_cc+(_ff.status==='concluida'?_PESOS.fabricacao:_ff.status==='em_andamento'?_PESOS.fabricacao*0.5:0)+(_fp.status==='concluida'?_PESOS.preMontagem:_fp.status==='em_andamento'?_PESOS.preMontagem*0.5:0)+(_fm.status==='concluida'?_PESOS.montagem:_fm.status==='em_andamento'?_PESOS.montagem*0.5:0));
             const pc=pct>=75?'var(--green)':pct>=40?'var(--amber)':'var(--red)';
             function cellF(f){
               if(f.status==='sem_dados')return`<td style="padding:7px 10px;color:var(--text3)">—</td>`;
