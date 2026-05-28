@@ -2421,6 +2421,8 @@ function haulerSubTab(tab,btn){
   });
   if(tab==='analise')renderHaulerAnalise();
   if(tab==='etapas')renderHaulerEtapas();
+  if(tab==='apont'||tab==='serial')_haulerAutoLoad();
+  if(tab==='compras'&&!_haulerComprasData)loadHaulerCompras();
   // "Por Serial" não precisa de CSV — oculta elementos de BOM
   const bomEls=['haulerEmpty','haulerTableWrap','haulerKpis','haulerFilters'];
   if(tab==='serial'){
@@ -2848,7 +2850,7 @@ async function loadHaulerCompras(){
 
 function _renderHaulerCompras(data){
   const el=document.getElementById('haulerComprasContent');
-  const {items={},totalLinhas=0,totalItens=0,diagnostics=[]}=data;
+  const {items={},totalLinhas=0,totalItens=0,diagnostics=[],cached=false,geradoEm}=data;
 
   // BOM rows classified as "comprar"
   const bomComprar=_haulerData.filter(r=>r.tipoAll&&r.tipoAll.includes('comprar')&&r.codigo);
@@ -2894,6 +2896,10 @@ function _renderHaulerCompras(data){
         <div class="kl">Fornecedores</div><div class="kv">${topForn.length}</div>
         <div class="kn">${totalLinhas.toLocaleString('pt-BR')} linhas · ${totalItens.toLocaleString('pt-BR')} itens únicos</div><div class="kb" style="width:100%"></div>
       </div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <span style="font-size:10px;color:var(--text3)">${cached?'⚡ Cache':'🔄 Dados frescos'}${geradoEm?' · gerado '+new Date(geradoEm).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):''}</span>
+      <button class="btn-sec" style="font-size:10px" onclick="_haulerComprasData=null;loadHaulerCompras()">↺ Forçar atualização</button>
     </div>
 
     <!-- Top fornecedores -->
