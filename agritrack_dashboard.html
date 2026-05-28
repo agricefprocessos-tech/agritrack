@@ -2764,7 +2764,7 @@ async function loadHaulerCompras(){
 
 function _renderHaulerCompras(data){
   const el=document.getElementById('haulerComprasContent');
-  const {items={},totalLinhas=0,totalItens=0,diagnostic={}}=data;
+  const {items={},totalLinhas=0,totalItens=0,diagnostics=[]}=data;
 
   // BOM rows classified as "comprar"
   const bomComprar=_haulerData.filter(r=>r.tipoAll&&r.tipoAll.includes('comprar')&&r.codigo);
@@ -2808,7 +2808,7 @@ function _renderHaulerCompras(data){
       </div>
       <div class="kpi">
         <div class="kl">Fornecedores</div><div class="kv">${topForn.length}</div>
-        <div class="kn">${totalLinhas} linhas na planilha</div><div class="kb" style="width:100%"></div>
+        <div class="kn">${totalLinhas.toLocaleString('pt-BR')} linhas · ${totalItens.toLocaleString('pt-BR')} itens únicos</div><div class="kb" style="width:100%"></div>
       </div>
     </div>
 
@@ -2836,7 +2836,7 @@ function _renderHaulerCompras(data){
       <div style="padding:12px 16px;background:var(--bg3);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
         <div>
           <div style="font-size:13px;font-weight:600">✅ Itens Comerciais com Pedido de Compra</div>
-          <div style="font-size:11px;color:var(--text2);margin-top:2px">BOM tipo=comprar encontrados na planilha de pedidos Hauler</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:2px">BOM tipo=comprar encontrados nas planilhas de compras (Concluídos + FUP + Hauler)</div>
         </div>
         <span class="hauler-badge hb-comprar">${found.length} itens</span>
       </div>
@@ -2849,20 +2849,23 @@ function _renderHaulerCompras(data){
               <th style="padding:7px 10px;color:var(--text2);text-align:left;font-weight:600">Fornecedor</th>
               <th style="padding:7px 10px;color:var(--text2);text-align:center;font-weight:600">Pedidos</th>
               <th style="padding:7px 10px;color:var(--text2);text-align:left;font-weight:600">Qtd BOM</th>
-              <th style="padding:7px 10px;color:var(--text2);text-align:left;font-weight:600">Status</th>
+              <th style="padding:7px 10px;color:var(--text2);text-align:left;font-weight:600">Última Entrega</th>
+              <th style="padding:7px 10px;color:var(--text2);text-align:left;font-weight:600">Status/Fonte</th>
             </tr>
           </thead>
           <tbody>
             ${found.map(bomRow=>{
               const c=comprasNorm[_normCod(bomRow.codigo)]||{};
-              const fornList=(c.fornecedores||[]).join(', ').slice(0,50);
+              const entDt=c.ultimaEntrega?new Date(c.ultimaEntrega).toLocaleDateString('pt-BR'):'—';
+              const statusTxt=(c.ultimoStatus||'').slice(0,35);
+              const fonte=c.ultimaFonte||'';
               return`<tr style="border-bottom:1px solid var(--border)" class="hauler-apont-found">
                 <td style="padding:5px 10px;font-family:monospace;color:var(--blue)">${bomRow.codigo}</td>
                 <td style="padding:5px 10px;color:var(--text)">${esc((bomRow.desc||'').slice(0,45))}${(bomRow.desc||'').length>45?'…':''}</td>
-                <td style="padding:5px 10px;color:var(--green);font-size:10px">${esc(c.ultimoForn||fornList||'—')}</td>
+                <td style="padding:5px 10px;color:var(--green);font-size:10px" title="${esc((c.fornecedores||[]).join(', '))}">${esc(c.ultimoForn||'—')}</td>
                 <td style="padding:5px 10px;text-align:center;font-weight:700;color:var(--text)">${c.nPedidos||'—'}</td>
-                <td style="padding:5px 10px;color:var(--text2)">${bomRow.quantidade||'—'}</td>
-                <td style="padding:5px 10px;color:var(--text3);font-size:10px">${esc(c.desc&&c.desc!==bomRow.desc?c.desc.slice(0,30):'')}</td>
+                <td style="padding:5px 10px;color:var(--text2)">${entDt}</td>
+                <td style="padding:5px 10px;color:var(--text3);font-size:10px" title="${esc(fonte)}">${esc(statusTxt)}${statusTxt.length>=35?'…':''}</td>
               </tr>`;
             }).join('')}
           </tbody>
@@ -2874,7 +2877,7 @@ function _renderHaulerCompras(data){
     ${notFound.length?`
     <div class="card" style="padding:16px;margin-bottom:12px">
       <div style="font-size:12px;font-weight:600;color:var(--amber);margin-bottom:10px">⚠ ${notFound.length} itens do BOM tipo "comprar" sem pedido registrado</div>
-      <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Estes itens estão classificados como compra no BOM mas não foram encontrados na planilha de pedidos Hauler.</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Estes itens estão classificados como compra no BOM mas não foram encontrados em nenhuma aba da planilha de compras.</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px">
         ${notFound.slice(0,60).map(r=>`
           <span title="${esc(r.desc)}" style="padding:3px 8px;background:var(--bg3);border-radius:4px;font-size:11px;font-family:monospace;color:var(--amber)">${r.codigo||esc((r.desc||'').slice(0,20))}</span>
@@ -2897,14 +2900,22 @@ function _renderHaulerCompras(data){
       </div>
     </div>`:''}
 
-    <!-- Diagnóstico -->
+    <!-- Diagnóstico por aba -->
     <details style="margin-top:8px">
-      <summary style="font-size:11px;color:var(--text3);cursor:pointer;padding:8px">🔍 Diagnóstico da planilha de compras</summary>
+      <summary style="font-size:11px;color:var(--text3);cursor:pointer;padding:8px">🔍 Diagnóstico — abas processadas (${diagnostics.length})</summary>
       <div class="card" style="padding:16px;margin-top:6px;font-size:11px">
-        <div style="color:var(--text2);margin-bottom:6px"><strong>Aba:</strong> ${esc(diagnostic.sheetName||'')}</div>
-        <div style="color:var(--text2);margin-bottom:6px"><strong>Colunas detectadas:</strong> ${(diagnostic.headers||[]).join(' | ')}</div>
-        <div style="color:var(--text2);margin-bottom:6px"><strong>Mapeamento:</strong> CÓD.col=${diagnostic.colMap&&diagnostic.colMap.iCod} | Forn.col=${diagnostic.colMap&&diagnostic.colMap.iForn} | Data.col=${diagnostic.colMap&&diagnostic.colMap.iDataEnt}</div>
-        <div style="color:var(--text2)"><strong>Total planilha:</strong> ${diagnostic.totalSheetRows||0} linhas brutas → ${totalLinhas} com dados → ${totalItens} itens únicos</div>
+        ${diagnostics.map(d=>`
+          <div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border)">
+            <div style="font-weight:600;color:var(--blue);margin-bottom:4px">${esc(d.label)} — <span style="color:var(--text2);font-weight:400">${esc(d.sheetName||'')}</span></div>
+            ${d.erro?`<div style="color:var(--red)">❌ ${esc(d.erro)}</div>`:`
+            <div style="color:var(--text2);margin-bottom:3px">Linhas na aba: ${(d.totalSheetRows||0).toLocaleString('pt-BR')} | Lidas: ${(d.rowsRead||0).toLocaleString('pt-BR')} | Com dados: ${d.itensEncontrados||0}</div>
+            <div style="color:var(--text2);margin-bottom:3px">Colunas: ${(d.headers||[]).slice(0,10).join(' · ')}</div>
+            <div style="color:var(--text3)">Mapeamento: CÓD=${d.colMap&&d.colMap.iCod>=0?d.colMap.iCod:'❌'} | Forn=${d.colMap&&d.colMap.iForn>=0?d.colMap.iForn:'❌'} | DataEnt=${d.colMap&&d.colMap.iDataEnt>=0?d.colMap.iDataEnt:'❌'} | Status=${d.colMap&&d.colMap.iStatus>=0?d.colMap.iStatus:'❌'}</div>
+            ${d.aviso?`<div style="color:var(--amber);margin-top:3px">⚠ ${esc(d.aviso)}</div>`:''}
+            `}
+          </div>
+        `).join('')}
+        <div style="color:var(--text2);font-weight:600">Total: ${totalLinhas.toLocaleString('pt-BR')} entradas → ${totalItens.toLocaleString('pt-BR')} itens únicos</div>
       </div>
     </details>
   `;
