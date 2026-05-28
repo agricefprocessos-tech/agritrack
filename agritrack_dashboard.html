@@ -61,6 +61,8 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--tex
 .load{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:50vh;gap:16px}
 .spinner{width:36px;height:36px;border:3px solid var(--border2);border-top-color:var(--green);border-radius:50%;animation:spin .8s linear infinite}
 .spinner-sm{display:inline-block;width:10px;height:10px;border:2px solid var(--border2);border-top-color:var(--green);border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;margin-right:4px}
+details[open] summary .det-arrow{transform:rotate(180deg)}
+.det-arrow{display:inline-block;transition:transform .2s}
 @keyframes spin{to{transform:rotate(360deg)}}
 .ltxt{font-size:13px;color:var(--text2)}
 
@@ -3128,9 +3130,76 @@ function renderHaulerSerial(data){
             ${opsAb.length?`<div style="margin:0 14px 8px;padding:5px 8px;background:rgba(245,158,11,.1);border-radius:5px;font-size:9px;color:var(--amber)">
               🔄 <strong>Em execução:</strong> ${opsAb.map(o=>esc(o)).join(' · ')}
             </div>`:''}
-            ${ops.length?`<div style="padding:6px 14px 10px;font-size:9px;color:var(--text3)">
+            ${ops.length?`<div style="padding:0 14px 4px;font-size:9px;color:var(--text3)">
               👤 ${ops.map(o=>esc(o)).join(' · ')}
             </div>`:''}
+
+            <!-- ▼ Pendências para 100% -->
+            ${(()=>{
+              // Monta lista do que ainda falta
+              const pendencias=[];
+              const FASE_LABELS={compras:'🛒 Compras',fabricacao:'⚙️ Fabricação',preMontagem:'🔩 Pré-Montagem',montagem:'🏗️ Montagem'};
+              const PESOS_FASE={compras:10,fabricacao:30,preMontagem:25,montagem:35};
+              const FASE_ORDER=['compras','fabricacao','preMontagem','montagem'];
+              let pesoFaltando=0;
+              FASE_ORDER.forEach(fk=>{
+                const fData=s.fases[fk]||{status:'sem_dados'};
+                const lbl=FASE_LABELS[fk];
+                if(fData.status==='sem_dados'){
+                  pendencias.push({tipo:'nao_iniciada',label:lbl,detalhe:'Não iniciada',peso:PESOS_FASE[fk]});
+                  pesoFaltando+=PESOS_FASE[fk];
+                } else if(fData.status==='em_andamento'){
+                  const nAb=fData.nAbertas||0;
+                  const nOps=fData.nOps||0;
+                  let det=`Em andamento · ${nOps} op${nOps!==1?'s':''} concluída${nOps!==1?'s':''}`;
+                  if(nAb>0)det+=` · ${nAb} aberta${nAb!==1?'s':''}`;
+                  pendencias.push({tipo:'em_andamento',label:lbl,detalhe:det,peso:Math.round(PESOS_FASE[fk]*0.5)});
+                  pesoFaltando+=Math.round(PESOS_FASE[fk]*0.5);
+                }
+              });
+              // Compras: pedidos não entregues
+              const compFalta=fc.nPedidos-(fc.nEntregues||0);
+              if(compFalta>0){
+                pendencias.push({tipo:'compras_pendentes',label:'🛒 Entregas pendentes',detalhe:`${compFalta} pedido${compFalta!==1?'s':''} ainda não entregue${compFalta!==1?'s':''}`,peso:0});
+              }
+              // Ops ainda abertas
+              if(opsAb.length){
+                pendencias.push({tipo:'ops_abertas',label:'⚠ Operações em aberto',detalhe:opsAb.slice(0,3).map(o=>esc(o)).join(', ')+(opsAb.length>3?` +${opsAb.length-3}`:''),peso:0});
+              }
+
+              if(!pendencias.length){
+                return`<div style="border-top:1px solid var(--border);padding:8px 14px 10px">
+                  <div style="font-size:10px;color:var(--green);font-weight:600">✅ Sem pendências identificadas nos dados disponíveis</div>
+                </div>`;
+              }
+              const faltaPct=Math.min(100,pesoFaltando);
+              const TIPO_COLOR={nao_iniciada:'var(--text3)',em_andamento:'var(--amber)',compras_pendentes:'var(--blue)',ops_abertas:'var(--red)'};
+              const TIPO_IC={nao_iniciada:'⬜',em_andamento:'🔄',compras_pendentes:'📦',ops_abertas:'⚠️'};
+
+              return`<details style="border-top:1px solid var(--border)">
+                <summary style="padding:8px 14px;font-size:10px;font-weight:600;color:var(--text2);cursor:pointer;display:flex;justify-content:space-between;align-items:center;list-style:none;user-select:none">
+                  <span>📋 O que falta para 100%</span>
+                  <span style="display:flex;gap:8px;align-items:center">
+                    <span style="color:var(--red);font-weight:700">${faltaPct}% restante</span>
+                    <span class="det-arrow" style="font-size:12px;color:var(--text3)">▼</span>
+                  </span>
+                </summary>
+                <div style="padding:0 14px 12px;display:flex;flex-direction:column;gap:6px">
+                  ${pendencias.map(p=>`
+                    <div style="display:flex;gap:8px;align-items:flex-start;padding:6px 8px;background:var(--bg2);border-radius:6px;border-left:3px solid ${TIPO_COLOR[p.tipo]}">
+                      <span style="font-size:13px;flex-shrink:0;margin-top:1px">${TIPO_IC[p.tipo]}</span>
+                      <div style="min-width:0">
+                        <div style="font-size:10px;font-weight:600;color:${TIPO_COLOR[p.tipo]}">${p.label}${p.peso?' <span style="font-weight:400;color:var(--text3)">(peso ${p.peso}%)</span>':''}</div>
+                        <div style="font-size:9px;color:var(--text3);margin-top:1px">${p.detalhe}</div>
+                      </div>
+                    </div>
+                  `).join('')}
+                  <div style="font-size:9px;color:var(--text3);margin-top:2px;padding-top:6px;border-top:1px solid var(--border)">
+                    ℹ️ Baseado em apontamentos e pedidos de compra disponíveis. Fases sem dados = não iniciadas ou sem registro.
+                  </div>
+                </div>
+              </details>`;
+            })()}
           </div>`;
         }).join('')}
       </div>
