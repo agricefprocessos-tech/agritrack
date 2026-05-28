@@ -3172,25 +3172,34 @@ function renderHaulerSerial(data){
                 pendencias.push({tipo:'ops_abertas',label:'⚠ Operações em aberto',detalhe:opsAb.slice(0,3).map(o=>esc(o)).join(', ')+(opsAb.length>3?` +${opsAb.length-3}`:''),peso:0});
               }
 
-              if(!pendencias.length){
-                return`<div style="border-top:1px solid var(--border);padding:8px 14px 10px">
-                  <div style="font-size:10px;color:var(--green);font-weight:600">✅ Sem pendências identificadas nos dados disponíveis</div>
-                </div>`;
-              }
-              const faltaPct=Math.min(100,pesoFaltando);
               const TIPO_COLOR={nao_iniciada:'var(--text3)',em_andamento:'var(--amber)',compras_pendentes:'var(--blue)',ops_abertas:'var(--red)'};
               const TIPO_IC={nao_iniciada:'⬜',em_andamento:'🔄',compras_pendentes:'📦',ops_abertas:'⚠️'};
+              const faltaPct=Math.min(100,pesoFaltando);
+              // Badge do summary: indica o maior bloqueador
+              const hasEntregas=pendencias.some(p=>p.tipo==='compras_pendentes');
+              const hasOps=pendencias.some(p=>p.tipo==='ops_abertas');
+              const sumLabel=!pendencias.length?'✅ Concluído'
+                            :faltaPct>0?`⚠️ ${faltaPct}% p/ concluir`
+                            :hasEntregas?'📦 Entregas pendentes'
+                            :hasOps?'⚠️ Ops em aberto'
+                            :'📋 Pendências';
+              const sumColor=!pendencias.length?'var(--green)'
+                            :faltaPct>0?'var(--red)'
+                            :hasEntregas?'var(--blue)'
+                            :'var(--amber)';
 
-              return`<details style="border-top:1px solid var(--border)">
+              return`<details style="border-top:1px solid var(--border);overflow:visible">
                 <summary style="padding:8px 14px;font-size:10px;font-weight:600;color:var(--text2);cursor:pointer;display:flex;justify-content:space-between;align-items:center;list-style:none;user-select:none">
-                  <span>📋 O que falta para 100%</span>
+                  <span>📋 Detalhes</span>
                   <span style="display:flex;gap:8px;align-items:center">
-                    <span style="color:var(--red);font-weight:700">${faltaPct}% restante</span>
+                    <span style="color:${sumColor};font-weight:700">${sumLabel}</span>
                     <span class="det-arrow" style="font-size:12px;color:var(--text3)">▼</span>
                   </span>
                 </summary>
                 <div style="padding:0 14px 12px;display:flex;flex-direction:column;gap:6px">
-                  ${pendencias.map(p=>`
+                  ${!pendencias.length
+                    ? `<div style="font-size:10px;color:var(--green);font-weight:600;padding:4px 0">✅ Sem pendências identificadas — serial pode estar concluído.</div>`
+                    : pendencias.map(p=>`
                     <div style="display:flex;gap:8px;align-items:flex-start;padding:6px 8px;background:var(--bg2);border-radius:6px;border-left:3px solid ${TIPO_COLOR[p.tipo]}">
                       <span style="font-size:13px;flex-shrink:0;margin-top:1px">${TIPO_IC[p.tipo]}</span>
                       <div style="min-width:0">
@@ -3200,7 +3209,7 @@ function renderHaulerSerial(data){
                     </div>
                   `).join('')}
                   <div style="font-size:9px;color:var(--text3);margin-top:2px;padding-top:6px;border-top:1px solid var(--border)">
-                    ℹ️ Baseado em apontamentos e pedidos de compra disponíveis. Fases sem dados = não iniciadas ou sem registro.
+                    ℹ️ Compras: ${fc.nEntregues||0} entregues / ${fc.nPedidos||0} pedidos · Apontamentos: ${ff.nOps||0} fab + ${fp.nOps||0} pré + ${fm.nOps||0} mont ops
                   </div>
                 </div>
               </details>`;
