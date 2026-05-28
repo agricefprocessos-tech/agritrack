@@ -60,6 +60,7 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--tex
 /* ── LOADING ── */
 .load{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:50vh;gap:16px}
 .spinner{width:36px;height:36px;border:3px solid var(--border2);border-top-color:var(--green);border-radius:50%;animation:spin .8s linear infinite}
+.spinner-sm{display:inline-block;width:10px;height:10px;border:2px solid var(--border2);border-top-color:var(--green);border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;margin-right:4px}
 @keyframes spin{to{transform:rotate(360deg)}}
 .ltxt{font-size:13px;color:var(--text2)}
 
@@ -2195,6 +2196,72 @@ let _haulerFiltro='all';
 
 function initHauler(){
   if(_haulerData)renderHaulerTable(_haulerData);
+  // Auto-carrega dados do servidor que não dependem de CSV
+  _haulerAutoLoad();
+}
+
+// Carrega Apontamentos + Por Serial em background ao entrar na página
+// Cada um roda independente; segundo acesso é instantâneo (cache GAS 45min)
+let _haulerAutoLoading=false;
+async function _haulerAutoLoad(){
+  if(_haulerAutoLoading)return;
+  _haulerAutoLoading=true;
+  // Marca abas com indicador de carregamento
+  _haulerSetTabLoading('apont',true);
+  _haulerSetTabLoading('serial',true);
+  try{
+    const [apontData,serialData]=await Promise.all([
+      api({action:'buscarApontamentosHauler'},90000).catch(e=>({_erro:e.message})),
+      api({action:'buscarProducaoHaulerPorSerial'},90000).catch(e=>({_erro:e.message}))
+    ]);
+    // Apontamentos — só renderiza cross-ref se BOM já carregado
+    if(!apontData._erro){
+      _haulerApontData=apontData;
+      if(_haulerData&&document.getElementById('haulerApontContent'))
+        _renderHaulerApontamentos(apontData);
+    }
+    _haulerSetTabLoading('apont',false,apontData._erro);
+    // Por Serial
+    if(!serialData._erro){
+      _haulerSerialData=serialData;
+      if(document.getElementById('haulerSerialContent'))renderHaulerSerial(serialData);
+    }
+    _haulerSetTabLoading('serial',false,serialData._erro);
+  }catch(e){
+    _haulerSetTabLoading('apont',false,'erro');
+    _haulerSetTabLoading('serial',false,'erro');
+  }finally{
+    _haulerAutoLoading=false;
+  }
+}
+
+function _haulerSetTabLoading(key,loading,erro){
+  // Atualiza o botão da aba para mostrar estado
+  const map={apont:'⏱',serial:'🔢'};
+  const labels={apont:'Apontamentos',serial:'Por Serial'};
+  document.querySelectorAll('.hauler-stab').forEach(btn=>{
+    const onclick=btn.getAttribute('onclick')||'';
+    if(onclick.includes("'"+key+"'")){
+      if(loading){
+        btn.innerHTML=`<span class="spinner-sm"></span> ${labels[key]}`;
+      } else if(erro){
+        btn.innerHTML=`${map[key]} ${labels[key]} ⚠`;
+        btn.title='Erro ao carregar: '+erro;
+      } else {
+        btn.innerHTML=`${map[key]} ${labels[key]}`;
+        btn.title='';
+      }
+    }
+  });
+  // Se a aba estiver aberta, renderiza
+  if(!loading&&!erro){
+    if(key==='serial'&&_haulerActiveTab==='serial'&&_haulerSerialData){
+      renderHaulerSerial(_haulerSerialData);
+    }
+    if(key==='apont'&&_haulerActiveTab==='apont'&&_haulerApontData&&_haulerData){
+      _renderHaulerApontamentos(_haulerApontData);
+    }
+  }
 }
 
 function loadHaulerCsv(input){
@@ -2566,20 +2633,23 @@ function renderHaulerEtapas(){
 // ── Apontamentos (cross-reference with GAS)
 let _haulerApontData=null;
 async function loadHaulerApontamentos(){
-  if(!_haulerData){
-    document.getElementById('haulerApontContent').innerHTML='<div style="padding:40px;text-align:center;color:var(--amber)">⚠ Carregue o CSV do BOM primeiro.</div>';
+  const el=document.getElementById('haulerApontContent');
+  // Se já tem dados em memória, usa direto
+  if(_haulerApontData){
+    if(_haulerData) _renderHaulerApontamentos(_haulerApontData);
+    else el.innerHTML='<div style="padding:40px;text-align:center;color:var(--amber)">⚠ Carregue o CSV do BOM para ver o cruzamento com apontamentos.</div>';
     return;
   }
-  const el=document.getElementById('haulerApontContent');
-  el.innerHTML='<div style="text-align:center;padding:50px"><div class="spinner" style="margin:0 auto 12px"></div><div style="font-size:12px;color:var(--text2)">Buscando apontamentos do Hauler… (pode levar ~30s no primeiro acesso)</div></div>';
+  el.innerHTML='<div style="text-align:center;padding:50px"><div class="spinner" style="margin:0 auto 12px"></div><div style="font-size:12px;color:var(--text2)">Buscando apontamentos… (primeiro acesso ~30s, depois usa cache 45min)</div></div>';
   try{
     const data=await api({action:'buscarApontamentosHauler'},90000);
     if(data.error)throw new Error(data.error);
     _haulerApontData=data;
-    _renderHaulerApontamentos(data);
+    if(_haulerData) _renderHaulerApontamentos(data);
+    else el.innerHTML='<div style="padding:40px;text-align:center;color:var(--amber)">⚠ Apontamentos carregados. Carregue o CSV do BOM para ver o cruzamento.</div>';
   }catch(e){
     el.innerHTML=`<div style="padding:40px;text-align:center;color:var(--red);font-size:13px">
-      ❌ Erro ao carregar apontamentos: ${esc(e.message)}<br><br>
+      ❌ ${esc(e.message)}<br><br>
       <button class="btn-sec" onclick="loadHaulerApontamentos()" style="font-size:12px">↺ Tentar novamente</button>
     </div>`;
   }
@@ -2955,16 +3025,18 @@ function _renderHaulerCompras(data){
 // Produção por Serial — carregar + renderizar
 // ═══════════════════════════════════════════════════════════
 let _haulerSerialData=null;
-async function loadHaulerSerial(){
+async function loadHaulerSerial(forceRefresh){
   const el=document.getElementById('haulerSerialContent');
-  el.innerHTML=`<div style="text-align:center;padding:40px;color:var(--text2)"><div class="spinner" style="margin:0 auto 12px"></div>Carregando produção por serial…<br><small style="color:var(--text3)">Lê apontamentos + pedidos de compra (~20s)</small></div>`;
+  // Usar dados já em memória (se não forçar refresh)
+  if(_haulerSerialData&&!forceRefresh){ renderHaulerSerial(_haulerSerialData); return; }
+  el.innerHTML=`<div style="text-align:center;padding:40px;color:var(--text2)"><div class="spinner" style="margin:0 auto 12px"></div>Carregando produção por serial…<br><small style="color:var(--text3)">Primeiro acesso ~30s · depois usa cache 45min</small></div>`;
   try{
     const data=await api({action:'buscarProducaoHaulerPorSerial'},90000);
     _haulerSerialData=data;
     renderHaulerSerial(data);
   }catch(e){
     el.innerHTML=`<div style="text-align:center;padding:40px;color:var(--red)">
-      ❌ Erro: ${esc(e.message)}<br><br>
+      ❌ ${esc(e.message)}<br><br>
       <button class="btn-sec" onclick="loadHaulerSerial()" style="font-size:12px">↺ Tentar novamente</button>
     </div>`;
   }
@@ -3142,7 +3214,7 @@ function renderHaulerSerial(data){
         <div style="font-size:14px;font-weight:700">Produção Hauler — Por Número de Série</div>
         <div style="font-size:11px;color:var(--text2);margin-top:2px">Apontamentos + Pedidos de Compra · ${seriais.length} seriais identificados</div>
       </div>
-      <button class="btn-sec" onclick="loadHaulerSerial()" style="font-size:11px">↺ Atualizar</button>
+      <button class="btn-sec" onclick="loadHaulerSerial(true)" style="font-size:11px">↺ Atualizar</button>
     </div>
     ${kpiHtml}
     ${kanbanHtml}
