@@ -828,6 +828,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
       <button class="hauler-stab" onclick="haulerSubTab('analise',this)">📊 Análise</button>
       <button class="hauler-stab" onclick="haulerSubTab('etapas',this)">🏭 Por Etapa</button>
       <button class="hauler-stab" onclick="haulerSubTab('apont',this)">⏱ Apontamentos</button>
+      <button class="hauler-stab" onclick="haulerSubTab('compras',this)">🛒 Compras</button>
     </div>
 
     <!-- SP: Lista BOM -->
@@ -885,6 +886,18 @@ tr:hover td{background:rgba(255,255,255,0.02)}
           <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:8px">Apontamentos do Hauler</div>
           <div style="font-size:12px;margin-bottom:20px">Carregue o CSV do BOM e clique em conectar para cruzar com os apontamentos de produção.</div>
           <button class="btn-sec" onclick="loadHaulerApontamentos()" style="font-size:12px">🔗 Conectar Apontamentos</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SP: Compras -->
+    <div id="hauler-sp-compras" style="display:none">
+      <div id="haulerComprasContent">
+        <div style="text-align:center;padding:60px 20px;color:var(--text2)">
+          <div style="font-size:32px;margin-bottom:12px">🛒</div>
+          <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:8px">Lead Time de Compras</div>
+          <div style="font-size:12px;margin-bottom:20px">Carregue o CSV do BOM e clique em conectar para cruzar com os pedidos de compra do Hauler.</div>
+          <button class="btn-sec" onclick="loadHaulerCompras()" style="font-size:12px">🔗 Conectar Compras</button>
         </div>
       </div>
     </div>
@@ -2332,7 +2345,7 @@ function haulerSubTab(tab,btn){
   _haulerActiveTab=tab;
   document.querySelectorAll('.hauler-stab').forEach(b=>b.classList.remove('on'));
   if(btn)btn.classList.add('on');
-  ['bom','analise','etapas','apont'].forEach(t=>{
+  ['bom','analise','etapas','apont','compras'].forEach(t=>{
     const el=document.getElementById(`hauler-sp-${t}`);
     if(el)el.style.display=t===tab?'block':'none';
   });
@@ -2725,6 +2738,176 @@ function _fmtHoras(h){
   if(h<1)return`${Math.round(h*60)}min`;
   if(h<24)return`${h.toFixed(1)}h`;
   return`${(h/24).toFixed(1)}d`;
+}
+
+// ── Compras × BOM cross-reference ─────────────────────────────────
+let _haulerComprasData=null;
+async function loadHaulerCompras(){
+  if(!_haulerData){
+    document.getElementById('haulerComprasContent').innerHTML='<div style="padding:40px;text-align:center;color:var(--amber)">⚠ Carregue o CSV do BOM primeiro.</div>';
+    return;
+  }
+  const el=document.getElementById('haulerComprasContent');
+  el.innerHTML='<div style="text-align:center;padding:50px"><div class="spinner" style="margin:0 auto 12px"></div><div style="font-size:12px;color:var(--text2)">Buscando dados de compra do Hauler… (pode levar ~30s)</div></div>';
+  try{
+    const data=await api({action:'buscarComprasHaulerLeadTime'},90000);
+    if(data.error||data.erro)throw new Error(data.error||data.erro);
+    _haulerComprasData=data;
+    _renderHaulerCompras(data);
+  }catch(e){
+    el.innerHTML=`<div style="padding:40px;text-align:center;color:var(--red);font-size:13px">
+      ❌ Erro ao carregar compras: ${esc(e.message)}<br><br>
+      <button class="btn-sec" onclick="loadHaulerCompras()" style="font-size:12px">↺ Tentar novamente</button>
+    </div>`;
+  }
+}
+
+function _renderHaulerCompras(data){
+  const el=document.getElementById('haulerComprasContent');
+  const {items={},totalLinhas=0,totalItens=0,diagnostic={}}=data;
+
+  // BOM rows classified as "comprar"
+  const bomComprar=_haulerData.filter(r=>r.tipoAll&&r.tipoAll.includes('comprar')&&r.codigo);
+  const bomAll=_haulerData.filter(r=>r.codigo);
+
+  // Build lookup: normCod → compras item
+  const comprasNorm={};
+  Object.entries(items).forEach(([cod,v])=>{comprasNorm[_normCod(cod)]=v;});
+
+  // Cross-reference
+  const found=bomComprar.filter(r=>comprasNorm[_normCod(r.codigo)]);
+  const notFound=bomComprar.filter(r=>!comprasNorm[_normCod(r.codigo)]);
+  const coverage=bomComprar.length?Math.round(found.length/bomComprar.length*100):0;
+
+  // Supplier summary
+  const fornCount={};
+  found.forEach(r=>{
+    const c=comprasNorm[_normCod(r.codigo)];
+    if(c&&c.ultimoForn){fornCount[c.ultimoForn]=(fornCount[c.ultimoForn]||0)+1;}
+  });
+  const topForn=Object.entries(fornCount).sort((a,b)=>b[1]-a[1]).slice(0,8);
+
+  // Items from ALL BOM (fabricar too) that have compras entries (misclassified?)
+  const fabComCompras=bomAll.filter(r=>!r.tipoAll.includes('comprar')&&comprasNorm[_normCod(r.codigo)]);
+
+  el.innerHTML=`
+    <!-- KPIs -->
+    <div class="krow" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+      <div class="kpi ${coverage>=80?'g':coverage>=50?'a':'r'}">
+        <div class="kl">Cobertura Compras</div><div class="kv">${coverage}%</div>
+        <div class="kn">${found.length} de ${bomComprar.length} itens comprados</div>
+        <div class="kb" style="width:${coverage}%"></div>
+      </div>
+      <div class="kpi g">
+        <div class="kl">Encontrados</div><div class="kv">${found.length}</div>
+        <div class="kn">itens com PO registrado</div><div class="kb" style="width:100%"></div>
+      </div>
+      <div class="kpi ${notFound.length>0?'r':'g'}">
+        <div class="kl">Sem PO</div><div class="kv">${notFound.length}</div>
+        <div class="kn">itens sem pedido</div><div class="kb" style="width:100%"></div>
+      </div>
+      <div class="kpi">
+        <div class="kl">Fornecedores</div><div class="kv">${topForn.length}</div>
+        <div class="kn">${totalLinhas} linhas na planilha</div><div class="kb" style="width:100%"></div>
+      </div>
+    </div>
+
+    <!-- Top fornecedores -->
+    ${topForn.length?`
+    <div class="card" style="padding:16px;margin-bottom:12px">
+      <div style="font-size:11px;font-weight:600;color:var(--text2);letter-spacing:.5px;margin-bottom:12px">TOP FORNECEDORES — ITENS HAULER</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">
+        ${topForn.map(([forn,cnt])=>{
+          const pct=Math.round(cnt/found.length*100);
+          return`<div style="padding:10px 12px;background:var(--bg3);border-radius:8px">
+            <div style="font-size:11px;font-weight:600;color:var(--blue);margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(forn)}">${esc(forn)}</div>
+            <div style="height:4px;background:var(--bg2);border-radius:2px;margin-bottom:4px">
+              <div style="height:4px;background:var(--blue);border-radius:2px;width:${pct}%"></div>
+            </div>
+            <div style="font-size:10px;color:var(--text2)">${cnt} iten${cnt!==1?'s':''} (${pct}%)</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`:''}
+
+    <!-- Tabela: itens comprar com PO -->
+    ${found.length?`
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:12px">
+      <div style="padding:12px 16px;background:var(--bg3);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:13px;font-weight:600">✅ Itens Comerciais com Pedido de Compra</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:2px">BOM tipo=comprar encontrados na planilha de pedidos Hauler</div>
+        </div>
+        <span class="hauler-badge hb-comprar">${found.length} itens</span>
+      </div>
+      <div style="overflow-x:auto;max-height:420px;overflow-y:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+          <thead style="position:sticky;top:0;background:var(--bg2);z-index:1">
+            <tr>
+              <th style="padding:7px 10px;color:var(--text2);text-align:left;font-weight:600">Código</th>
+              <th style="padding:7px 10px;color:var(--text2);text-align:left;font-weight:600">Descrição BOM</th>
+              <th style="padding:7px 10px;color:var(--text2);text-align:left;font-weight:600">Fornecedor</th>
+              <th style="padding:7px 10px;color:var(--text2);text-align:center;font-weight:600">Pedidos</th>
+              <th style="padding:7px 10px;color:var(--text2);text-align:left;font-weight:600">Qtd BOM</th>
+              <th style="padding:7px 10px;color:var(--text2);text-align:left;font-weight:600">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${found.map(bomRow=>{
+              const c=comprasNorm[_normCod(bomRow.codigo)]||{};
+              const fornList=(c.fornecedores||[]).join(', ').slice(0,50);
+              return`<tr style="border-bottom:1px solid var(--border)" class="hauler-apont-found">
+                <td style="padding:5px 10px;font-family:monospace;color:var(--blue)">${bomRow.codigo}</td>
+                <td style="padding:5px 10px;color:var(--text)">${esc((bomRow.desc||'').slice(0,45))}${(bomRow.desc||'').length>45?'…':''}</td>
+                <td style="padding:5px 10px;color:var(--green);font-size:10px">${esc(c.ultimoForn||fornList||'—')}</td>
+                <td style="padding:5px 10px;text-align:center;font-weight:700;color:var(--text)">${c.nPedidos||'—'}</td>
+                <td style="padding:5px 10px;color:var(--text2)">${bomRow.quantidade||'—'}</td>
+                <td style="padding:5px 10px;color:var(--text3);font-size:10px">${esc(c.desc&&c.desc!==bomRow.desc?c.desc.slice(0,30):'')}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`:''}
+
+    <!-- Itens sem PO -->
+    ${notFound.length?`
+    <div class="card" style="padding:16px;margin-bottom:12px">
+      <div style="font-size:12px;font-weight:600;color:var(--amber);margin-bottom:10px">⚠ ${notFound.length} itens do BOM tipo "comprar" sem pedido registrado</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Estes itens estão classificados como compra no BOM mas não foram encontrados na planilha de pedidos Hauler.</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${notFound.slice(0,60).map(r=>`
+          <span title="${esc(r.desc)}" style="padding:3px 8px;background:var(--bg3);border-radius:4px;font-size:11px;font-family:monospace;color:var(--amber)">${r.codigo||esc((r.desc||'').slice(0,20))}</span>
+        `).join('')}
+        ${notFound.length>60?`<span style="font-size:11px;color:var(--text3)">...+${notFound.length-60}</span>`:''}
+      </div>
+    </div>`:''}
+
+    <!-- Itens fabricar encontrados na planilha de compras -->
+    ${fabComCompras.length?`
+    <div class="card" style="padding:16px;margin-bottom:12px">
+      <div style="font-size:12px;font-weight:600;color:var(--blue);margin-bottom:10px">🔍 ${fabComCompras.length} itens "fabricar" com entrada na planilha de compras</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Podem ser itens reclassificados, subcontratados ou verificar a classificação no BOM.</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${fabComCompras.slice(0,30).map(r=>{
+          const c=comprasNorm[_normCod(r.codigo)]||{};
+          return`<span title="${esc(r.desc)} — Forn: ${esc(c.ultimoForn||'')}" style="padding:3px 8px;background:var(--bg3);border-radius:4px;font-size:11px;font-family:monospace;color:var(--blue)">${r.codigo}</span>`;
+        }).join('')}
+        ${fabComCompras.length>30?`<span style="font-size:11px;color:var(--text3)">...+${fabComCompras.length-30}</span>`:''}
+      </div>
+    </div>`:''}
+
+    <!-- Diagnóstico -->
+    <details style="margin-top:8px">
+      <summary style="font-size:11px;color:var(--text3);cursor:pointer;padding:8px">🔍 Diagnóstico da planilha de compras</summary>
+      <div class="card" style="padding:16px;margin-top:6px;font-size:11px">
+        <div style="color:var(--text2);margin-bottom:6px"><strong>Aba:</strong> ${esc(diagnostic.sheetName||'')}</div>
+        <div style="color:var(--text2);margin-bottom:6px"><strong>Colunas detectadas:</strong> ${(diagnostic.headers||[]).join(' | ')}</div>
+        <div style="color:var(--text2);margin-bottom:6px"><strong>Mapeamento:</strong> CÓD.col=${diagnostic.colMap&&diagnostic.colMap.iCod} | Forn.col=${diagnostic.colMap&&diagnostic.colMap.iForn} | Data.col=${diagnostic.colMap&&diagnostic.colMap.iDataEnt}</div>
+        <div style="color:var(--text2)"><strong>Total planilha:</strong> ${diagnostic.totalSheetRows||0} linhas brutas → ${totalLinhas} com dados → ${totalItens} itens únicos</div>
+      </div>
+    </details>
+  `;
 }
 
 async function enviarEmail(){
