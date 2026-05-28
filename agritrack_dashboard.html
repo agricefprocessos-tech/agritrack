@@ -822,14 +822,19 @@ tr:hover td{background:rgba(255,255,255,0.02)}
   </div>
   <div class="main">
 
-    <!-- Sub-nav (shown after CSV loaded) -->
-    <div id="haulerSubNav" style="display:none;border-bottom:1px solid var(--border);margin-bottom:16px;gap:0;overflow-x:auto">
-      <button class="hauler-stab on" onclick="haulerSubTab('bom',this)">📋 Lista BOM</button>
-      <button class="hauler-stab" onclick="haulerSubTab('analise',this)">📊 Análise</button>
-      <button class="hauler-stab" onclick="haulerSubTab('etapas',this)">🏭 Por Etapa</button>
-      <button class="hauler-stab" onclick="haulerSubTab('apont',this)">⏱ Apontamentos</button>
-      <button class="hauler-stab" onclick="haulerSubTab('compras',this)">🛒 Compras</button>
-      <button class="hauler-stab" onclick="haulerSubTab('serial',this)">🔢 Por Serial</button>
+    <!-- Nav: abas BOM surgem após CSV; "Por Serial" sempre visível -->
+    <div style="border-bottom:1px solid var(--border);margin-bottom:16px;display:flex;gap:0;overflow-x:auto;align-items:stretch">
+      <!-- Sub-nav BOM — aparece só após carregar CSV -->
+      <div id="haulerSubNav" style="display:none;flex:1;flex-wrap:nowrap;overflow-x:auto">
+        <button class="hauler-stab on" onclick="haulerSubTab('bom',this)">📋 Lista BOM</button>
+        <button class="hauler-stab" onclick="haulerSubTab('analise',this)">📊 Análise</button>
+        <button class="hauler-stab" onclick="haulerSubTab('etapas',this)">🏭 Por Etapa</button>
+        <button class="hauler-stab" onclick="haulerSubTab('apont',this)">⏱ Apontamentos</button>
+        <button class="hauler-stab" onclick="haulerSubTab('compras',this)">🛒 Compras</button>
+      </div>
+      <!-- Sempre visível — separador visual quando BOM está carregado -->
+      <div id="haulerSerialSep" style="display:none;width:1px;background:var(--border);margin:4px 0"></div>
+      <button id="haulerSerialTab" class="hauler-stab" onclick="haulerSubTab('serial',this)">🔢 Por Serial</button>
     </div>
 
     <!-- SP: Lista BOM -->
@@ -2298,6 +2303,7 @@ function renderHaulerTable(rows){
   document.getElementById('haulerTableWrap').style.display='block';
   document.getElementById('haulerEmpty').style.display='none';
   document.getElementById('haulerSubNav').style.display='flex';
+  const sep=document.getElementById('haulerSerialSep');if(sep)sep.style.display='block';
   document.getElementById('haulerMeta').textContent=`${total} itens carregados — ${comprar} para comprar, ${fabricar} para fabricar`;
   _renderHaulerRows(rows);
 }
@@ -2364,6 +2370,17 @@ function haulerSubTab(tab,btn){
   });
   if(tab==='analise')renderHaulerAnalise();
   if(tab==='etapas')renderHaulerEtapas();
+  // "Por Serial" não precisa de CSV — oculta elementos de BOM
+  const bomEls=['haulerEmpty','haulerTableWrap','haulerKpis','haulerFilters'];
+  if(tab==='serial'){
+    bomEls.forEach(id=>{const e=document.getElementById(id);if(e)e.style.display='none';});
+  } else {
+    // Ao voltar para aba de BOM, reexibe o empty state se CSV não carregado
+    if(!_haulerData){
+      const emp=document.getElementById('haulerEmpty');
+      if(emp)emp.style.display='';
+    }
+  }
 }
 
 // ── Análise (BOM data only)
