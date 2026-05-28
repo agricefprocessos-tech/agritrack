@@ -829,6 +829,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
       <button class="hauler-stab" onclick="haulerSubTab('etapas',this)">🏭 Por Etapa</button>
       <button class="hauler-stab" onclick="haulerSubTab('apont',this)">⏱ Apontamentos</button>
       <button class="hauler-stab" onclick="haulerSubTab('compras',this)">🛒 Compras</button>
+      <button class="hauler-stab" onclick="haulerSubTab('serial',this)">🔢 Por Serial</button>
     </div>
 
     <!-- SP: Lista BOM -->
@@ -898,6 +899,18 @@ tr:hover td{background:rgba(255,255,255,0.02)}
           <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:8px">Lead Time de Compras</div>
           <div style="font-size:12px;margin-bottom:20px">Carregue o CSV do BOM e clique em conectar para cruzar com os pedidos de compra do Hauler.</div>
           <button class="btn-sec" onclick="loadHaulerCompras()" style="font-size:12px">🔗 Conectar Compras</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SP: Por Serial -->
+    <div id="hauler-sp-serial" style="display:none">
+      <div id="haulerSerialContent">
+        <div style="text-align:center;padding:60px 20px;color:var(--text2)">
+          <div style="font-size:32px;margin-bottom:12px">🔢</div>
+          <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:8px">Produção por Número de Série</div>
+          <div style="font-size:12px;margin-bottom:20px">Veja todos os Haulers em fabricação simultânea e em qual etapa cada serial está.</div>
+          <button class="btn-sec" onclick="loadHaulerSerial()" style="font-size:12px">🔗 Carregar Produção por Serial</button>
         </div>
       </div>
     </div>
@@ -2345,7 +2358,7 @@ function haulerSubTab(tab,btn){
   _haulerActiveTab=tab;
   document.querySelectorAll('.hauler-stab').forEach(b=>b.classList.remove('on'));
   if(btn)btn.classList.add('on');
-  ['bom','analise','etapas','apont','compras'].forEach(t=>{
+  ['bom','analise','etapas','apont','compras','serial'].forEach(t=>{
     const el=document.getElementById(`hauler-sp-${t}`);
     if(el)el.style.display=t===tab?'block':'none';
   });
@@ -2918,6 +2931,205 @@ function _renderHaulerCompras(data){
         <div style="color:var(--text2);font-weight:600">Total: ${totalLinhas.toLocaleString('pt-BR')} entradas → ${totalItens.toLocaleString('pt-BR')} itens únicos</div>
       </div>
     </details>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════
+// Produção por Serial — carregar + renderizar
+// ═══════════════════════════════════════════════════════════
+let _haulerSerialData=null;
+async function loadHaulerSerial(){
+  const el=document.getElementById('haulerSerialContent');
+  el.innerHTML=`<div style="text-align:center;padding:40px;color:var(--text2)"><div class="spinner" style="margin:0 auto 12px"></div>Carregando produção por serial…<br><small style="color:var(--text3)">Lê apontamentos + pedidos de compra (~20s)</small></div>`;
+  try{
+    const data=await api({action:'buscarProducaoHaulerPorSerial'},90000);
+    _haulerSerialData=data;
+    renderHaulerSerial(data);
+  }catch(e){
+    el.innerHTML=`<div style="text-align:center;padding:40px;color:var(--red)">
+      ❌ Erro: ${esc(e.message)}<br><br>
+      <button class="btn-sec" onclick="loadHaulerSerial()" style="font-size:12px">↺ Tentar novamente</button>
+    </div>`;
+  }
+}
+
+function renderHaulerSerial(data){
+  const el=document.getElementById('haulerSerialContent');
+  const {seriais=[],resumo={}}=data;
+  if(!seriais.length){
+    el.innerHTML=`<div style="text-align:center;padding:40px;color:var(--text2)">Nenhum serial Hauler encontrado nos apontamentos.</div>`;
+    return;
+  }
+
+  // Config de fases
+  const FASES=[
+    {key:'compras',     label:'🛒 Compras',      color:'var(--blue)',   bg:'rgba(59,130,246,.12)'},
+    {key:'fabricacao',  label:'⚙️ Fabricação',    color:'var(--amber)',  bg:'rgba(245,158,11,.12)'},
+    {key:'preMontagem', label:'🔩 Pré-Montagem', color:'var(--purple)', bg:'rgba(139,92,246,.12)'},
+    {key:'montagem',    label:'🏗️ Montagem',      color:'var(--green)',  bg:'rgba(34,197,94,.12)'},
+    {key:'teste',       label:'✅ Teste',          color:'var(--green)',  bg:'rgba(34,197,94,.08)'},
+  ];
+  const STATUS_ICON={concluida:'✅',em_andamento:'🔄',sem_dados:'⬜'};
+  const STATUS_COLOR={concluida:'var(--green)',em_andamento:'var(--amber)',sem_dados:'var(--text3)'};
+
+  function fmtDt(iso){
+    if(!iso)return'—';
+    return new Date(iso).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'});
+  }
+  function durDias(a,b){
+    if(!a||!b)return null;
+    const d=Math.round((new Date(b)-new Date(a))/86400000);
+    return d>0?d:null;
+  }
+
+  // KPI row — quantos seriais por fase atual
+  const kpiHtml=`
+    <div class="krow" style="grid-template-columns:repeat(${FASES.length+1},1fr);margin-bottom:16px">
+      <div class="kpi">
+        <div class="kl">Seriais em Produção</div>
+        <div class="kv">${seriais.length}</div>
+        <div class="kn">números de série ativos</div>
+        <div class="kb" style="width:100%"></div>
+      </div>
+      ${FASES.map(f=>{
+        const cnt=resumo[f.key]||0;
+        const pct=seriais.length?Math.round(cnt/seriais.length*100):0;
+        return`<div class="kpi">
+          <div class="kl">${f.label}</div>
+          <div class="kv" style="color:${f.color}">${cnt}</div>
+          <div class="kn">na etapa atual</div>
+          <div class="kb" style="width:${pct}%;background:${f.color}"></div>
+        </div>`;
+      }).join('')}
+    </div>`;
+
+  // Kanban: seriais agrupados por faseAtual
+  const kanbanHtml=FASES.map(fase=>{
+    const group=seriais.filter(s=>s.faseAtual===fase.key);
+    if(!group.length)return'';
+    return`
+    <div style="margin-bottom:20px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid ${fase.color}">
+        <span style="font-size:14px;font-weight:700;color:${fase.color}">${fase.label}</span>
+        <span style="font-size:11px;background:${fase.color};color:#fff;border-radius:10px;padding:2px 8px;font-weight:600">${group.length}</span>
+        <span style="font-size:11px;color:var(--text3)">serial${group.length!==1?'is':''} nesta etapa</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px">
+        ${group.map(s=>{
+          const fCompras=s.fases.compras;
+          const fFab=s.fases.fabricacao;
+          const fPre=s.fases.preMontagem;
+          const fMont=s.fases.montagem;
+          const diasTotal=durDias(s.primeiraAtiv, s.ultimaAtiv);
+          const dtUlt=fmtDt(s.ultimaAtiv);
+          return`<div class="card" style="padding:14px;border-left:3px solid ${fase.color};background:${fase.bg}">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+              <div>
+                <div style="font-size:15px;font-weight:700;font-family:monospace;color:${fase.color}">${s.serial}</div>
+                <div style="font-size:10px;color:var(--text3);margin-top:1px">${esc(s.nrSerie)}</div>
+              </div>
+              ${s.opsAbertas.length?`<div style="font-size:10px;background:var(--amber);color:#000;border-radius:4px;padding:2px 6px;font-weight:600">🔄 ${s.opsAbertas.length} op${s.opsAbertas.length!==1?'s':''}</div>`:''}
+            </div>
+            <!-- Barra de progresso das fases -->
+            <div style="display:flex;gap:2px;margin-bottom:10px;border-radius:4px;overflow:hidden;height:6px">
+              ${[fCompras,fFab,fPre,fMont].map((f,i)=>{
+                const c=f.status==='concluida'?FASES[i].color:f.status==='em_andamento'?FASES[i].color:'var(--bg2)';
+                const op=f.status==='em_andamento'?0.5:f.status==='concluida'?1:0.15;
+                return`<div style="flex:1;background:${c};opacity:${op}"></div>`;
+              }).join('')}
+            </div>
+            <!-- Fases detalhadas -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:10px;margin-bottom:8px">
+              ${[
+                {f:fCompras,label:'Compras',key:'compras'},
+                {f:fFab,label:'Fabricação',key:'fabricacao'},
+                {f:fPre,label:'Pré-Mont',key:'preMontagem'},
+                {f:fMont,label:'Montagem',key:'montagem'}
+              ].map(({f,label,key})=>`
+                <div style="padding:4px 6px;background:var(--bg2);border-radius:4px;border-left:2px solid ${STATUS_COLOR[f.status]}">
+                  <div style="color:var(--text3);font-size:9px;margin-bottom:1px">${label}</div>
+                  <div style="color:${STATUS_COLOR[f.status]};font-weight:600">${STATUS_ICON[f.status]} ${
+                    f.status==='concluida'?fmtDt(f.fim):
+                    f.status==='em_andamento'?(f.nOps?f.nOps+' ops':fmtDt(f.inicio)):
+                    '—'
+                  }</div>
+                </div>
+              `).join('')}
+            </div>
+            <!-- Ops abertas -->
+            ${s.opsAbertas.length?`<div style="font-size:9px;color:var(--amber);background:rgba(245,158,11,.1);border-radius:4px;padding:4px 6px;margin-bottom:6px">
+              ▶ ${s.opsAbertas.map(o=>esc(o)).join(' · ')}
+            </div>`:''}
+            <!-- Rodapé -->
+            <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text3)">
+              <span>Início: ${fmtDt(s.primeiraAtiv)}</span>
+              <span>Última atv: ${dtUlt}${diasTotal?' ('+diasTotal+'d)':''}</span>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  }).join('');
+
+  // Tabela alternativa: todos os seriais, todas as fases
+  const tabelaHtml=`
+    <details style="margin-top:16px">
+      <summary style="font-size:12px;color:var(--text2);cursor:pointer;padding:8px 0;font-weight:600">
+        📋 Tabela completa — todos os seriais × todas as etapas
+      </summary>
+      <div style="overflow-x:auto;margin-top:8px">
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+          <thead>
+            <tr style="background:var(--bg3)">
+              <th style="padding:8px 12px;text-align:left;color:var(--text2);font-weight:600;white-space:nowrap">Serial</th>
+              <th style="padding:8px 12px;text-align:left;color:var(--blue);font-weight:600">🛒 Compras</th>
+              <th style="padding:8px 12px;text-align:left;color:var(--amber);font-weight:600">⚙️ Fabricação</th>
+              <th style="padding:8px 12px;text-align:left;color:var(--purple);font-weight:600">🔩 Pré-Mont</th>
+              <th style="padding:8px 12px;text-align:left;color:var(--green);font-weight:600">🏗️ Montagem</th>
+              <th style="padding:8px 12px;text-align:left;color:var(--text2);font-weight:600">Última atv</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${seriais.map(s=>{
+              function cell(f,col){
+                if(f.status==='sem_dados') return`<td style="padding:7px 12px;color:var(--text3);font-size:10px">—</td>`;
+                const ic=STATUS_ICON[f.status];
+                const dt=f.status==='concluida'?fmtDt(f.fim):fmtDt(f.inicio);
+                const nOps=f.nOps||'';
+                return`<td style="padding:7px 12px">
+                  <div style="color:${STATUS_COLOR[f.status]};font-weight:600;font-size:10px">${ic} ${dt}</div>
+                  ${nOps?`<div style="font-size:9px;color:var(--text3)">${nOps} ops</div>`:''}
+                </td>`;
+              }
+              const rowBg=s.faseAtual==='montagem'?'rgba(34,197,94,.04)':s.faseAtual==='preMontagem'?'rgba(139,92,246,.04)':s.faseAtual==='fabricacao'?'rgba(245,158,11,.04)':'';
+              return`<tr style="border-bottom:1px solid var(--border);background:${rowBg}">
+                <td style="padding:7px 12px;font-family:monospace;font-weight:700;color:var(--text);white-space:nowrap">
+                  ${s.serial}
+                  <div style="font-size:9px;color:var(--text3);font-weight:400">${esc(s.nrSerie)}</div>
+                </td>
+                ${cell(s.fases.compras,'blue')}
+                ${cell(s.fases.fabricacao,'amber')}
+                ${cell(s.fases.preMontagem,'purple')}
+                ${cell(s.fases.montagem,'green')}
+                <td style="padding:7px 12px;font-size:10px;color:var(--text2)">${fmtDt(s.ultimaAtiv)}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </details>`;
+
+  el.innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div>
+        <div style="font-size:14px;font-weight:700">Produção Hauler — Por Número de Série</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:2px">Apontamentos + Pedidos de Compra · ${seriais.length} seriais identificados</div>
+      </div>
+      <button class="btn-sec" onclick="loadHaulerSerial()" style="font-size:11px">↺ Atualizar</button>
+    </div>
+    ${kpiHtml}
+    ${kanbanHtml}
+    ${tabelaHtml}
   `;
 }
 
