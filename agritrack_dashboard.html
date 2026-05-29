@@ -345,7 +345,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
         <div class="card"><div class="ct">Prazo por departamento</div><div class="cs">No prazo vs. fora do prazo</div><div class="cw" id="wPD"><canvas id="chPD"></canvas></div></div>
       </div>
       <div class="sec">Panorama Temporal</div>
-      <div class="card full" style="margin-bottom:14px"><div class="ct">Entregas ao longo do tempo</div><div class="cs">Tarefas por mês (data limite)</div><div class="cw"><canvas id="chPan" height="185"></canvas></div></div>
+      <div class="card full" style="margin-bottom:14px"><div class="ct">Entregas ao longo do tempo</div><div class="cs">Real (data resolução) vs. Planejado (data limite)</div><div class="cw"><canvas id="chPan" height="185"></canvas></div></div>
       <div class="g2">
         <div class="card"><div class="ct">Throughput mensal</div><div class="cs">Tarefas concluídas por mês (data de resolução)</div><div class="cw"><canvas id="chTP" height="175"></canvas></div></div>
         <div class="card"><div class="ct">Entradas mensais</div><div class="cs">Novas tarefas criadas por mês</div><div class="cw"><canvas id="chEnt" height="175"></canvas></div></div>
@@ -1421,7 +1421,23 @@ function pd(s){
 }
 function fd(d){return d?d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'}):'—';}
 function isoW(d){const t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));const dn=t.getUTCDay()||7;t.setUTCDate(t.getUTCDate()+4-dn);const ys=new Date(Date.UTC(t.getUTCFullYear(),0,1));return Math.ceil((((t-ys)/86400000)+1)/7);}
-function calcPrazo(t){const dl=pd(t['Data limite']);const maxSub=t._maxSubDL;if(!dl||!maxSub)return null;return maxSub<=dl?'NO PRAZO':'FORA DO PRAZO';}
+function calcPrazo(t){
+  const dl=pd(t['Data limite']);
+  if(!dl)return null;
+  // Para tarefas CONCLUÍDAS: compara data real de resolução com o prazo
+  // (independe de ter ou não subtarefas — o que importa é quando foi entregue)
+  if(t['Status']==='Feito'){
+    const res=pd(t['Resolvido']);
+    if(res)return res<=dl?'NO PRAZO':'FORA DO PRAZO';
+    // Feito mas sem data Resolvido: assume no prazo (dado incompleto, benefício da dúvida)
+    return 'NO PRAZO';
+  }
+  // Para tarefas EM ANDAMENTO/A FAZER: compara max(prazo das subtarefas) com prazo da tarefa pai
+  // Se não tem subtarefas com prazo, compara hoje com o prazo
+  const maxSub=t._maxSubDL;
+  const ref=maxSub||new Date();
+  return ref<=dl?'NO PRAZO':'FORA DO PRAZO';
+}
 
 // ════════════════════════════════════════════════════════════════
 // FILTERS & RENDER
@@ -1438,7 +1454,15 @@ function go(){
   let src=flt.tipo==='Tarefa'?allTasks:flt.tipo==='Subtarefa'?allSubs:[...allTasks,...allSubs];
   filtTasks=src.filter(t=>{
     if(flt.dept!=='all'&&t['Campo personalizado (Departamento)']!==flt.dept)return false;
-    if(flt.yr!=='all'){const d=pd(t['Campo personalizado (Start date)']);if(!d||d.getFullYear().toString()!==flt.yr)return false;}
+    if(flt.yr!=='all'){
+      const yr=parseInt(flt.yr);
+      const dStart=pd(t['Campo personalizado (Start date)']);
+      const dRes  =pd(t['Resolvido']);
+      const dCri  =pd(t['Criado']);
+      // Inclui se iniciou, concluiu OU foi criado no ano filtrado
+      const noAno=(dStart&&dStart.getFullYear()===yr)||(dRes&&dRes.getFullYear()===yr)||(dCri&&dCri.getFullYear()===yr);
+      if(!noAno)return false;
+    }
     return true;
   });render();
 }
@@ -1501,7 +1525,21 @@ function deptPz(){
   charts['chPD']=new Chart(ch('chPD'),{type:'bar',data:{labels:deps,datasets:[{label:'No Prazo',data:np,backgroundColor:'#22d37a',borderRadius:3},{label:'Fora do Prazo',data:fp,backgroundColor:'#f05252',borderRadius:3}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{stacked:true,grid:grd,ticks:tk},y:{stacked:true,grid:{display:false},ticks:tk}}}});
 }
 function mSeries(data,field,n=18){const map={};data.forEach(t=>{const d=pd(t[field]);if(!d)return;const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;map[k]=(map[k]||0)+1;});const keys=Object.keys(map).sort().slice(-n);return{labels:keys.map(k=>{const[y,mo]=k.split('-');return`${mo}/${y.slice(2)}`;}),vals:keys.map(k=>map[k]||0)};}
-function pan(){const s=mSeries(filtTasks,'Data limite',18);charts['chPan']=new Chart(ch('chPan'),{type:'line',data:{labels:s.labels,datasets:[{label:'Entregas',data:s.vals,borderColor:'#60a5fa',backgroundColor:'rgba(96,165,250,0.08)',borderWidth:2,pointRadius:3,fill:true,tension:.3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:'rgba(255,255,255,0.03)'},ticks:{...tk,autoSkip:false,maxRotation:45}},y:{grid:grd,ticks:tk}}}});}
+function pan(){
+  // Usa Resolvido para entregas reais; fallback p/ Data limite se sem Resolvido
+  const entregues=filtTasks.filter(t=>t['Status']==='Feito');
+  const s1=mSeries(entregues,'Resolvido',18);
+  const s2=mSeries(filtTasks,'Data limite',18);
+  // Combina labels das duas séries para cobrir o mesmo eixo X
+  const labSet=new Set([...s1.labels,...s2.labels]);
+  const labels=[...labSet].sort((a,b)=>{const[ma,ya]=a.split('/');const[mb,yb]=b.split('/');return(+ya*12+ +ma)-(+yb*12+ +mb);}).slice(-18);
+  const toMap=(labels,vals)=>{const m={};labels.forEach((l,i)=>m[l]=vals[i]);return m;};
+  const m1=toMap(s1.labels,s1.vals),m2=toMap(s2.labels,s2.vals);
+  charts['chPan']=new Chart(ch('chPan'),{type:'line',data:{labels,datasets:[
+    {label:'Entregues (real)',data:labels.map(l=>m1[l]||0),borderColor:'#22d37a',backgroundColor:'rgba(34,211,122,0.08)',borderWidth:2,pointRadius:3,fill:true,tension:.3},
+    {label:'Prazos planejados',data:labels.map(l=>m2[l]||0),borderColor:'#60a5fa',backgroundColor:'rgba(96,165,250,0.06)',borderWidth:1.5,pointRadius:2,fill:false,tension:.3,borderDash:[4,3]}
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,labels:{color:'#8896b0',font:{size:10}}}},scales:{x:{grid:{color:'rgba(255,255,255,0.03)'},ticks:{...tk,autoSkip:false,maxRotation:45}},y:{grid:grd,ticks:tk}}}});
+}
 function thr(m){const keys=Object.keys(m.tpMap).sort().slice(-18);const labels=keys.map(k=>{const[y,mo]=k.split('-');return`${mo}/${y.slice(2)}`;});charts['chTP']=new Chart(ch('chTP'),{type:'bar',data:{labels,datasets:[{label:'Concluídos',data:keys.map(k=>m.tpMap[k]),backgroundColor:'#22d37a',borderRadius:3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{...tk,maxRotation:45,autoSkip:true,maxTicksLimit:9}},y:{grid:grd,ticks:tk}}}});}
 function ent(){const s=mSeries(filtTasks,'Criado',18);charts['chEnt']=new Chart(ch('chEnt'),{type:'bar',data:{labels:s.labels,datasets:[{label:'Criados',data:s.vals,backgroundColor:'#a78bfa',borderRadius:3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{...tk,maxRotation:45,autoSkip:true,maxTicksLimit:9}},y:{grid:grd,ticks:tk}}}});}
 function cfd(){
@@ -1512,7 +1550,8 @@ function cfd(){
   const sl=months.slice(-18);
   const labels=sl.map(d=>`${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getFullYear()).slice(2)}`);
   const concl=sl.map(m=>{const end=new Date(m.getFullYear(),m.getMonth()+1,0);return filtTasks.filter(t=>{if(t['Status']!=='Feito')return false;const res=pd(t['Resolvido']);return res&&res<=end;}).length;});
-  const open=sl.map(m=>{const end=new Date(m.getFullYear(),m.getMonth()+1,0);return filtTasks.filter(t=>{const cri=pd(t['Criado']);if(!cri||cri>end)return false;if(t['Status']==='Feito'){const res=pd(t['Resolvido']);return!(res&&res<=end);}return true;}).length;});
+  const open=sl.map(m=>{const end=new Date(m.getFullYear(),m.getMonth()+1,0);return filtTasks.filter(t=>{const cri=pd(t['Criado']);if(!cri||cri>end)return false;if(t['Status']==='Feito'){const res=pd(t['Resolvido']);// Sem Resolvido: não inflaciona "aberto" — considera concluída (benefício da dúvida)
+if(!res)return false;return!(res<=end);}return true;}).length;});
   document.getElementById('lgCFD').innerHTML=[['#22d37a','Concluído (acumulado)'],['#60a5fa','Em aberto']].map(([c,l])=>`<span class="li"><span class="ld" style="background:${c}"></span>${l}</span>`).join('');
   charts['chCFD']=new Chart(ch('chCFD'),{type:'line',data:{labels,datasets:[{label:'Concluído',data:concl,borderColor:'#22d37a',backgroundColor:'rgba(34,211,122,0.09)',fill:true,tension:.3,borderWidth:2,pointRadius:2},{label:'Em aberto',data:open,borderColor:'#60a5fa',backgroundColor:'rgba(96,165,250,0.07)',fill:true,tension:.3,borderWidth:2,pointRadius:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:'rgba(255,255,255,0.03)'},ticks:{...tk,autoSkip:true,maxTicksLimit:10}},y:{grid:grd,ticks:tk}}}});
 }
