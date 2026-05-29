@@ -3195,7 +3195,7 @@ function renderHaulerSerial(data){
                             :'var(--amber)';
 
               return`<div style="border-top:1px solid var(--border)">
-                <div onclick="(function(h){var b=h.nextElementSibling,a=h.querySelector('.det-arrow');b.style.display=b.style.display==='none'?'flex':'none';a.style.transform=b.style.display==='none'?'rotate(0deg)':'rotate(180deg)'})(this)"
+                <div class="det-hdr"
                   style="padding:8px 14px;font-size:10px;font-weight:600;color:var(--text2);cursor:pointer;display:flex;justify-content:space-between;align-items:center;user-select:none">
                   <span>📋 Detalhes</span>
                   <span style="display:flex;gap:8px;align-items:center">
@@ -3287,6 +3287,17 @@ function renderHaulerSerial(data){
   ${kpiHtml}
   ${cardsHtml}
   ${tabelaHtml}`;
+  // Attach toggle listeners after DOM is populated (avoids inline onclick scoping bugs)
+  el.querySelectorAll('.det-hdr').forEach(function(hdr){
+    hdr.addEventListener('click',function(){
+      var body=hdr.nextElementSibling;
+      if(!body)return;
+      var open=body.style.display!=='none';
+      body.style.display=open?'none':'flex';
+      var arrow=hdr.querySelector('.det-arrow');
+      if(arrow)arrow.style.transform=open?'':'rotate(180deg)';
+    });
+  });
 }
 
 async function enviarEmail(){
