@@ -3024,6 +3024,18 @@ function renderHaulerSerial(data){
   const el=document.getElementById('haulerSerialContent');
   if(!el)return;
   const {seriais=[],resumo={},geradoEm}=data;
+
+  // BOM de referência: calculado a partir do CSV já carregado na aba Por Etapas
+  // compras = ITEM COMERCIAL=SIM + CORTE CHAPA (externo)
+  // fab     = CORTE PERFIL + SOLDAGEM + USINAGEM (interno)
+  // mont    = MONTAGEM (inclui pré-mont e montagem final — não separável pelo BOM)
+  const bomRef=_haulerData&&_haulerData.length>0?(()=>{
+    const c=_haulerData.filter(r=>r.tipoAll.includes('comprar')||r.tipoAll.includes('corte')).length;
+    const f=_haulerData.filter(r=>r.tipoAll.some(t=>['serra','solda','usinagem'].includes(t))).length;
+    const m=_haulerData.filter(r=>r.tipoAll.includes('montagem')).length;
+    return(c+f+m>0)?{compras:c,fab:f,mont:m,total:c+f+m}:null;
+  })():null;
+
   if(!seriais.length){
     el.innerHTML=`<div style="text-align:center;padding:40px;color:var(--text2)">Nenhum serial Hauler encontrado. Verifique se há apontamentos com "HAULER" no número de série.</div>`;
     return;
@@ -3142,18 +3154,22 @@ function renderHaulerSerial(data){
               ${[
                 {f:fc,label:comprasAlerta?'🛒 Compras ⚠️':'🛒 Compras',
                  qty:fc.nPedidos>0?`${fc.nEntregues||0}/${fc.nPedidos}${comprasAlerta?' ⚠':''}`:null,
+                 bom:bomRef?bomRef.compras:null,
                  dtLbl:fc.status==='concluida'?'últ.ent.':'desde',
                  alert:comprasAlerta},
                 {f:ff,label:'⚙️ Fabricação',
                  qty:ff.nOps>0?`${ff.nOps-(ff.nAbertas||0)}/${ff.nOps} ops`:null,
+                 bom:bomRef?bomRef.fab:null,
                  dtLbl:ff.status==='concluida'?'concl.':'desde',alert:false},
                 {f:fp,label:'🔩 Pré-Mont',
                  qty:fp.nOps>0?`${fp.nOps-(fp.nAbertas||0)}/${fp.nOps} ops`:null,
+                 bom:null,
                  dtLbl:fp.status==='concluida'?'concl.':'desde',alert:false},
                 {f:fm,label:'🏗️ Montagem',
                  qty:fm.nOps>0?`${fm.nOps-(fm.nAbertas||0)}/${fm.nOps} ops`:null,
+                 bom:bomRef?bomRef.mont:null,
                  dtLbl:fm.status==='concluida'?'concl.':'desde',alert:false},
-              ].map(({f,label,qty,dtLbl,alert})=>{
+              ].map(({f,label,qty,dtLbl,alert,bom})=>{
                 const st=f.status||'sem_dados';
                 const dt=st==='concluida'?fmtDtShort(f.fim):st==='em_andamento'?fmtDtShort(f.inicio):'';
                 const borderColor=alert?'var(--amber)':SC[st];
@@ -3163,6 +3179,7 @@ function renderHaulerSerial(data){
                     ${dt?`<span style="font-size:8px;color:var(--text3);opacity:.75">${dtLbl} ${dt}</span>`:''}
                   </div>
                   <div style="font-size:10px;color:${SC[st]};font-weight:600">${SI[st]}${qty?' '+qty:st==='sem_dados'?'':''}</div>
+                  ${bom!==null?`<div style="font-size:8px;color:var(--text3);margin-top:2px;opacity:.75">📋 BOM: ${bom} itens</div>`:''}
                 </div>`;
               }).join('')}
             </div>
@@ -3320,7 +3337,7 @@ function renderHaulerSerial(data){
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
     <div>
       <div style="font-size:14px;font-weight:700">Produção Hauler — Por Número de Série</div>
-      <div style="font-size:11px;color:var(--text2)">${seriais.length} seriais · dados de apontamentos + pedidos de compra${geradoStr?' · gerado '+geradoStr:''}</div>
+      <div style="font-size:11px;color:var(--text2)">${seriais.length} seriais · dados de apontamentos + pedidos de compra${geradoStr?' · gerado '+geradoStr:''}${bomRef?` · <span style="color:var(--green)">📋 BOM: ${bomRef.total} itens de referência</span>`:'&nbsp;· <span style="color:var(--amber)">📋 Carregue o CSV na aba "Por Etapa" para ver referência BOM por fase</span>'}</div>
     </div>
     <button class="btn-sec" onclick="_haulerAutoLoad(true)" style="font-size:11px">↺ Atualizar</button>
   </div>
