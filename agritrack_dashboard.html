@@ -3082,7 +3082,7 @@ function renderHaulerSerial(data){
   // Cartões por serial — grid plano ordenado por progresso desc
   const FASE_MAP=Object.fromEntries(FASES.map(f=>[f.key,f]));
   const sortedSeriais=[...seriais].sort((a,b)=>calcPct_(b)-calcPct_(a));
-  const cardsHtml=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px">
+  const cardsHtml=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;align-items:start">
     ${sortedSeriais.map(s=>{
           const fc=s.fases.compras, ff=s.fases.fabricacao, fp=s.fases.preMontagem, fm=s.fases.montagem;
           const pct=calcPct_(s);
