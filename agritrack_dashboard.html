@@ -3057,10 +3057,20 @@ function renderHaulerSerial(data){
 
   // KPIs de resumo
   function calcPct_(s){
-    const fc=s.fases.compras,ff=s.fases.fabricacao,fp=s.fases.preMontagem,fm=s.fases.montagem;
     const P={compras:10,fabricacao:30,preMontagem:25,montagem:35};
-    const cc=fc.nPedidos>0?(fc.nEntregues||0)/fc.nPedidos*P.compras:fc.status==='concluida'?P.compras:fc.status==='em_andamento'?P.compras*0.5:0;
-    return Math.round(cc+(ff.status==='concluida'?P.fabricacao:ff.status==='em_andamento'?P.fabricacao*0.5:0)+(fp.status==='concluida'?P.preMontagem:fp.status==='em_andamento'?P.preMontagem*0.5:0)+(fm.status==='concluida'?P.montagem:fm.status==='em_andamento'?P.montagem*0.5:0));
+    // Normaliza status compras: concluida só se nEntregues >= nPedidos
+    const fc_r=s.fases.compras;
+    const fc_st=(fc_r.status==='concluida'&&fc_r.nPedidos>0&&(fc_r.nEntregues||0)<fc_r.nPedidos)?'em_andamento':fc_r.status;
+    // Compras: ratio entregues/pedidos quando disponível
+    const cc=fc_r.nPedidos>0?(fc_r.nEntregues||0)/fc_r.nPedidos*P.compras:fc_st==='concluida'?P.compras:fc_st==='em_andamento'?P.compras*0.5:0;
+    // Ops: ratio (nOps-nAbertas)/nOps quando disponível, fallback binário
+    function opsScore(f,peso){
+      if(!f||f.status==='sem_dados')return 0;
+      if(f.nOps>0)return(f.nOps-(f.nAbertas||0))/f.nOps*peso;
+      return f.status==='concluida'?peso:f.status==='em_andamento'?peso*0.5:0;
+    }
+    const ff=s.fases.fabricacao,fp=s.fases.preMontagem,fm=s.fases.montagem;
+    return Math.round(cc+opsScore(ff,P.fabricacao)+opsScore(fp,P.preMontagem)+opsScore(fm,P.montagem));
   }
   const avgPct=seriais.length?Math.round(seriais.reduce((a,s)=>a+calcPct_(s),0)/seriais.length):0;
   const emAndamento=seriais.filter(s=>s.opsAbertas&&s.opsAbertas.length>0).length;
@@ -3084,14 +3094,21 @@ function renderHaulerSerial(data){
   const sortedSeriais=[...seriais].sort((a,b)=>calcPct_(b)-calcPct_(a));
   const cardsHtml=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;align-items:start">
     ${sortedSeriais.map(s=>{
-          const fc=s.fases.compras, ff=s.fases.fabricacao, fp=s.fases.preMontagem, fm=s.fases.montagem;
+          // Fix 1: normaliza status compras (concluida só se tudo entregue)
+          const fc_raw=s.fases.compras;
+          const fc={...fc_raw, status:(fc_raw.status==='concluida'&&fc_raw.nPedidos>0&&(fc_raw.nEntregues||0)<fc_raw.nPedidos)?'em_andamento':fc_raw.status};
+          const ff=s.fases.fabricacao, fp=s.fases.preMontagem, fm=s.fases.montagem;
           const pct=calcPct_(s);
           const pctComp=fc.nPedidos>0?Math.round((fc.nEntregues||0)/fc.nPedidos*100):null;
           const diasProd=s.diasProd;
           const opsAb=s.opsAbertas||[];
           const ops=s.operadores||[];
-          // Fase atual com badge colorido
-          const faseAtualObj=FASE_MAP[s.faseAtual]||null;
+          // Fix 2: faseAtual = fase mais avançada com ops (não a "última ativa" do GAS)
+          const _FORD=['montagem','preMontagem','fabricacao','compras'];
+          const faseComputada=_FORD.find(fk=>{const fd=s.fases[fk];return fd&&fd.status&&fd.status!=='sem_dados';})||s.faseAtual;
+          const faseAtualObj=FASE_MAP[faseComputada]||null;
+          // Fix 3: alerta compras com cobertura FUP suspeita
+          const comprasAlerta=fc.nPedidos>0&&fc.nPedidos<50&&(ff.status!=='sem_dados'||fp.status!=='sem_dados'||fm.status!=='sem_dados');
           // Cor do card: verde se >75%, amarelo 40-75%, vermelho <40%
           const cardAccent=pct>=75?'var(--green)':pct>=40?'var(--amber)':'var(--red)';
 
@@ -3123,24 +3140,26 @@ function renderHaulerSerial(data){
             <!-- Métricas por fase -->
             <div style="padding:10px 14px;display:grid;grid-template-columns:1fr 1fr;gap:6px">
               ${[
-                {f:fc,label:'🛒 Compras',
-                 qty:fc.nPedidos>0?`${fc.nEntregues||0}/${fc.nPedidos}`:null,
-                 dtLbl:fc.status==='concluida'?'últ.ent.':'desde'},
+                {f:fc,label:comprasAlerta?'🛒 Compras ⚠️':'🛒 Compras',
+                 qty:fc.nPedidos>0?`${fc.nEntregues||0}/${fc.nPedidos}${comprasAlerta?' ⚠':''}`:null,
+                 dtLbl:fc.status==='concluida'?'últ.ent.':'desde',
+                 alert:comprasAlerta},
                 {f:ff,label:'⚙️ Fabricação',
                  qty:ff.nOps>0?`${ff.nOps-(ff.nAbertas||0)}/${ff.nOps} ops`:null,
-                 dtLbl:ff.status==='concluida'?'concl.':'desde'},
+                 dtLbl:ff.status==='concluida'?'concl.':'desde',alert:false},
                 {f:fp,label:'🔩 Pré-Mont',
                  qty:fp.nOps>0?`${fp.nOps-(fp.nAbertas||0)}/${fp.nOps} ops`:null,
-                 dtLbl:fp.status==='concluida'?'concl.':'desde'},
+                 dtLbl:fp.status==='concluida'?'concl.':'desde',alert:false},
                 {f:fm,label:'🏗️ Montagem',
                  qty:fm.nOps>0?`${fm.nOps-(fm.nAbertas||0)}/${fm.nOps} ops`:null,
-                 dtLbl:fm.status==='concluida'?'concl.':'desde'},
-              ].map(({f,label,qty,dtLbl})=>{
+                 dtLbl:fm.status==='concluida'?'concl.':'desde',alert:false},
+              ].map(({f,label,qty,dtLbl,alert})=>{
                 const st=f.status||'sem_dados';
                 const dt=st==='concluida'?fmtDtShort(f.fim):st==='em_andamento'?fmtDtShort(f.inicio):'';
-                return`<div style="padding:5px 7px;background:var(--bg2);border-radius:5px;border-left:2px solid ${SC[st]}">
+                const borderColor=alert?'var(--amber)':SC[st];
+                return`<div style="padding:5px 7px;background:var(--bg2);border-radius:5px;border-left:2px solid ${borderColor}"${alert?' title="Cobertura FUP incompleta — verificar planilha de compras"':''}>
                   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
-                    <span style="font-size:9px;color:var(--text3)">${label}</span>
+                    <span style="font-size:9px;color:${alert?'var(--amber)':'var(--text3)'}">${label}</span>
                     ${dt?`<span style="font-size:8px;color:var(--text3);opacity:.75">${dtLbl} ${dt}</span>`:''}
                   </div>
                   <div style="font-size:10px;color:${SC[st]};font-weight:600">${SI[st]}${qty?' '+qty:st==='sem_dados'?'':''}</div>
