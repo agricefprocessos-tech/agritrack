@@ -3203,7 +3203,7 @@ function renderHaulerSerial(data){
                     <span class="det-arrow" style="font-size:12px;color:var(--text3);transition:transform .2s;display:inline-block">▼</span>
                   </span>
                 </div>
-                <div class="det-body" style="display:none;padding:0 14px 12px;flex-direction:column;gap:6px">
+                <div class="det-body" data-serial="${s.serial}" style="display:none;padding:0 14px 12px;flex-direction:column;gap:6px">
                   ${!pendencias.length
                     ? `<div style="font-size:10px;color:var(--green);font-weight:600;padding:4px 0">✅ Sem pendências — serial pode estar concluído.</div>`
                     : pendencias.map(p=>`<div style="display:flex;gap:8px;align-items:flex-start;padding:6px 8px;background:var(--bg2);border-radius:6px;border-left:3px solid ${TIPO_COLOR[p.tipo]}">
@@ -3287,19 +3287,24 @@ function renderHaulerSerial(data){
   ${kpiHtml}
   ${cardsHtml}
   ${tabelaHtml}`;
-  // Attach toggle listeners after DOM is populated (avoids inline onclick scoping bugs)
-  // Uses parentElement.querySelector to avoid any nextElementSibling traversal issues
-  el.querySelectorAll('.det-hdr').forEach(function(hdr){
-    hdr.addEventListener('click',function(){
-      var wrapper=hdr.parentElement;
-      var body=wrapper&&wrapper.querySelector('.det-body');
+  // Event delegation: single persistent listener on the container.
+  // Survives any el.innerHTML replacement; closest() handles child-span clicks correctly.
+  if(!el._detDelegate){
+    el._detDelegate=function(e){
+      var hdr=e.target.closest('.det-hdr');
+      if(!hdr)return;
+      var serial=hdr.getAttribute('data-serial');
+      var body=serial
+        ?el.querySelector('.det-body[data-serial="'+serial+'"]')
+        :hdr.parentElement&&hdr.parentElement.querySelector('.det-body');
       if(!body)return;
       var open=body.style.display!=='none';
       body.style.display=open?'none':'flex';
       var arrow=hdr.querySelector('.det-arrow');
       if(arrow)arrow.style.transform=open?'':'rotate(180deg)';
-    });
-  });
+    };
+    el.addEventListener('click',el._detDelegate);
+  }
 }
 
 async function enviarEmail(){
