@@ -3194,31 +3194,32 @@ function renderHaulerSerial(data){
                             :hasEntregas?'var(--blue)'
                             :'var(--amber)';
 
-              return`<details style="border-top:1px solid var(--border);overflow:visible">
-                <summary style="padding:8px 14px;font-size:10px;font-weight:600;color:var(--text2);cursor:pointer;display:flex;justify-content:space-between;align-items:center;list-style:none;user-select:none">
+              const detId='det_'+s.serial;
+              const arrowId='arr_'+s.serial;
+              return`<div style="border-top:1px solid var(--border)">
+                <div onclick="(function(b,a){b.style.display=b.style.display==='none'?'flex':'none';a.style.transform=b.style.display==='none'?'rotate(0deg)':'rotate(180deg)'})(document.getElementById('${detId}'),document.getElementById('${arrowId}'))"
+                  style="padding:8px 14px;font-size:10px;font-weight:600;color:var(--text2);cursor:pointer;display:flex;justify-content:space-between;align-items:center;user-select:none">
                   <span>📋 Detalhes</span>
                   <span style="display:flex;gap:8px;align-items:center">
                     <span style="color:${sumColor};font-weight:700">${sumLabel}</span>
-                    <span class="det-arrow" style="font-size:12px;color:var(--text3)">▼</span>
+                    <span id="${arrowId}" style="font-size:12px;color:var(--text3);transition:transform .2s;display:inline-block">▼</span>
                   </span>
-                </summary>
-                <div style="padding:0 14px 12px;display:flex;flex-direction:column;gap:6px">
+                </div>
+                <div id="${detId}" style="display:none;padding:0 14px 12px;flex-direction:column;gap:6px">
                   ${!pendencias.length
-                    ? `<div style="font-size:10px;color:var(--green);font-weight:600;padding:4px 0">✅ Sem pendências identificadas — serial pode estar concluído.</div>`
-                    : pendencias.map(p=>`
-                    <div style="display:flex;gap:8px;align-items:flex-start;padding:6px 8px;background:var(--bg2);border-radius:6px;border-left:3px solid ${TIPO_COLOR[p.tipo]}">
+                    ? `<div style="font-size:10px;color:var(--green);font-weight:600;padding:4px 0">✅ Sem pendências — serial pode estar concluído.</div>`
+                    : pendencias.map(p=>`<div style="display:flex;gap:8px;align-items:flex-start;padding:6px 8px;background:var(--bg2);border-radius:6px;border-left:3px solid ${TIPO_COLOR[p.tipo]}">
                       <span style="font-size:13px;flex-shrink:0;margin-top:1px">${TIPO_IC[p.tipo]}</span>
                       <div style="min-width:0">
-                        <div style="font-size:10px;font-weight:600;color:${TIPO_COLOR[p.tipo]}">${p.label}${p.peso?' <span style="font-weight:400;color:var(--text3)">(peso ${p.peso}%)</span>':''}</div>
+                        <div style="font-size:10px;font-weight:600;color:${TIPO_COLOR[p.tipo]}">${p.label}</div>
                         <div style="font-size:9px;color:var(--text3);margin-top:1px">${p.detalhe}</div>
                       </div>
-                    </div>
-                  `).join('')}
+                    </div>`).join('')}
                   <div style="font-size:9px;color:var(--text3);margin-top:2px;padding-top:6px;border-top:1px solid var(--border)">
-                    ℹ️ Compras: ${fc.nEntregues||0} entregues / ${fc.nPedidos||0} pedidos · Apontamentos: ${ff.nOps||0} fab + ${fp.nOps||0} pré + ${fm.nOps||0} mont ops
+                    ℹ️ Compras: ${fc.nEntregues||0}/${fc.nPedidos||0} entregues · ${ff.nOps||0} fab + ${fp.nOps||0} pré + ${fm.nOps||0} mont ops
                   </div>
                 </div>
-              </details>`;
+              </div>`;
             })()}
           </div>`;
         }).join('')}
@@ -3226,9 +3227,12 @@ function renderHaulerSerial(data){
 
   // Tabela resumida
   const tabelaHtml=`
-  <details style="margin-top:8px">
-    <summary style="font-size:11px;color:var(--text2);cursor:pointer;padding:6px 0;font-weight:600">📋 Tabela comparativa — todos os seriais</summary>
-    <div style="overflow-x:auto;margin-top:8px">
+  <div style="margin-top:8px">
+    <div onclick="(function(b,a){b.style.display=b.style.display==='none'?'block':'none';a.textContent=b.style.display==='none'?'▼':'▲'})(document.getElementById('tabelaSerial'),document.getElementById('tabelaArrow'))"
+      style="font-size:11px;color:var(--text2);cursor:pointer;padding:6px 0;font-weight:600;user-select:none">
+      📋 Tabela comparativa — todos os seriais <span id="tabelaArrow">▼</span>
+    </div>
+    <div id="tabelaSerial" style="display:none;overflow-x:auto;margin-top:8px">
       <table style="width:100%;border-collapse:collapse;font-size:11px">
         <thead><tr style="background:var(--bg3)">
           <th style="padding:7px 10px;text-align:left;color:var(--text2)">Serial</th>
@@ -3271,7 +3275,7 @@ function renderHaulerSerial(data){
         </tbody>
       </table>
     </div>
-  </details>`;
+  </div>`;
 
   const geradoStr=geradoEm?new Date(geradoEm).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'';
   el.innerHTML=`
