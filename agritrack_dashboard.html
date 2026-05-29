@@ -3194,18 +3194,16 @@ function renderHaulerSerial(data){
                             :hasEntregas?'var(--blue)'
                             :'var(--amber)';
 
-              const detId='det_'+s.serial;
-              const arrowId='arr_'+s.serial;
               return`<div style="border-top:1px solid var(--border)">
-                <div onclick="(function(b,a){b.style.display=b.style.display==='none'?'flex':'none';a.style.transform=b.style.display==='none'?'rotate(0deg)':'rotate(180deg)'})(document.getElementById('${detId}'),document.getElementById('${arrowId}'))"
+                <div onclick="(function(h){var b=h.nextElementSibling,a=h.querySelector('.det-arrow');b.style.display=b.style.display==='none'?'flex':'none';a.style.transform=b.style.display==='none'?'rotate(0deg)':'rotate(180deg)'})(this)"
                   style="padding:8px 14px;font-size:10px;font-weight:600;color:var(--text2);cursor:pointer;display:flex;justify-content:space-between;align-items:center;user-select:none">
                   <span>📋 Detalhes</span>
                   <span style="display:flex;gap:8px;align-items:center">
                     <span style="color:${sumColor};font-weight:700">${sumLabel}</span>
-                    <span id="${arrowId}" style="font-size:12px;color:var(--text3);transition:transform .2s;display:inline-block">▼</span>
+                    <span class="det-arrow" style="font-size:12px;color:var(--text3);transition:transform .2s;display:inline-block">▼</span>
                   </span>
                 </div>
-                <div id="${detId}" style="display:none;padding:0 14px 12px;flex-direction:column;gap:6px">
+                <div style="display:none;padding:0 14px 12px;flex-direction:column;gap:6px">
                   ${!pendencias.length
                     ? `<div style="font-size:10px;color:var(--green);font-weight:600;padding:4px 0">✅ Sem pendências — serial pode estar concluído.</div>`
                     : pendencias.map(p=>`<div style="display:flex;gap:8px;align-items:flex-start;padding:6px 8px;background:var(--bg2);border-radius:6px;border-left:3px solid ${TIPO_COLOR[p.tipo]}">
@@ -3228,11 +3226,11 @@ function renderHaulerSerial(data){
   // Tabela resumida
   const tabelaHtml=`
   <div style="margin-top:8px">
-    <div onclick="(function(b,a){b.style.display=b.style.display==='none'?'block':'none';a.textContent=b.style.display==='none'?'▼':'▲'})(document.getElementById('tabelaSerial'),document.getElementById('tabelaArrow'))"
+    <div onclick="(function(h){var b=h.nextElementSibling,a=h.querySelector('.det-arrow');b.style.display=b.style.display==='none'?'block':'none';a.textContent=b.style.display==='none'?'▼':'▲'})(this)"
       style="font-size:11px;color:var(--text2);cursor:pointer;padding:6px 0;font-weight:600;user-select:none">
-      📋 Tabela comparativa — todos os seriais <span id="tabelaArrow">▼</span>
+      📋 Tabela comparativa — todos os seriais <span class="det-arrow">▼</span>
     </div>
-    <div id="tabelaSerial" style="display:none;overflow-x:auto;margin-top:8px">
+    <div style="display:none;overflow-x:auto;margin-top:8px">
       <table style="width:100%;border-collapse:collapse;font-size:11px">
         <thead><tr style="background:var(--bg3)">
           <th style="padding:7px 10px;text-align:left;color:var(--text2)">Serial</th>
