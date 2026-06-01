@@ -2236,8 +2236,45 @@ let _haulerData=null;
 let _haulerFiltro='all';
 
 function initHauler(){
+  // Restaura BOM do cache localStorage se ainda não carregado
+  if(!_haulerData)_haulerRestoreCache();
   if(_haulerData)renderHaulerTable(_haulerData);
   _haulerAutoLoad();
+}
+
+function _haulerSaveCache(data){
+  try{
+    const slim=data.map(({_raw,...r})=>r); // descarta _raw (não usado) para economizar espaço
+    localStorage.setItem('hauler_bom_data',JSON.stringify(slim));
+    localStorage.setItem('hauler_bom_ts',Date.now().toString());
+  }catch(e){console.warn('BOM cache write failed:',e);}
+}
+
+function _haulerRestoreCache(){
+  try{
+    const raw=localStorage.getItem('hauler_bom_data');
+    const ts=parseInt(localStorage.getItem('hauler_bom_ts')||'0');
+    if(!raw)return;
+    _haulerData=JSON.parse(raw);
+    _haulerBomCacheTs=ts;
+  }catch(e){console.warn('BOM cache read failed:',e);}
+}
+
+let _haulerBomCacheTs=0;
+
+function haulerLimparCache(){
+  localStorage.removeItem('hauler_bom_data');
+  localStorage.removeItem('hauler_bom_ts');
+  _haulerData=null;
+  _haulerBomCacheTs=0;
+  // Reseta a UI para o estado vazio
+  document.getElementById('haulerKpis').style.display='none';
+  document.getElementById('haulerFilters').style.display='none';
+  document.getElementById('haulerTableWrap').style.display='none';
+  document.getElementById('haulerEmpty').style.display='block';
+  const sep=document.getElementById('haulerSerialSep');if(sep)sep.style.display='none';
+  document.getElementById('haulerSubNav').style.display='none';
+  document.getElementById('haulerMeta').textContent='Lista de peças e localização atual no processo produtivo';
 }
 
 // ── Carrega TUDO em uma única chamada GAS (cache 45min) ──────────
@@ -2303,6 +2340,7 @@ function loadHaulerCsv(input){
     );
     if(rows.length>5){
       _haulerData=classificarHauler(rows);
+      _haulerSaveCache(_haulerData);
       renderHaulerTable(_haulerData);
     } else {
       // Fallback UTF-8
@@ -2310,6 +2348,7 @@ function loadHaulerCsv(input){
       r2.onload=function(e2){
         const parsed2=Papa.parse(e2.target.result,{header:true,delimiter:';',skipEmptyLines:true});
         _haulerData=classificarHauler(parsed2.data);
+        _haulerSaveCache(_haulerData);
         renderHaulerTable(_haulerData);
       };
       r2.onerror=function(){document.getElementById('haulerMeta').textContent='Erro ao ler arquivo.';};
@@ -2394,7 +2433,12 @@ function renderHaulerTable(rows){
   document.getElementById('haulerEmpty').style.display='none';
   document.getElementById('haulerSubNav').style.display='flex';
   const sep=document.getElementById('haulerSerialSep');if(sep)sep.style.display='block';
-  document.getElementById('haulerMeta').textContent=`${total} itens carregados — ${comprar} para comprar, ${fabricar} para fabricar`;
+  // Exibe origem (arquivo novo vs cache localStorage) + botão de limpar
+  const ts=_haulerBomCacheTs||parseInt(localStorage.getItem('hauler_bom_ts')||'0');
+  const tsLabel=ts?` · 💾 cache de ${new Date(ts).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'})}`:'';
+  document.getElementById('haulerMeta').innerHTML=
+    `${total} itens carregados — ${comprar} para comprar, ${fabricar} para fabricar${tsLabel}`+
+    ` &nbsp;<button onclick="haulerLimparCache()" style="font-size:10px;padding:1px 7px;background:transparent;border:1px solid var(--border2);border-radius:10px;color:var(--text3);cursor:pointer;vertical-align:middle" title="Remover BOM salvo e carregar novo arquivo">✕ limpar cache</button>`;
   _renderHaulerRows(rows);
 }
 
