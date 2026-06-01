@@ -798,6 +798,19 @@ tr:hover td{background:rgba(255,255,255,0.02)}
         <span id="comprasStatus" style="font-size:11px;margin-left:10px;color:var(--text2)"></span>
       </div>
     </div>
+    <div class="sec" style="margin-top:20px">Hauler BOM</div>
+    <div class="settings-box">
+      <div class="settings-title">Lista de Peças — arquivo CSV no Google Drive</div>
+      <div class="fg">
+        <label>URL ou File ID do arquivo CSV</label>
+        <input id="bomFileUrl" style="font-family:'IBM Plex Mono',monospace;font-size:11px" placeholder="https://drive.google.com/file/d/…/view  ou  1AbCd…" oninput="saveBomFileId()">
+        <div class="hint">Cole a URL de compartilhamento do arquivo ou apenas o File ID. O BOM será carregado automaticamente (cache de 7 dias).</div>
+      </div>
+      <div style="margin-top:14px">
+        <button class="btn-sec" onclick="testarBomDrive()">Testar e Carregar</button>
+        <span id="bomDriveStatus" style="font-size:11px;margin-left:10px;color:var(--text2)"></span>
+      </div>
+    </div>
     <div class="sec" style="margin-top:20px">Sobre</div>
     <div class="settings-box">
       <div class="settings-title">AgriTrack v3.2</div>
@@ -2236,10 +2249,13 @@ let _haulerData=null;
 let _haulerFiltro='all';
 
 function initHauler(){
-  // Restaura BOM do cache localStorage se ainda não carregado
+  // 1. Restaura BOM do cache localStorage se ainda não carregado
   if(!_haulerData)_haulerRestoreCache();
   if(_haulerData)renderHaulerTable(_haulerData);
+  // 2. Busca dados operacionais (apontamentos + serial) do GAS
   _haulerAutoLoad();
+  // 3. Atualiza BOM do Drive em background se cache estiver velho (não bloqueia)
+  _haulerFetchBomDrive();
 }
 
 function _haulerSaveCache(data){
@@ -2261,6 +2277,36 @@ function _haulerRestoreCache(){
 }
 
 let _haulerBomCacheTs=0;
+const HAULER_BOM_TTL=7*24*60*60*1000; // 7 dias
+
+// Busca o BOM CSV do Google Drive via GAS e atualiza _haulerData.
+// Retorna true em sucesso, false em falha.
+async function _haulerFetchBomDrive(force=false){
+  const fileId=localStorage.getItem('hauler_bom_file_id');
+  if(!fileId)return false;
+  const ts=parseInt(localStorage.getItem('hauler_bom_ts')||'0');
+  if(!force&&_haulerData&&(Date.now()-ts)<HAULER_BOM_TTL)return true; // cache ainda fresco
+  try{
+    const r=await api({action:'buscarHaulerBOM',fileId},30000);
+    if(!r||!r.success)return false;
+    // Tenta parsear como UTF-16LE primeiro, depois UTF-8
+    let rows=null;
+    for(const enc of[r.csv]){ // GAS já retorna string decodificada
+      const parsed=Papa.parse(enc,{header:true,delimiter:';',skipEmptyLines:true});
+      const filtered=parsed.data.filter(row=>Object.values(row).some(v=>v&&String(v).trim()&&String(v).trim()!=='.'));
+      if(filtered.length>5){rows=filtered;break;}
+    }
+    if(!rows)return false;
+    _haulerData=classificarHauler(rows);
+    _haulerBomCacheTs=Date.now();
+    _haulerSaveCache(_haulerData);
+    // Re-renderiza a tabela se a aba Hauler estiver visível
+    if(document.getElementById('pg-hauler')&&document.getElementById('pg-hauler').classList.contains('on')){
+      renderHaulerTable(_haulerData);
+    }
+    return true;
+  }catch(e){console.warn('BOM Drive fetch error:',e);return false;}
+}
 
 function haulerLimparCache(){
   localStorage.removeItem('hauler_bom_data');
@@ -3508,6 +3554,37 @@ function initConfig(){
       ?'https://docs.google.com/spreadsheets/d/'+cid+'/edit?gid='+cgid+'#gid='+cgid
       :'https://docs.google.com/spreadsheets/d/'+cid+'/edit';
   }
+  const bid=localStorage.getItem('hauler_bom_file_id');
+  if(bid){
+    const bomEl=document.getElementById('bomFileUrl');
+    if(bomEl)bomEl.value='https://drive.google.com/file/d/'+bid+'/view';
+  }
+  // Mostra data do cache BOM se existir
+  const bts=parseInt(localStorage.getItem('hauler_bom_ts')||'0');
+  const bomSt=document.getElementById('bomDriveStatus');
+  if(bts&&bomSt)bomSt.textContent='💾 cache de '+new Date(bts).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'});
+}
+
+function parseDriveFileId(val){
+  val=(val||'').trim();
+  const m=val.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+  return m?m[1]:val; // fallback: assume que é o ID direto
+}
+
+function saveBomFileId(){
+  const id=parseDriveFileId(document.getElementById('bomFileUrl').value);
+  if(id)localStorage.setItem('hauler_bom_file_id',id);
+}
+
+async function testarBomDrive(){
+  const s=document.getElementById('bomDriveStatus');
+  const id=parseDriveFileId(document.getElementById('bomFileUrl').value);
+  if(!id){s.textContent='⚠ Informe a URL ou ID';s.style.color='var(--amber)';return;}
+  localStorage.setItem('hauler_bom_file_id',id);
+  s.textContent='Buscando…';s.style.color='var(--text2)';
+  const ok=await _haulerFetchBomDrive(true);
+  if(ok){s.textContent='✓ BOM carregado — '+(_haulerData?_haulerData.length:0)+' itens';s.style.color='var(--green)';}
+  else{s.textContent='✗ Falhou — verifique o ID e as permissões do arquivo';s.style.color='var(--red)';}
 }
 async function testApi(){
   const s=document.getElementById('cfgApiStatus');s.textContent='Testando…';s.style.color='var(--text2)';
