@@ -5727,6 +5727,10 @@ function setRptDept(dept,btn){
     localStorage.setItem('compras_sheet_id','16kKKfYC_TBmuR6wpEyah4BwBsv0TcCD_2ImQE1SN32A');
     localStorage.setItem('compras_sheet_gid','1298683044');
   }
+  // Pré-configura BOM CSV do Drive (401095 - THOMAS.csv)
+  if(!localStorage.getItem('hauler_bom_file_id')){
+    localStorage.setItem('hauler_bom_file_id','1w4-Igqj9Gyalj2ulvYJSwFKUorkSxHJk');
+  }
   // Auto-fetch Jira on load
   autoFetch();
   // Pré-carrega Compras em background após 8s (não bloqueia o carregamento inicial)
