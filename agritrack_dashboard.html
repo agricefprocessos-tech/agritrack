@@ -5391,8 +5391,10 @@ function ganttClick(key){
   // detalhes extras
   const nSubs=!isSub?allSubs.filter(s=>s['Chave pai']===key).length:0;
   const lbls=(t['Labels']||'').split(' ').filter(l=>l&&l!=='bloqueado');
-  const sumEsc=(t['Resumo']||'').replace(/'/g,"\\'");
-  const dueEsc=(due||'').replace(/'/g,"\\'");
+  // Armazena dados no mapa global em vez de embutir strings no onclick
+  // (evita quebra quando o Resumo contém aspas duplas ou outros chars especiais)
+  window._ganttClickData=window._ganttClickData||{};
+  window._ganttClickData[key]={summary:t['Resumo']||'',duedate:due||''};
   const jiraUrl='https://agricefprojetos.atlassian.net/browse/'+key;
 
   det.style.display='block';
@@ -5436,7 +5438,7 @@ function ganttClick(key){
       </div>
       `}
       <div style="display:flex;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border);flex-wrap:wrap;align-items:center">
-        <button onclick="ganttRegistrarBloqueio('${key}','${sumEsc}','${dueEsc}')" style="padding:7px 14px;background:#f0525211;border:1px solid #f05252;color:#f05252;border-radius:var(--rs);cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;transition:all .15s" onmouseover="this.style.background='#f0525222'" onmouseout="this.style.background='#f0525211'">🚧 Registrar Bloqueio</button>
+        <button onclick="ganttRegistrarBloqueio('${key}')" style="padding:7px 14px;background:#f0525211;border:1px solid #f05252;color:#f05252;border-radius:var(--rs);cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;transition:all .15s" onmouseover="this.style.background='#f0525222'" onmouseout="this.style.background='#f0525211'">🚧 Registrar Bloqueio</button>
         <a href="${jiraUrl}" target="_blank" style="padding:7px 14px;background:transparent;border:1px solid var(--border2);color:var(--text2);border-radius:var(--rs);font-size:12px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:4px">↗ Abrir no Jira</a>
       </div>
     </div>
@@ -5451,7 +5453,11 @@ function ganttClick(key){
   setTimeout(()=>{det.style.boxShadow='';},1200);
 }
 
-function ganttRegistrarBloqueio(key,summary,duedate){
+function ganttRegistrarBloqueio(key){
+  // Recupera dados do mapa global (evita problemas de escaping de aspas no onclick)
+  const d=(window._ganttClickData&&window._ganttClickData[key])||{};
+  const summary=d.summary||'';
+  const duedate=d.duedate||'';
   // Preenche o modal com os dados do projeto
   document.getElementById('blkMKey').textContent=key;
   document.getElementById('blkMSum').textContent=summary;
