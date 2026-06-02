@@ -3774,11 +3774,21 @@ async function loadCompras(force=false){
 
   if(!sheetId){ noConf.style.display='block'; load.style.display='none'; dash.style.display='none'; return; }
 
+  // ── Prioridade 1: dados já em memória (evita re-fetch quando localStorage quota falha) ──
+  if(!force&&_comprasCarregado&&_comprasTabs.length>0){
+    noConf.style.display='none'; load.style.display='none'; dash.style.display='block';
+    _aplicarDadosCompras(_comprasTabs, meta, '(memória)');
+    // Background refresh discreto se dados > 30min
+    const memAge=Date.now()-(_comprasTabs._loadedAt||0);
+    if(memAge>30*60*1000&&!_comprasRefreshing) _refreshComprasBg(sheetId, meta);
+    return;
+  }
+
   const cache=_comprasCache();
   const cacheOk=cache&&cache.sid===sheetId&&Array.isArray(cache.tabs)&&cache.tabs.length>1;
   const cacheFresh=cacheOk&&(Date.now()-cache.ts)<COMPRAS_CACHE_TTL;
 
-  // ── STALE-WHILE-REVALIDATE: mostra cache imediatamente, sempre ──
+  // ── STALE-WHILE-REVALIDATE: mostra cache localStorage imediatamente ──
   if(cacheOk&&!force){
     noConf.style.display='none'; load.style.display='none'; dash.style.display='block';
     const mins=Math.floor((Date.now()-cache.ts)/60000);
@@ -3851,10 +3861,12 @@ async function _fetchComprasTabs(sheetId){
   const emptyTabs=metaTabs.filter(t=>t.empty).map(t=>({name:t.name,gid:t.gid,headers:[],rows:[],total:0,empty:true}));
   const loaded=[];
   const BATCH=3; // 3 abas em paralelo por vez
+  const _t0=Date.now();
+  const _elapsed=()=>{const s=Math.round((Date.now()-_t0)/1000);return s>5?` (${s}s)`:'';};
 
   for(let i=0;i<nonEmpty.length;i+=BATCH){
     const batch=nonEmpty.slice(i,i+BATCH);
-    _setMsg(`📥 Carregando abas ${i+1}–${Math.min(i+BATCH,nonEmpty.length)} de ${nonEmpty.length}…`);
+    _setMsg(`📥 Carregando abas ${i+1}–${Math.min(i+BATCH,nonEmpty.length)} de ${nonEmpty.length}…${_elapsed()}`);
     const results=await Promise.all(batch.map(async tab=>{
       try{
         const r=await api({action:'buscarCompras',sheetId,gid:tab.gid},50000);
@@ -3916,6 +3928,7 @@ function _aplicarDadosCompras(tabs, metaEl, sufixo){
   _comprasFilt=allRows;
   _comprasTabAtiva='all';
   _comprasCarregado=true;
+  _comprasTabs._loadedAt=Date.now(); // timestamp para background refresh
 
   const nAbas=_comprasTabs.filter(t=>!t.virtual).length;
   const hasCCC=_comprasTabs.some(t=>t.virtual&&t.name.includes('CCC'));
@@ -5512,18 +5525,29 @@ function renderGantt(){
     gR.innerHTML=svg;
     if(_ganttFirstRender){
       _ganttFirstRender=false;
-      // Smart scroll: mostra barras reais se hoje estiver além delas
+      // Smart scroll: prioriza barras de projetos ativos (não-concluídos)
       const _bps=Object.values(_ganttBarPos);
       let _scrollTarget=Math.max(0,todX-Math.round(gR.clientWidth*0.35));
       if(_bps.length){
         const _minX=Math.min(..._bps.map(p=>p.x1));
         const _maxX=Math.max(..._bps.map(p=>p.x2));
         if(todX>_maxX){
-          // Hoje está além de todos os projetos — mostra início das barras
+          // Hoje está além de todos — mostra início das barras
           _scrollTarget=Math.max(0,_minX-Math.round(gR.clientWidth*0.08));
         } else if(todX<_minX){
-          // Hoje está antes de todos os projetos — mostra início das barras
+          // Hoje está antes de todos — mostra início das barras
           _scrollTarget=Math.max(0,_minX-Math.round(gR.clientWidth*0.15));
+        } else {
+          // Hoje está dentro do range — prioriza barras ativas (não-Feito) mais próximas de hoje
+          const activeKeys=new Set(rows.filter(r=>r.type==='parent'&&r.task['Status']!=='Feito').map(r=>r.task['Chave da item']||''));
+          const activeBps=Object.entries(_ganttBarPos).filter(([k])=>activeKeys.has(k)).map(([,v])=>v);
+          if(activeBps.length){
+            const _actMinX=Math.min(...activeBps.map(p=>p.x1));
+            // Se barras ativas estão além de 60% da viewport à esquerda de hoje: mostrar elas
+            if(_actMinX<todX-gR.clientWidth*0.6){
+              _scrollTarget=Math.max(0,_actMinX-Math.round(gR.clientWidth*0.08));
+            }
+          }
         }
       }
       gR.scrollLeft=_scrollTarget;
