@@ -1785,7 +1785,8 @@ async function submitForm(){
       dados.alvoDate=document.getElementById('gAlvo').value;
       dados.baselineDate=document.getElementById('gDue').value;
     }
-    const r=await api(dados);
+    // Timeout maior (55s) para criação com múltiplas subtarefas
+    const r=await api(dados, 55000);
     if(r.success){
       const res=r.resultado||r;
       const keys=res.key?[res.key]:(res.chaves?Object.values(res.chaves).filter(v=>typeof v==='string'&&v.startsWith('AGTK')):[]);
@@ -1793,7 +1794,10 @@ async function submitForm(){
     } else {
       showFMsg('Erro: '+(r.erro||JSON.stringify(r)),'err');
     }
-  }catch(e){showFMsg('Erro: '+e.message,'err');}
+  }catch(e){
+    const msg=e.message&&e.message.includes('aborted')?'Timeout: o Jira demorou a responder. Verifique se o projeto foi criado antes de tentar novamente.':e.message;
+    showFMsg('Erro: '+msg,'err');
+  }
   btn.disabled=false;btn.textContent='Criar Projeto no Jira';
 }
 
