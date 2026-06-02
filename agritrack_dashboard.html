@@ -906,7 +906,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
         <div style="text-align:center;padding:60px 20px;color:var(--text2)">
           <div style="font-size:32px;margin-bottom:12px">⏱</div>
           <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:8px">Apontamentos do Hauler</div>
-          <div style="font-size:12px;margin-bottom:20px">Carregue o CSV do BOM e clique em conectar para cruzar com os apontamentos de produção.</div>
+          <div style="font-size:12px;margin-bottom:20px">Conectando com os apontamentos de produção…</div>
           <button class="btn-sec" onclick="loadHaulerApontamentos()" style="font-size:12px">🔗 Conectar Apontamentos</button>
         </div>
       </div>
@@ -918,7 +918,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
         <div style="text-align:center;padding:60px 20px;color:var(--text2)">
           <div style="font-size:32px;margin-bottom:12px">🛒</div>
           <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:8px">Lead Time de Compras</div>
-          <div style="font-size:12px;margin-bottom:20px">Carregue o CSV do BOM e clique em conectar para cruzar com os pedidos de compra do Hauler.</div>
+          <div style="font-size:12px;margin-bottom:20px">Conectando com os pedidos de compra do Hauler…</div>
           <button class="btn-sec" onclick="loadHaulerCompras()" style="font-size:12px">🔗 Conectar Compras</button>
         </div>
       </div>
@@ -936,13 +936,11 @@ tr:hover td{background:rgba(255,255,255,0.02)}
       </div>
     </div>
 
-    <!-- Empty state (before CSV) -->
+    <!-- Empty state (auto-loading) -->
     <div id="haulerEmpty" style="text-align:center;padding:60px 20px;color:var(--text2)">
-      <div style="font-size:40px;margin-bottom:16px">🔩</div>
-      <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:8px">Rastreamento BOM do Hauler</div>
-      <div style="font-size:13px;max-width:400px;margin:0 auto;line-height:1.6">
-        Carregue o arquivo CSV da lista de peças (401095 - THOMAS.csv) para visualizar a hierarquia completa com classificação automática e análise de etapas produtivas.
-      </div>
+      <div class="spinner" style="margin:0 auto 16px;width:32px;height:32px"></div>
+      <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:8px">Carregando BOM do Hauler…</div>
+      <div style="font-size:13px;color:var(--text2)" id="haulerEmptyMsg">Buscando lista de peças automaticamente</div>
     </div>
   </div>
 </div>
@@ -2251,10 +2249,18 @@ let _haulerFiltro='all';
 function initHauler(){
   // 1. Restaura BOM do cache localStorage se ainda não carregado
   if(!_haulerData)_haulerRestoreCache();
-  if(_haulerData)renderHaulerTable(_haulerData);
+  if(_haulerData){
+    renderHaulerTable(_haulerData);
+  } else {
+    // Sem cache — mostra spinner enquanto busca do Drive automaticamente
+    const emp=document.getElementById('haulerEmpty');
+    const msg=document.getElementById('haulerEmptyMsg');
+    if(emp)emp.style.display='block';
+    if(msg)msg.textContent='Buscando lista de peças automaticamente…';
+  }
   // 2. Busca dados operacionais (apontamentos + serial) do GAS
   _haulerAutoLoad();
-  // 3. Atualiza BOM do Drive em background se cache estiver velho (não bloqueia)
+  // 3. Atualiza BOM do Drive (sempre — se já tiver cache fresco retorna imediato)
   _haulerFetchBomDrive();
 }
 
@@ -2281,14 +2287,29 @@ const HAULER_BOM_TTL=7*24*60*60*1000; // 7 dias
 
 // Busca o BOM CSV do Google Drive via GAS e atualiza _haulerData.
 // Retorna true em sucesso, false em falha.
+let _haulerBomFetching=false;
 async function _haulerFetchBomDrive(force=false){
   const fileId=localStorage.getItem('hauler_bom_file_id');
   if(!fileId)return false;
   const ts=parseInt(localStorage.getItem('hauler_bom_ts')||'0');
   if(!force&&_haulerData&&(Date.now()-ts)<HAULER_BOM_TTL)return true; // cache ainda fresco
+  if(_haulerBomFetching&&!force)return false; // já está buscando
+  _haulerBomFetching=true;
+  // Mostrar spinner no empty state se hauler tab ativa e sem dados
+  const haulerPg=document.getElementById('pg-hauler');
+  const haulerActive=haulerPg&&haulerPg.classList.contains('on');
+  if(!_haulerData&&haulerActive){
+    const emp=document.getElementById('haulerEmpty');
+    const msg=document.getElementById('haulerEmptyMsg');
+    if(emp){emp.style.display='block';emp.querySelector('.spinner')||
+      (emp.innerHTML='<div class="spinner" style="margin:0 auto 16px;width:32px;height:32px"></div><div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:8px">Carregando BOM do Hauler…</div><div style="font-size:13px;color:var(--text2)" id="haulerEmptyMsg">Buscando lista de peças automaticamente…</div>');}
+  }
   try{
     const r=await api({action:'buscarHaulerBOM',fileId},30000);
-    if(!r||!r.success)return false;
+    if(!r||!r.success){
+      if(!_haulerData&&haulerActive)_haulerEmptyError('Falha ao carregar BOM: '+(r&&r.erro||'erro desconhecido'));
+      return false;
+    }
     // Tenta parsear como UTF-16LE primeiro, depois UTF-8
     let rows=null;
     for(const enc of[r.csv]){ // GAS já retorna string decodificada
@@ -2296,7 +2317,10 @@ async function _haulerFetchBomDrive(force=false){
       const filtered=parsed.data.filter(row=>Object.values(row).some(v=>v&&String(v).trim()&&String(v).trim()!=='.'));
       if(filtered.length>5){rows=filtered;break;}
     }
-    if(!rows)return false;
+    if(!rows){
+      if(!_haulerData&&haulerActive)_haulerEmptyError('CSV vazio ou formato inválido');
+      return false;
+    }
     _haulerData=classificarHauler(rows);
     _haulerBomCacheTs=Date.now();
     _haulerSaveCache(_haulerData);
@@ -2305,7 +2329,18 @@ async function _haulerFetchBomDrive(force=false){
       renderHaulerTable(_haulerData);
     }
     return true;
-  }catch(e){console.warn('BOM Drive fetch error:',e);return false;}
+  }catch(e){
+    console.warn('BOM Drive fetch error:',e);
+    if(!_haulerData&&haulerActive)_haulerEmptyError(e.message||'Erro ao buscar BOM');
+    return false;
+  }finally{_haulerBomFetching=false;}
+}
+
+function _haulerEmptyError(msg){
+  const emp=document.getElementById('haulerEmpty');
+  if(!emp)return;
+  emp.innerHTML=`<div style="font-size:32px;margin-bottom:12px">⚠️</div><div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:8px">Não foi possível carregar o BOM</div><div style="font-size:12px;color:var(--text2);margin-bottom:16px">${esc(msg)}</div><button class="btn-sec" onclick="_haulerFetchBomDrive(true)" style="font-size:12px">↺ Tentar novamente</button>`;
+  emp.style.display='block';
 }
 
 function haulerLimparCache(){
@@ -2752,7 +2787,7 @@ async function loadHaulerApontamentos(){
   // Se já tem dados em memória, usa direto
   if(_haulerApontData){
     if(_haulerData) _renderHaulerApontamentos(_haulerApontData);
-    else el.innerHTML='<div style="padding:40px;text-align:center;color:var(--amber)">⚠ Carregue o CSV do BOM para ver o cruzamento com apontamentos.</div>';
+    else{el.innerHTML='<div style="padding:40px;text-align:center;color:var(--text2)"><div class="spinner" style="margin:0 auto 12px"></div>Aguardando BOM…</div>';_haulerFetchBomDrive().then(ok=>{if(ok)_renderHaulerApontamentos(_haulerApontData);});}
     return;
   }
   el.innerHTML='<div style="text-align:center;padding:50px"><div class="spinner" style="margin:0 auto 12px"></div><div style="font-size:12px;color:var(--text2)">Buscando apontamentos… (primeiro acesso ~30s, depois usa cache 45min)</div></div>';
@@ -2761,7 +2796,7 @@ async function loadHaulerApontamentos(){
     if(data.error)throw new Error(data.error);
     _haulerApontData=data;
     if(_haulerData) _renderHaulerApontamentos(data);
-    else el.innerHTML='<div style="padding:40px;text-align:center;color:var(--amber)">⚠ Apontamentos carregados. Carregue o CSV do BOM para ver o cruzamento.</div>';
+    else{el.innerHTML='<div style="padding:40px;text-align:center;color:var(--text2)"><div class="spinner" style="margin:0 auto 12px"></div>Aguardando BOM…</div>';_haulerFetchBomDrive().then(ok=>{if(ok)_renderHaulerApontamentos(data);});}
   }catch(e){
     el.innerHTML=`<div style="padding:40px;text-align:center;color:var(--red);font-size:13px">
       ❌ ${esc(e.message)}<br><br>
@@ -2959,8 +2994,10 @@ function _fmtHoras(h){
 let _haulerComprasData=null;
 async function loadHaulerCompras(){
   if(!_haulerData){
-    document.getElementById('haulerComprasContent').innerHTML='<div style="padding:40px;text-align:center;color:var(--amber)">⚠ Carregue o CSV do BOM primeiro.</div>';
-    return;
+    const el=document.getElementById('haulerComprasContent');
+    el.innerHTML='<div style="padding:40px;text-align:center;color:var(--text2)"><div class="spinner" style="margin:0 auto 12px"></div>Aguardando BOM…</div>';
+    const ok=await _haulerFetchBomDrive();
+    if(!ok||!_haulerData){el.innerHTML='<div style="padding:40px;text-align:center;color:var(--red)">⚠ Não foi possível carregar o BOM. <button class="btn-sec" onclick="loadHaulerCompras()" style="font-size:11px">↺ Tentar novamente</button></div>';return;}
   }
   const el=document.getElementById('haulerComprasContent');
   el.innerHTML='<div style="text-align:center;padding:50px"><div class="spinner" style="margin:0 auto 12px"></div><div style="font-size:12px;color:var(--text2)">Buscando dados de compra do Hauler… (pode levar ~30s)</div></div>';
@@ -3466,7 +3503,7 @@ function renderHaulerSerial(data){
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
     <div>
       <div style="font-size:14px;font-weight:700">Produção Hauler — Por Número de Série</div>
-      <div style="font-size:11px;color:var(--text2)">${seriais.length} seriais · dados de apontamentos + pedidos de compra${geradoStr?' · gerado '+geradoStr:''}${bomRef?` · <span style="color:var(--green)">📋 BOM: ${bomRef.total} itens de referência</span>`:'&nbsp;· <span style="color:var(--amber)">📋 Carregue o CSV na aba "Por Etapa" para ver referência BOM por fase</span>'}</div>
+      <div style="font-size:11px;color:var(--text2)">${seriais.length} seriais · dados de apontamentos + pedidos de compra${geradoStr?' · gerado '+geradoStr:''}${bomRef?` · <span style="color:var(--green)">📋 BOM: ${bomRef.total} itens de referência</span>`:''}</div>
     </div>
     <button class="btn-sec" onclick="_haulerAutoLoad(true)" style="font-size:11px">↺ Atualizar</button>
   </div>
@@ -5731,6 +5768,9 @@ function setRptDept(dept,btn){
   if(!localStorage.getItem('hauler_bom_file_id')){
     localStorage.setItem('hauler_bom_file_id','1w4-Igqj9Gyalj2ulvYJSwFKUorkSxHJk');
   }
+  // Pré-carrega BOM do Hauler em background (cache localStorage ou Drive)
+  _haulerRestoreCache();
+  if(!_haulerData) setTimeout(()=>_haulerFetchBomDrive(), 5000); // busca Drive após 5s
   // Auto-fetch Jira on load
   autoFetch();
   // Pré-carrega Compras em background após 8s (não bloqueia o carregamento inicial)
