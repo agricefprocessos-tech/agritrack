@@ -3191,15 +3191,21 @@ function renderHaulerSerial(data){
   if(!el)return;
   const {seriais=[],resumo={},geradoEm}=data;
 
-  // BOM de referência: calculado a partir do CSV já carregado na aba Por Etapas
-  // compras = ITEM COMERCIAL=SIM + CORTE CHAPA (externo)
-  // fab     = CORTE PERFIL + SOLDAGEM + USINAGEM (interno)
-  // mont    = MONTAGEM (inclui pré-mont e montagem final — não separável pelo BOM)
+  // BOM de referência: denominadores reais por tipo de operação
+  // Compras  = ITEM COMERCIAL=SIM (externo puro)
+  // Corte    = CORTE CHAPA (pode ser externo)
+  // Serra    = CORTE PERFIL  |  Solda = SOLDAGEM  |  Usinagem = USINAGEM
+  // Mont     = MONTAGEM
   const bomRef=_haulerData&&_haulerData.length>0?(()=>{
-    const c=_haulerData.filter(r=>r.tipoAll.includes('comprar')||r.tipoAll.includes('corte')).length;
-    const f=_haulerData.filter(r=>r.tipoAll.some(t=>['serra','solda','usinagem'].includes(t))).length;
-    const m=_haulerData.filter(r=>r.tipoAll.includes('montagem')).length;
-    return(c+f+m>0)?{compras:c,fab:f,mont:m,total:c+f+m}:null;
+    const comprar=_haulerData.filter(r=>r.tipoAll.includes('comprar')).length;
+    const corte  =_haulerData.filter(r=>r.tipoAll.includes('corte')).length;
+    const serra  =_haulerData.filter(r=>r.tipoAll.includes('serra')).length;
+    const solda  =_haulerData.filter(r=>r.tipoAll.includes('solda')).length;
+    const usin   =_haulerData.filter(r=>r.tipoAll.includes('usinagem')).length;
+    const mont   =_haulerData.filter(r=>r.tipoAll.includes('montagem')).length;
+    const fab=serra+solda+usin;
+    const c=comprar+corte;
+    return(c+fab+mont>0)?{comprar,corte,serra,solda,usinagem:usin,compras:c,fab,mont,total:c+fab+mont}:null;
   })():null;
 
   if(!seriais.length){
@@ -3236,11 +3242,12 @@ function renderHaulerSerial(data){
   // KPIs de resumo
   function calcPct_(s){
     const P={compras:10,fabricacao:30,preMontagem:25,montagem:35};
-    // Normaliza status compras: concluida só se nEntregues >= nPedidos
     const fc_r=s.fases.compras;
     const fc_st=(fc_r.status==='concluida'&&fc_r.nPedidos>0&&(fc_r.nEntregues||0)<fc_r.nPedidos)?'em_andamento':fc_r.status;
-    // Compras: ratio entregues/pedidos quando disponível
-    const cc=fc_r.nPedidos>0?(fc_r.nEntregues||0)/fc_r.nPedidos*P.compras:fc_st==='concluida'?P.compras:fc_st==='em_andamento'?P.compras*0.5:0;
+    // Compras: usa BOM como denominador real (ex: 17 pedidos entregues / 217 BOM = 8%)
+    const bomComprasRef=bomRef?bomRef.comprar:null;
+    const compDenom=bomComprasRef||fc_r.nPedidos;
+    const cc=compDenom>0?(fc_r.nEntregues||0)/compDenom*P.compras:fc_st==='concluida'?P.compras:fc_st==='em_andamento'?P.compras*0.5:0;
     // Ops: ratio (nOps-nAbertas)/nOps quando disponível, fallback binário
     function opsScore(f,peso){
       if(!f||f.status==='sem_dados')return 0;
@@ -3277,7 +3284,8 @@ function renderHaulerSerial(data){
           const fc={...fc_raw, status:(fc_raw.status==='concluida'&&fc_raw.nPedidos>0&&(fc_raw.nEntregues||0)<fc_raw.nPedidos)?'em_andamento':fc_raw.status};
           const ff=s.fases.fabricacao, fp=s.fases.preMontagem, fm=s.fases.montagem;
           const pct=calcPct_(s);
-          const pctComp=fc.nPedidos>0?Math.round((fc.nEntregues||0)/fc.nPedidos*100):null;
+          const bomCompRef=bomRef?bomRef.comprar:null;
+          const pctComp=bomCompRef>0?Math.round((fc.nEntregues||0)/bomCompRef*100):fc.nPedidos>0?Math.round((fc.nEntregues||0)/fc.nPedidos*100):null;
           const diasProd=s.diasProd;
           const opsAb=s.opsAbertas||[];
           const ops=s.operadores||[];
@@ -3319,13 +3327,16 @@ function renderHaulerSerial(data){
             <div style="padding:10px 14px;display:grid;grid-template-columns:1fr 1fr;gap:6px">
               ${[
                 {f:fc,label:comprasAlerta?'🛒 Compras ⚠️':'🛒 Compras',
-                 qty:fc.nPedidos>0?`${fc.nEntregues||0}/${fc.nPedidos}${comprasAlerta?' ⚠':''}`:null,
-                 bom:bomRef?bomRef.compras:null,
+                 // qty = pedidos feitos / BOM esperado (ex: 17/217)
+                 qty:(fc.nPedidos>0||bomCompRef)?`${fc.nPedidos||0}/${bomCompRef||fc.nPedidos||'?'}${comprasAlerta?' ⚠':''}`:null,
+                 // bom linha secundária = entregues vs pedidos
+                 bom:fc.nPedidos>0?`${fc.nEntregues||0}/${fc.nPedidos} entregues`:null,
                  dtLbl:fc.status==='concluida'?'últ.ent.':'desde',
                  alert:comprasAlerta},
                 {f:ff,label:'⚙️ Fabricação',
                  qty:ff.nOps>0?`${ff.nOps-(ff.nAbertas||0)}/${ff.nOps} ops`:null,
-                 bom:bomRef?bomRef.fab:null,
+                 // bom = breakdown por op do BOM como referência
+                 bom:bomRef&&bomRef.fab>0?`BOM: ⚙️${bomRef.serra} Serra · 🔧${bomRef.usinagem} Usin · 🔥${bomRef.solda} Solda`:null,
                  dtLbl:ff.status==='concluida'?'concl.':'desde',alert:false},
                 {f:fp,label:'🔩 Pré-Mont',
                  qty:fp.nOps>0?`${fp.nOps-(fp.nAbertas||0)}/${fp.nOps} ops`:null,
@@ -3333,7 +3344,7 @@ function renderHaulerSerial(data){
                  dtLbl:fp.status==='concluida'?'concl.':'desde',alert:false},
                 {f:fm,label:'🏗️ Montagem',
                  qty:fm.nOps>0?`${fm.nOps-(fm.nAbertas||0)}/${fm.nOps} ops`:null,
-                 bom:bomRef?bomRef.mont:null,
+                 bom:bomRef?`BOM: ${bomRef.mont} itens`:null,
                  dtLbl:fm.status==='concluida'?'concl.':'desde',alert:false},
               ].map(({f,label,qty,dtLbl,alert,bom})=>{
                 const st=f.status||'sem_dados';
@@ -3378,7 +3389,8 @@ function renderHaulerSerial(data){
                     const nPed=fData.nPedidos||0;
                     const nEnt=fData.nEntregues||0;
                     const nPend=nPed-nEnt;
-                    det=`${nEnt}/${nPed} entregues`;
+                    const bomTot=bomCompRef||nPed;
+                    det=`${nPed}/${bomTot} pedidos feitos · ${nEnt} entregues`;
                     if(nPend>0)det+=` · ${nPend} aguardando chegada`;
                   } else {
                     const nOps=fData.nOps||0;
@@ -3391,9 +3403,12 @@ function renderHaulerSerial(data){
                   pesoFaltando+=Math.round(PESOS_FASE[fk]*0.5);
                 }
               });
-              // Compras: pedidos não entregues (quando compras já concluída mas ainda há pendentes)
+              // Compras: pedidos não colocados ou não entregues
               const compFalta=fc.nPedidos-(fc.nEntregues||0);
-              if(compFalta>0&&fc.status!=='em_andamento'){
+              const compNaoFeit=bomCompRef?(bomCompRef-(fc.nPedidos||0)):0;
+              if(compNaoFeit>0&&fc.status!=='em_andamento'){
+                pendencias.push({tipo:'compras_pendentes',label:'🛒 Compras não colocadas',detalhe:`${fc.nPedidos||0}/${bomCompRef} pedidos feitos · faltam ${compNaoFeit} itens do BOM`,peso:0});
+              } else if(compFalta>0&&fc.status!=='em_andamento'){
                 pendencias.push({tipo:'compras_pendentes',label:'🛒 Entregas pendentes',detalhe:`${fc.nEntregues||0}/${fc.nPedidos||0} entregues · ${compFalta} aguardando chegada`,peso:0});
               }
               // Ops ainda abertas
@@ -3437,7 +3452,7 @@ function renderHaulerSerial(data){
                       </div>
                     </div>`).join('')}
                   <div style="font-size:9px;color:var(--text3);margin-top:2px;padding-top:6px;border-top:1px solid var(--border)">
-                    ℹ️ Compras: ${fc.nEntregues||0}/${fc.nPedidos||0} ent · Fab: ${(ff.nOps||0)-(ff.nAbertas||0)}/${ff.nOps||0} · Pré: ${(fp.nOps||0)-(fp.nAbertas||0)}/${fp.nOps||0} · Mont: ${(fm.nOps||0)-(fm.nAbertas||0)}/${fm.nOps||0} ops
+                    ℹ️ Compras: ${fc.nPedidos||0}/${bomCompRef||fc.nPedidos||0} ped. · ${fc.nEntregues||0} ent · Fab: ${(ff.nOps||0)-(ff.nAbertas||0)}/${ff.nOps||0} · Pré: ${(fp.nOps||0)-(fp.nAbertas||0)}/${fp.nOps||0} · Mont: ${(fm.nOps||0)-(fm.nAbertas||0)}/${fm.nOps||0} ops
                   </div>
                 </div>
               </div>`;
@@ -3469,7 +3484,9 @@ function renderHaulerSerial(data){
           ${seriais.map(s=>{
             const _fc=s.fases.compras,_ff=s.fases.fabricacao,_fp=s.fases.preMontagem,_fm=s.fases.montagem;
             const _PESOS={compras:10,fabricacao:30,preMontagem:25,montagem:35};
-            const _cc=_fc.nPedidos>0?(_fc.nEntregues||0)/_fc.nPedidos*_PESOS.compras:_fc.status==='concluida'?_PESOS.compras:_fc.status==='em_andamento'?_PESOS.compras*0.5:0;
+            const _bomCompRef=bomRef?bomRef.comprar:null;
+            const _compDenom=_bomCompRef||_fc.nPedidos;
+            const _cc=_compDenom>0?(_fc.nEntregues||0)/_compDenom*_PESOS.compras:_fc.status==='concluida'?_PESOS.compras:_fc.status==='em_andamento'?_PESOS.compras*0.5:0;
             const pct=Math.round(_cc+(_ff.status==='concluida'?_PESOS.fabricacao:_ff.status==='em_andamento'?_PESOS.fabricacao*0.5:0)+(_fp.status==='concluida'?_PESOS.preMontagem:_fp.status==='em_andamento'?_PESOS.preMontagem*0.5:0)+(_fm.status==='concluida'?_PESOS.montagem:_fm.status==='em_andamento'?_PESOS.montagem*0.5:0));
             const pc=pct>=75?'var(--green)':pct>=40?'var(--amber)':'var(--red)';
             function cellF(f){
