@@ -3263,10 +3263,14 @@ function renderHaulerSerial(data){
     const P={compras:10,fabricacao:30,preMontagem:25,montagem:35};
     const fc_r=s.fases.compras;
     const fc_st=(fc_r.status==='concluida'&&fc_r.nPedidos>0&&(fc_r.nEntregues||0)<fc_r.nPedidos)?'em_andamento':fc_r.status;
-    // Compras: usa BOM como denominador real (ex: 17 pedidos entregues / 217 BOM = 8%)
+    // Compras: cobertura BOM = min(nPedidos, bomRef.comprar) / bomRef.comprar
+    // nPedidos são linhas FUP (múltiplas por item) — usar como proxy de cobertura com cap no total BOM
     const bomComprasRef=bomRef?bomRef.comprar:null;
+    const compCoverage=bomComprasRef>0?Math.min(fc_r.nPedidos||0,bomComprasRef)/bomComprasRef:null;
     const compDenom=bomComprasRef||fc_r.nPedidos;
-    const cc=compDenom>0?(fc_r.nEntregues||0)/compDenom*P.compras:fc_st==='concluida'?P.compras:fc_st==='em_andamento'?P.compras*0.5:0;
+    const cc=compCoverage!==null?compCoverage*P.compras:
+      compDenom>0?(fc_r.nEntregues||0)/compDenom*P.compras:
+      fc_st==='concluida'?P.compras:fc_st==='em_andamento'?P.compras*0.5:0;
     // Ops: ratio (nOps-nAbertas)/nOps quando disponível, fallback binário
     function opsScore(f,peso){
       if(!f||f.status==='sem_dados')return 0;
@@ -3289,7 +3293,7 @@ function renderHaulerSerial(data){
     <div class="kpi"><div class="kl">Progresso Médio</div><div class="kv" style="color:var(--green)">${avgPct}%</div><div class="kn">ponderado por fase</div><div class="kb" style="width:${avgPct}%;background:var(--green)"></div></div>
     <div class="kpi ${emAndamento>0?'a':''}"><div class="kl">Ops em Aberto</div><div class="kv">${emAndamento}</div><div class="kn">haulers c/ op ativa</div><div class="kb" style="width:${seriais.length?Math.round(emAndamento/seriais.length*100):0}%"></div></div>
     <div class="kpi"><div class="kl">Com Pedidos</div><div class="kv" style="color:var(--blue)">${comCompras}</div><div class="kn">haulers c/ dados compras</div><div class="kb" style="width:${seriais.length?Math.round(comCompras/seriais.length*100):0}%;background:var(--blue)"></div></div>
-    <div class="kpi"><div class="kl">Pedidos Entregues</div><div class="kv" style="color:var(--green)">${totalEntregues}</div><div class="kn">de ${totalPedidos} total (${pctEntregas}%)</div><div class="kb" style="width:${pctEntregas}%;background:var(--green)"></div></div>
+    <div class="kpi"><div class="kl">Entregas (FUP)</div><div class="kv" style="color:var(--green)">${totalEntregues}</div><div class="kn">de ${totalPedidos} linhas (${pctEntregas}%)</div><div class="kb" style="width:${pctEntregas}%;background:var(--green)"></div></div>
     <div class="kpi">${FASES.map(f=>`<div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:2px"><span style="color:${f.color}">${f.label}</span><span style="font-weight:700">${resumo[f.key]||0}</span></div>`).join('')}</div>
   </div>`;
 
@@ -3346,10 +3350,10 @@ function renderHaulerSerial(data){
             <div style="padding:10px 14px;display:grid;grid-template-columns:1fr 1fr;gap:6px">
               ${[
                 {f:fc,label:comprasAlerta?'🛒 Compras ⚠️':'🛒 Compras',
-                 // qty = pedidos feitos / BOM esperado (ex: 17/217)
-                 qty:(fc.nPedidos>0||bomCompRef)?`${fc.nPedidos||0}/${bomCompRef||fc.nPedidos||'?'}${comprasAlerta?' ⚠':''}`:null,
-                 // bom linha secundária = entregues vs pedidos
-                 bom:fc.nPedidos>0?`${fc.nEntregues||0}/${fc.nPedidos} entregues`:null,
+                 // qty = entregues/pedidos (taxa de entrega dentro do que foi pedido)
+                 qty:fc.nPedidos>0?`${fc.nEntregues||0}/${fc.nPedidos} ent.${comprasAlerta?' ⚠':''}`:null,
+                 // bom = pedidos colocados vs BOM esperado (cobertura)
+                 bom:bomCompRef?`${Math.min(fc.nPedidos||0,bomCompRef)}/${bomCompRef} BOM cobertos`:null,
                  dtLbl:fc.status==='concluida'?'últ.ent.':'desde',
                  alert:comprasAlerta},
                 {f:ff,label:'⚙️ Fabricação',
@@ -3471,7 +3475,7 @@ function renderHaulerSerial(data){
                       </div>
                     </div>`).join('')}
                   <div style="font-size:9px;color:var(--text3);margin-top:2px;padding-top:6px;border-top:1px solid var(--border)">
-                    ℹ️ Compras: ${fc.nPedidos||0}/${bomCompRef||fc.nPedidos||0} ped. · ${fc.nEntregues||0} ent · Fab: ${(ff.nOps||0)-(ff.nAbertas||0)}/${ff.nOps||0} · Pré: ${(fp.nOps||0)-(fp.nAbertas||0)}/${fp.nOps||0} · Mont: ${(fm.nOps||0)-(fm.nAbertas||0)}/${fm.nOps||0} ops
+                    ℹ️ Compras: ${fc.nEntregues||0}/${fc.nPedidos||0} ent. · ${bomCompRef?Math.min(fc.nPedidos||0,bomCompRef)+'/'+bomCompRef+' BOM':'sem ref.'} · Fab: ${(ff.nOps||0)-(ff.nAbertas||0)}/${ff.nOps||0} · Pré: ${(fp.nOps||0)-(fp.nAbertas||0)}/${fp.nOps||0} · Mont: ${(fm.nOps||0)-(fm.nAbertas||0)}/${fm.nOps||0} ops
                   </div>
                 </div>
               </div>`;
@@ -3504,8 +3508,9 @@ function renderHaulerSerial(data){
             const _fc=s.fases.compras,_ff=s.fases.fabricacao,_fp=s.fases.preMontagem,_fm=s.fases.montagem;
             const _PESOS={compras:10,fabricacao:30,preMontagem:25,montagem:35};
             const _bomCompRef=bomRef?bomRef.comprar:null;
+            const _compCov=_bomCompRef>0?Math.min(_fc.nPedidos||0,_bomCompRef)/_bomCompRef:null;
             const _compDenom=_bomCompRef||_fc.nPedidos;
-            const _cc=_compDenom>0?(_fc.nEntregues||0)/_compDenom*_PESOS.compras:_fc.status==='concluida'?_PESOS.compras:_fc.status==='em_andamento'?_PESOS.compras*0.5:0;
+            const _cc=_compCov!==null?_compCov*_PESOS.compras:_compDenom>0?(_fc.nEntregues||0)/_compDenom*_PESOS.compras:_fc.status==='concluida'?_PESOS.compras:_fc.status==='em_andamento'?_PESOS.compras*0.5:0;
             const pct=Math.round(_cc+(_ff.status==='concluida'?_PESOS.fabricacao:_ff.status==='em_andamento'?_PESOS.fabricacao*0.5:0)+(_fp.status==='concluida'?_PESOS.preMontagem:_fp.status==='em_andamento'?_PESOS.preMontagem*0.5:0)+(_fm.status==='concluida'?_PESOS.montagem:_fm.status==='em_andamento'?_PESOS.montagem*0.5:0));
             const pc=pct>=75?'var(--green)':pct>=40?'var(--amber)':'var(--red)';
             function cellF(f){
