@@ -3357,13 +3357,13 @@ function renderHaulerSerial(data){
                  // qty = entregues/pedidos (taxa de entrega dentro do que foi pedido)
                  qty:fc.nPedidos>0?`${fc.nEntregues||0}/${fc.nPedidos} ent.${comprasAlerta?' ⚠':''}`:null,
                  // bom = pedidos colocados vs BOM esperado (cobertura)
-                 bom:bomCompRef?`${Math.min(fc.nPedidos||0,bomCompRef)}/${bomCompRef} BOM cobertos`:null,
+                 bom:bomCompRef?`${Math.min(fc.nPedidos||0,bomCompRef)}/${bomCompRef} cobertos`:null,
                  dtLbl:fc.status==='concluida'?'últ.ent.':'desde',
                  alert:comprasAlerta},
                 {f:ff,label:'⚙️ Fabricação',
                  qty:ff.nOps>0?`${ff.nOps-(ff.nAbertas||0)}/${ff.nOps} ops`:null,
                  // bom = breakdown por op do BOM como referência
-                 bom:bomRef&&bomRef.fab>0?`BOM: ⚙️${bomRef.serra} Serra · 🔧${bomRef.usinagem} Usin · 🔥${bomRef.solda} Solda`:null,
+                 bom:bomRef&&bomRef.fab>0?`⚙️${bomRef.serra} Serra · 🔧${bomRef.usinagem} Usin · 🔥${bomRef.solda} Solda`:null,
                  dtLbl:ff.status==='concluida'?'concl.':'desde',alert:false},
                 {f:fp,label:'🔩 Pré-Mont',
                  qty:fp.nOps>0?`${fp.nOps-(fp.nAbertas||0)}/${fp.nOps} ops`:null,
@@ -3371,7 +3371,7 @@ function renderHaulerSerial(data){
                  dtLbl:fp.status==='concluida'?'concl.':'desde',alert:false},
                 {f:fm,label:'🏗️ Montagem',
                  qty:fm.nOps>0?`${fm.nOps-(fm.nAbertas||0)}/${fm.nOps} ops`:null,
-                 bom:bomRef?`BOM: ${bomRef.mont} itens`:null,
+                 bom:bomRef?`${bomRef.mont} itens`:null,
                  dtLbl:fm.status==='concluida'?'concl.':'desde',alert:false},
               ].map(({f,label,qty,dtLbl,alert,bom})=>{
                 const st=f.status||'sem_dados';
@@ -3383,7 +3383,7 @@ function renderHaulerSerial(data){
                     ${dt?`<span style="font-size:8px;color:var(--text3);opacity:.75">${dtLbl} ${dt}</span>`:''}
                   </div>
                   <div style="font-size:10px;color:${SC[st]};font-weight:600">${SI[st]}${qty?' '+qty:st==='sem_dados'?'':''}</div>
-                  ${bom!==null?`<div style="font-size:8px;color:var(--text3);margin-top:2px;opacity:.75">📋 BOM: ${bom} itens</div>`:''}
+                  ${bom!==null?`<div style="font-size:8px;color:var(--text3);margin-top:2px;opacity:.75">📋 BOM: ${bom}</div>`:''}
                 </div>`;
               }).join('')}
             </div>
