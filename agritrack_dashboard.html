@@ -2374,6 +2374,54 @@ function haulerLimparCache(){
 // ── Carrega TUDO em uma única chamada GAS (cache 45min) ──────────
 let _haulerAutoLoading=false;
 let _haulerCompleto=null;
+let _haulerComprasIndex=null;    // {serial:{codigos:Set,nLinhas:n}} — do PV parser do FUP
+let _haulerComprasIndexLoading=false;
+
+// ── Parser de campo PV → seriais ─────────────────────────────────
+// "22000086"           → ["22000086"]
+// "22000086, 87 e 88" → ["22000086","22000087","22000088"]
+// "ALINHAMENTO - 22000086" → ["22000086"]
+function parsePvSeriais(text){
+  if(!text)return[];
+  const t=String(text).trim();
+  const full=t.match(/\b220\d{5}\b/g)||[];
+  if(!full.length)return[];
+  const r=new Set(full);
+  if(full.length===1){
+    // Buscar sufixos abreviados: "86, 87 e 88" → +87, +88
+    const prefix=full[0].substring(0,5); // "22000"
+    const rest=t.replace(/\b220\d{5}\b/g,'');
+    (rest.match(/\b\d{2,3}\b/g)||[]).forEach(p=>{
+      const s=prefix+p.padStart(3,'0');
+      if(/^220\d{5}$/.test(s))r.add(s);
+    });
+  }
+  return[...r];
+}
+
+// ── Carrega cobertura de compras por serial via PV parser ─────────
+async function _haulerLoadComprasPorSerial(force=false){
+  if(_haulerComprasIndexLoading&&!force)return;
+  if(_haulerComprasIndex&&!force)return;
+  _haulerComprasIndexLoading=true;
+  try{
+    const d=await api({action:'buscarComprasPorSerial'},120000);
+    if(d&&d.success&&d.seriais){
+      const idx={};
+      Object.entries(d.seriais).forEach(([serial,v])=>{
+        idx[serial]={codigos:new Set(v.codigos),nLinhas:v.nLinhas||0};
+      });
+      _haulerComprasIndex=idx;
+      // Re-renderizar Por Serial se estiver ativo
+      if(_haulerActiveTab==='serial'&&_haulerCompleto&&_haulerCompleto.serial){
+        console.log('[AgriTrack] ComprasIndex carregado — re-renderizando Por Serial');
+        renderHaulerSerial(_haulerCompleto.serial);
+      }
+    }
+  }catch(e){
+    console.warn('[AgriTrack] buscarComprasPorSerial:',e.message);
+  }finally{_haulerComprasIndexLoading=false;}
+}
 
 async function _haulerAutoLoad(forceRefresh){
   if(_haulerAutoLoading){
@@ -2392,6 +2440,8 @@ async function _haulerAutoLoad(forceRefresh){
     _haulerAplicarDados(dados);
     _haulerSetTabLoading('apont',false,null);
     _haulerSetTabLoading('serial',false,null);
+    // Background: carrega cobertura real por serial via PV parser
+    if(!_haulerComprasIndex)_haulerLoadComprasPorSerial();
   }catch(e){
     _haulerSetTabLoading('apont',false,e.message);
     _haulerSetTabLoading('serial',false,e.message);
@@ -3231,6 +3281,26 @@ function renderHaulerSerial(data){
     return(c+fab+mont>0)?{comprar,corte,serra,solda,usinagem:usin,compras:c,fab,mont,total:c+fab+mont}:null;
   })():null;
 
+  // Conjunto de códigos BOM do tipo "comprar" (normalizado) para cruzamento com FUP
+  const bomComprarCodes=bomRef&&_haulerData?new Set(
+    _haulerData.filter(r=>r.tipoAll&&r.tipoAll.includes('comprar')&&r.codigo)
+               .map(r=>_normCod(r.codigo))
+  ):null;
+
+  // Helper: calcula cobertura real de itens BOM por serial usando índice FUP
+  // Se _haulerComprasIndex disponível → contagem exata; senão → estimativa por nPedidos
+  function bomCoverageForSerial(serial, nPedidos, bomComprasRef){
+    if(!bomComprasRef)return null;
+    if(_haulerComprasIndex&&_haulerComprasIndex[serial]&&bomComprarCodes){
+      const covered=[..._haulerComprasIndex[serial].codigos].filter(c=>bomComprarCodes.has(c)).length;
+      return {count:covered, total:bomComprasRef, exact:true,
+              nLinhasFup:_haulerComprasIndex[serial].nLinhas};
+    }
+    // Fallback: estimativa (min de linhas vs total BOM)
+    const est=Math.min(nPedidos||0,bomComprasRef);
+    return {count:est, total:bomComprasRef, exact:false, nLinhasFup:nPedidos||0};
+  }
+
   if(!seriais.length){
     el.innerHTML=`<div style="text-align:center;padding:40px;color:var(--text2)">Nenhum serial Hauler encontrado. Verifique se há apontamentos com "HAULER" no número de série.</div>`;
     return;
@@ -3267,10 +3337,10 @@ function renderHaulerSerial(data){
     const P={compras:10,fabricacao:30,preMontagem:25,montagem:35};
     const fc_r=s.fases.compras;
     const fc_st=(fc_r.status==='concluida'&&fc_r.nPedidos>0&&(fc_r.nEntregues||0)<fc_r.nPedidos)?'em_andamento':fc_r.status;
-    // Compras: cobertura BOM = min(nPedidos, bomRef.comprar) / bomRef.comprar
-    // nPedidos são linhas FUP (múltiplas por item) — usar como proxy de cobertura com cap no total BOM
     const bomComprasRef=bomRef?bomRef.comprar:null;
-    const compCoverage=bomComprasRef>0?Math.min(fc_r.nPedidos||0,bomComprasRef)/bomComprasRef:null;
+    // Cobertura de Compras: usa cruzamento BOM×FUP quando disponível, senão estimativa
+    const cov=bomCoverageForSerial(s.serial,fc_r.nPedidos,bomComprasRef);
+    const compCoverage=cov?cov.count/cov.total:null;
     const compDenom=bomComprasRef||fc_r.nPedidos;
     const cc=compCoverage!==null?compCoverage*P.compras:
       compDenom>0?(fc_r.nEntregues||0)/compDenom*P.compras:
@@ -3312,7 +3382,10 @@ function renderHaulerSerial(data){
           const ff=s.fases.fabricacao, fp=s.fases.preMontagem, fm=s.fases.montagem;
           const pct=calcPct_(s);
           const bomCompRef=bomRef?bomRef.comprar:null;
-          const pctComp=bomCompRef>0?Math.round((fc.nEntregues||0)/bomCompRef*100):fc.nPedidos>0?Math.round((fc.nEntregues||0)/fc.nPedidos*100):null;
+          // Cobertura real via PV parser (exata) ou estimativa (por linhas FUP)
+          const covData=bomCoverageForSerial(s.serial,fc.nPedidos,bomCompRef);
+          const pctComp=covData?Math.round(covData.count/covData.total*100):
+            fc.nPedidos>0?Math.round((fc.nEntregues||0)/fc.nPedidos*100):null;
           const diasProd=s.diasProd;
           const opsAb=s.opsAbertas||[];
           const ops=s.operadores||[];
@@ -3354,12 +3427,13 @@ function renderHaulerSerial(data){
             <div style="padding:10px 14px;display:grid;grid-template-columns:1fr 1fr;gap:6px">
               ${[
                 {f:fc,label:comprasAlerta?'🛒 Compras ⚠️':'🛒 Compras',
-                 // qty principal = cobertura BOM (quantos dos 217 itens têm pedido)
-                 qty:bomCompRef
-                   ?`${Math.min(fc.nPedidos||0,bomCompRef)}/${bomCompRef} cobertos`
+                 // qty principal = itens BOM cobertos (exato via PV parser, ou estimado)
+                 qty:covData
+                   ?`${covData.count}/${covData.total} cobertos${covData.exact?'':' ~'}`
                    :fc.nPedidos>0?`${fc.nEntregues||0}/${fc.nPedidos} ent.`:null,
-                 // sub = linhas FUP (info secundária, menos destaque)
-                 sub:fc.nPedidos>0&&bomCompRef?`${fc.nEntregues||0}/${fc.nPedidos} linhas FUP ent.`:null,
+                 // sub = linhas FUP (info secundária)
+                 sub:covData&&covData.nLinhasFup>0?`${covData.nLinhasFup} linhas FUP${covData.exact?' (por serial)':' (total)'}`:
+                     fc.nPedidos>0&&!covData?`${fc.nEntregues||0}/${fc.nPedidos} linhas FUP ent.`:null,
                  bom:null,
                  dtLbl:fc.status==='concluida'?'últ.ent.':'desde',
                  alert:comprasAlerta},
