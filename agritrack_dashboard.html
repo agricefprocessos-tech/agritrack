@@ -3798,13 +3798,14 @@ let _cmpChartResp=null, _cmpChartFinal=null, _cmpChartMes=null, _cmpChartAging=n
 
 // Categorias operacionais — usadas no swim lane E no filtro de categoria
 const CMP_CATS=[
-  {icon:'🎨',title:'Pintura',      color:'#a78bfa', kws:['pintura','tinta','paint','lacqu']},
-  {icon:'⚙️', title:'Usinagem',    color:'#60a5fa', kws:['usinagem','usinar','torneamento','fresament','cnc']},
-  {icon:'🔩', title:'Tratamento',  color:'#34d399', kws:['tratamento','galvanis','zinco','fosfat','oxidac','niquela','cro']},
-  {icon:'✂️', title:'Corte / Chapa',color:'#fb923c',kws:['chapa','corte','laser','dobra','guilhot','plasma','estampagem']},
-  {icon:'🧱', title:'Matéria-Prima',color:'#f59e0b', kws:['materia prima','matéria prima','mp ','tubo ','aço','alumin','barra','perfil','vergalhão','chapa bruta']},
-  {icon:'🔄', title:'OSTI / Externo',color:'#e879f9',kws:['osti','terceiro','externo','subcontrat']},
-  {icon:'📦', title:'Aguard. Fornecedor',color:'#38bdf8',kws:['aguardando','aguard','pedido','compra']},
+  {icon:'🎨',title:'Pintura',        color:'#a78bfa', kws:['pintura','tinta','paint','lacqu','epóxi','epox']},
+  {icon:'⚙️', title:'Usinagem',      color:'#60a5fa', kws:['usinagem','usinar','torneamento','fresament','cnc','retifica']},
+  {icon:'🔩', title:'Tratamento',    color:'#34d399', kws:['tratamento','galvanis','zinco','fosfat','oxidac','niquela','cro','zincagem']},
+  {icon:'✂️', title:'Corte / Chapa', color:'#fb923c', kws:['chapa','corte laser','dobra','guilhot','plasma','estampagem','corte chapa']},
+  {icon:'🧱', title:'Matéria-Prima', color:'#f59e0b', kws:['materia prima','matéria prima','mp ','tubo ','aço','alumin','barra','perfil','vergalhão','chapa bruta','fabricação de produto','fabricacao de produto']},
+  {icon:'🔌', title:'Elétrico / EPI',color:'#38bdf8', kws:['eletric','eletrôn','eletr','sensor','cabo ','fiação','chave','botão','botao','refletor','led','relé','rele','fusível','epi','capacete','luva','bota']},
+  {icon:'🔄', title:'OSTI / Externo',color:'#e879f9', kws:['osti','terceiro','externo','subcontrat','serviço','servico']},
+  {icon:'📦', title:'Compras Gerais',color:'#64748b', kws:['venda','5.01','commerci','adesivo','etiqueta']},
 ];
 function _cmpCateg(row){
   const f=(row[cmpKey('finalid')]||'').toLowerCase();
@@ -4191,12 +4192,17 @@ function renderTabKPIs(){
 
   }else if(tabL.includes('fup')||tabL.includes('follow')){
     // ── Aba FUP ──────────────────────────────────────
+    // Para FUP: usa "Previsão Entrega" ou "Previsão Entrega (Fornecedor)" como prazo real
+    const fupDtK=cmpKey('previsão entrega','previsao entrega','prev. entrega','previsão','fornecedor)','prazo transportadora')||dtK;
     const em7=new Date(hoje);em7.setDate(hoje.getDate()+7);
-    const vencidos=data.filter(r=>{const d=parseDate(r[dtK]);return d&&d<hoje;}).length;
-    const prox7=data.filter(r=>{const d=parseDate(r[dtK]);return d&&d>=hoje&&d<=em7;}).length;
-    const comData=data.filter(r=>!!parseDate(r[dtK]));
+    const vencidos=data.filter(r=>{const d=parseDate(r[fupDtK]||r[dtK]);return d&&d<hoje;}).length;
+    const prox7=data.filter(r=>{const d=parseDate(r[fupDtK]||r[dtK]);return d&&d>=hoje&&d<=em7;}).length;
+    const comData=data.filter(r=>!!(parseDate(r[fupDtK])||parseDate(r[dtK])));
     const taxaOnTime=comData.length>0?(((comData.length-vencidos)/comData.length)*100).toFixed(0):'—';
-    const emAnd=data.filter(r=>{const s=(r[statusK]||'').toLowerCase();return s.includes('andamento')||s.includes('parcial')||s.includes('processo');}).length;
+    // "Em Andamento" = pedido enviado/aprovado/a caminho (não apenas "aguardando aprovação")
+    const emAnd=data.filter(r=>{const s=(r[statusK]||'').toLowerCase();
+      return s.includes('enviado')||s.includes('aprovado')||s.includes('chegada')||
+             s.includes('andamento')||s.includes('parcial')||s.includes('processo')||s.includes('caminho');}).length;
     const vByFrn={};
     data.forEach(r=>{const d=parseDate(r[dtK]);if(d&&d<hoje){const f=(r[frnK]||'N/D').trim();vByFrn[f]=(vByFrn[f]||0)+1;}});
     const topFrn=Object.entries(vByFrn).sort((a,b)=>b[1]-a[1])[0];
@@ -4215,7 +4221,10 @@ function renderTabKPIs(){
 
   }else if(tabL.includes('conclu')||tabL.includes('finaliz')||tabL.includes('encerr')){
     // ── Aba Concluído ─────────────────────────────────
-    const dtEntK=cmpKey('data entrega','conclus','finaliz','entrega real') || dtK;
+    // Busca data de entrega real; fallback para "Previsão Entrega" ou "Data desejada"
+    const dtEntK=cmpKey('data entrega','conclus','finaliz','entrega real','data receb','recebimento')
+                 ||cmpKey('previsão entrega','previsao entrega','prev. entrega')
+                 ||dtK;
     const leads=[];
     data.forEach(r=>{const dS=parseDate(r[solDateK]);const dE=parseDate(r[dtEntK]);if(dS&&dE&&dE>dS)leads.push(Math.round((dE-dS)/864e5));});
     const avgLead=leads.length?Math.round(leads.reduce((a,b)=>a+b,0)/leads.length):null;
@@ -4594,13 +4603,16 @@ function renderComprasSwimLanes(){
   const data=_comprasFilt;
   const hoje=new Date(); hoje.setHours(0,0,0,0);
 
-  const dtKey    =cmpKey('desejada','entrega','prazo');
+  const dtKey    =cmpKey('previsão entrega','previsao entrega','prev. entrega','desejada','entrega','prazo');
   // Código real do item (CÓD. AGRICEF) — NÃO o PV nem o serial do implemento
   const itemCodKey=cmpKey('cód. agri','cod. agri','cód agric','codigo agri','item cod','part num');
   const pvKey    =cmpKey('pv');   // número da ordem de compra — contexto secundário
   const descKey  =cmpKey('descri','item','produto');
   const respKey  =cmpKey('respons');
   const finalKey =cmpKey('finalid');
+  // Almoxarifado e Centro de Custos são usados como proxy de categoria quando Finalidade está vazio
+  const almoxKey =cmpKey('almox','almoxarifado');
+  const ccKey    =cmpKey('centro de custo','cent.custo','cc ');
   const serieKey =cmpKey('serie','serial','modelo','hauler','máquina');
   const statusKey=cmpKey('status','situac','situação');
 
@@ -4658,12 +4670,14 @@ function renderComprasSwimLanes(){
     </div>`;
   }
 
-  // Função de match por keyword em finalidade + status
+  // Função de match por keyword — usa Descrição + Finalidade + Almoxarifado + CC
+  // NÃO usa Status para evitar que "Aguardando aprovação" capture tudo
   function match(row,...kws){
-    const f=(row[finalKey]||'').toLowerCase();
-    const s=(statusKey?row[statusKey]||'':'').toLowerCase();
-    const d=(row[descKey]||'').toLowerCase();
-    return kws.some(k=>f.includes(k)||s.includes(k)||d.includes(k));
+    const desc =(row[descKey]  ||'').toLowerCase();
+    const final=(row[finalKey] ||'').toLowerCase();
+    const almox=(almoxKey?row[almoxKey]||'':'').toLowerCase();
+    const cc   =(ccKey?row[ccKey]||'':'').toLowerCase();
+    return kws.some(k=>desc.includes(k)||final.includes(k)||almox.includes(k)||cc.includes(k));
   }
 
   // Usa as categorias globais (definidas acima, compartilhadas com o filtro)
@@ -4685,7 +4699,7 @@ function renderComprasSwimLanes(){
   if(serieKey){
     const sm={};
     data.forEach(row=>{
-      const s=(row[serieKey]||'').trim()||(row[codKey]||'').trim().split('-')[0]||'?';
+      const s=(row[serieKey]||'').trim()||(row[itemCodKey]||'').trim().split('-')[0]||'?';
       if(s&&s!=='?'){sm[s]=(sm[s]||0)+1;}
     });
     const entries=Object.entries(sm).sort((a,b)=>b[1]-a[1]);
