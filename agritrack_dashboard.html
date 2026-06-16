@@ -1503,31 +1503,41 @@ function pie(id,lg,vals,labels,cols){
   document.getElementById(lg).innerHTML=labels.map((l,i)=>`<span class="li"><span class="ld" style="background:${cols[i]}"></span>${l}: ${vals[i]} (${tot>0?Math.round(vals[i]/tot*100):0}%)</span>`).join('');
   charts[id]=new Chart(ch(id),{type:'doughnut',data:{labels,datasets:[{data:vals,backgroundColor:cols,borderWidth:0,hoverOffset:4}]},options:{responsive:true,maintainAspectRatio:false,cutout:'55%',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${c.label}: ${c.raw} (${tot>0?Math.round(c.raw/tot*100):0}%)`}}}}});
 }
+function _filtDept(){
+  // Portfólio atual filtrado só por depto (sem ano) — usado em gráficos de capacidade/status ativo
+  return flt.dept==='all'?allTasks:allTasks.filter(t=>t['Campo personalizado (Departamento)']===flt.dept);
+}
 function pies(m){
+  // Concluídos: usa filtTasks (respeita filtro de ano — "quem entregou naquele ano")
   const concl=filtTasks.filter(t=>t['Status']==='Feito');let cnp=0,cfp=0;concl.forEach(t=>{const p=t._prazo||calcPrazo(t);if(p==='NO PRAZO')cnp++;else if(p==='FORA DO PRAZO')cfp++;});
   pie('chPrC','lgPrC',[cnp,cfp],['No Prazo','Fora do Prazo'],['#22d37a','#f05252']);
-  const and=filtTasks.filter(t=>t['Status']==='Fazendo');let anp=0,afp=0;and.forEach(t=>{const p=t._prazo||calcPrazo(t);if(p==='NO PRAZO')anp++;else if(p==='FORA DO PRAZO')afp++;});
+  // Em andamento: usa portfólio atual (ignora filtro de ano — mostra ativos reais)
+  const srcAtivo=_filtDept();
+  const and=srcAtivo.filter(t=>t['Status']==='Fazendo');let anp=0,afp=0;and.forEach(t=>{const p=t._prazo||calcPrazo(t);if(p==='NO PRAZO')anp++;else if(p==='FORA DO PRAZO')afp++;});
   pie('chPrA','lgPrA',[anp,afp],['No Prazo','Fora do Prazo'],['#f59e0b','#f05252']);
 }
 function dBars(){
-  const c={};filtTasks.forEach(t=>{const d=t['Campo personalizado (Departamento)']||'Sem Depto';c[d]=(c[d]||0)+1;});
+  // Mostra portfólio total por área (todos os status, sem filtro de ano)
+  const c={};_filtDept().forEach(t=>{const d=t['Campo personalizado (Departamento)']||'Sem Depto';c[d]=(c[d]||0)+1;});
   const s=Object.entries(c).sort((a,b)=>b[1]-a[1]);const mx=s[0]?.[1]||1;
   const cl=['#22d37a','#60a5fa','#f59e0b','#f05252','#a78bfa','#34d399','#fb923c'];
   document.getElementById('dbT').innerHTML=s.map(([n,v],i)=>`<div class="dr"><div class="dm"><span class="dn">${n}</span><span class="dc">${v}</span></div><div class="dbg"><div class="df" style="width:${Math.round(v/mx*100)}%;background:${cl[i%cl.length]}"></div></div></div>`).join('');
 }
 function deptSt(){
-  const deps=[...new Set(filtTasks.map(t=>t['Campo personalizado (Departamento)']).filter(Boolean))].sort();
-  const fe=deps.map(d=>filtTasks.filter(t=>t['Campo personalizado (Departamento)']==d&&t['Status']=='Feito').length);
-  const fz=deps.map(d=>filtTasks.filter(t=>t['Campo personalizado (Departamento)']==d&&t['Status']=='Fazendo').length);
-  const af=deps.map(d=>filtTasks.filter(t=>t['Campo personalizado (Departamento)']==d&&t['Status']=='A Fazer').length);
+  const srcAtivo=_filtDept();
+  const deps=[...new Set(srcAtivo.map(t=>t['Campo personalizado (Departamento)']).filter(Boolean))].sort();
+  const fe=deps.map(d=>srcAtivo.filter(t=>t['Campo personalizado (Departamento)']==d&&t['Status']=='Feito').length);
+  const fz=deps.map(d=>srcAtivo.filter(t=>t['Campo personalizado (Departamento)']==d&&t['Status']=='Fazendo').length);
+  const af=deps.map(d=>srcAtivo.filter(t=>t['Campo personalizado (Departamento)']==d&&t['Status']=='A Fazer').length);
   const h=Math.max(260,deps.length*52+80);document.getElementById('wDS').style.height=h+'px';
   document.getElementById('lgDS').innerHTML=[['#22d37a','Feito'],['#f59e0b','Fazendo'],['#60a5fa','A Fazer']].map(([c,l])=>`<span class="li"><span class="ld" style="background:${c}"></span>${l}</span>`).join('');
   charts['chDS']=new Chart(ch('chDS'),{type:'bar',data:{labels:deps,datasets:[{label:'Feito',data:fe,backgroundColor:'#22d37a',borderRadius:3},{label:'Fazendo',data:fz,backgroundColor:'#f59e0b',borderRadius:3},{label:'A Fazer',data:af,backgroundColor:'#60a5fa',borderRadius:3}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:grd,ticks:tk},y:{grid:{display:false},ticks:tk}}}});
 }
 function deptPz(){
-  const deps=[...new Set(filtTasks.map(t=>t['Campo personalizado (Departamento)']).filter(Boolean))].sort();
+  const srcAtivo=_filtDept();
+  const deps=[...new Set(srcAtivo.map(t=>t['Campo personalizado (Departamento)']).filter(Boolean))].sort();
   const np=[],fp=[];
-  deps.forEach(d=>{let a=0,b=0;filtTasks.filter(t=>t['Campo personalizado (Departamento)']==d).forEach(t=>{const p=t._prazo||calcPrazo(t);if(p==='NO PRAZO')a++;else if(p==='FORA DO PRAZO')b++;});np.push(a);fp.push(b);});
+  deps.forEach(d=>{let a=0,b=0;srcAtivo.filter(t=>t['Campo personalizado (Departamento)']==d).forEach(t=>{const p=t._prazo||calcPrazo(t);if(p==='NO PRAZO')a++;else if(p==='FORA DO PRAZO')b++;});np.push(a);fp.push(b);});
   const h=Math.max(240,deps.length*52+80);document.getElementById('wPD').style.height=h+'px';
   charts['chPD']=new Chart(ch('chPD'),{type:'bar',data:{labels:deps,datasets:[{label:'No Prazo',data:np,backgroundColor:'#22d37a',borderRadius:3},{label:'Fora do Prazo',data:fp,backgroundColor:'#f05252',borderRadius:3}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{stacked:true,grid:grd,ticks:tk},y:{stacked:true,grid:{display:false},ticks:tk}}}});
 }
