@@ -2267,7 +2267,10 @@ ${subInfo(t)}`).join('\n')||'Nenhum';
 - Responsável: ${t['Responsável']||'—'} | DL: ${t['Data limite']||'—'} | ${semStr(t)}
 ${subInfo(t)}`).join('\n');
 
-  const prompt=`Você é um gestor de projetos sênior analisando o portfólio da Agricef — empresa de ensaios agronômicos e fabricação de equipamentos agrícolas.
+  const prompt=`Você é um PMO (Project Management Officer) da Agricef — empresa de ensaios agronômicos e fabricação de equipamentos agrícolas.
+Seu papel é cobrar os GESTORES DE DEPARTAMENTO sobre o andamento dos projetos. Os responsáveis pelos projetos no Jira são os gestores (não os executores) — cada gestor lidera sua própria equipe.
+Framing correto: "O gestor X tem Y projetos sob sua gestão" (não "está sobrecarregado individualmente").
+Os questionamentos e planos de ação devem ser dirigidos do PMO ao gestor, que repassa à equipe.
 Hoje: ${hoje.toLocaleDateString('pt-BR')}${isDeptFiltro?` | Departamento: ${deptNome}`:''}
 Total de projetos analisados: ${data.length}
 
