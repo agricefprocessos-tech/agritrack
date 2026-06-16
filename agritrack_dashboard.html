@@ -1466,13 +1466,9 @@ function go(){
     if(flt.dept!=='all'&&t['Campo personalizado (Departamento)']!==flt.dept)return false;
     if(flt.yr!=='all'){
       const yr=parseInt(flt.yr);
-      const dStart=pd(t['Campo personalizado (Start date)']);
-      const dCri  =pd(t['Criado']);
-      // Ano de conclusão = max(Data limite subtarefas); só conta se Status=Feito
-      const dConc =t['Status']==='Feito'?t._maxSubDL:null;
-      // Inclui se iniciou, concluiu (via max subtarefa) OU foi criado no ano filtrado
-      const noAno=(dStart&&dStart.getFullYear()===yr)||(dConc&&dConc.getFullYear()===yr)||(dCri&&dCri.getFullYear()===yr);
-      if(!noAno)return false;
+      // Filtro por ano: só projetos entregues (Feito) com max DL subtarefa no ano
+      if(t['Status']!=='Feito')return false;
+      if(!t._maxSubDL||t._maxSubDL.getFullYear()!==yr)return false;
     }
     return true;
   });render();
