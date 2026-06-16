@@ -1437,15 +1437,16 @@ function isoW(d){const t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDat
 function calcPrazo(t){
   const dl=pd(t['Data limite']);
   if(!dl)return null;
-  // Referência única: max(Data limite subtarefas) para concluídos e em andamento
-  // Para em andamento sem subtarefas: compara hoje com o prazo
+  // Trunca para só a data (sem hora) para evitar falsos "fora" por diferença de timezone
+  const dlD=new Date(dl.getFullYear(),dl.getMonth(),dl.getDate());
+  const toD=d=>new Date(d.getFullYear(),d.getMonth(),d.getDate());
   const maxSub=t._maxSubDL;
   if(t['Status']==='Feito'){
-    if(!maxSub)return 'NO PRAZO'; // sem subtarefas com prazo: benefício da dúvida
-    return maxSub<=dl?'NO PRAZO':'FORA DO PRAZO';
+    if(!maxSub)return 'NO PRAZO';
+    return toD(maxSub)<=dlD?'NO PRAZO':'FORA DO PRAZO';
   }
   const ref=maxSub||new Date();
-  return ref<=dl?'NO PRAZO':'FORA DO PRAZO';
+  return toD(ref)<=dlD?'NO PRAZO':'FORA DO PRAZO';
 }
 
 // ════════════════════════════════════════════════════════════════
