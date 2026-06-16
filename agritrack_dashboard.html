@@ -1266,7 +1266,12 @@ async function api(payload, timeoutMs=28000){
   const tid=setTimeout(()=>ctrl.abort(),timeoutMs);
   try{
     const r=await fetch(getApi()+'?payload='+encodeURIComponent(JSON.stringify(payload)),{redirect:'follow',signal:ctrl.signal});
-    return r.json();
+    const text=await r.text();
+    // GAS pode retornar HTML durante inicialização do deploy ou em erros de servidor
+    if(text.trim().startsWith('<'))
+      throw new Error('API retornou HTML (GAS inicializando ou erro de servidor) — tente novamente em alguns segundos');
+    try{ return JSON.parse(text); }
+    catch(_){ throw new Error('Resposta inválida da API: '+text.slice(0,120)); }
   }finally{clearTimeout(tid);}
 }
 
@@ -1284,12 +1289,13 @@ function nav(id){
   const tabs=document.querySelectorAll('.ntab');
   const idx={'dash':0,'form':1,'block':2,'report':3,'compras':4,'gantt':5,'hauler':6,'cfg':7};
   if(idx[id]!==undefined)tabs[idx[id]].classList.add('on');
-  if(id==='block')loadBloqueados();
-  if(id==='cfg')initConfig();
-  if(id==='report'){_populaRptDeptTabs();if(!_rptGerado)gerarRelatorio(false);}
-  if(id==='compras')loadCompras(); // sempre chama — cache evita rebusca desnecessária
-  if(id==='gantt')initGantt();
-  if(id==='hauler')initHauler();
+  const _snav=(fn)=>{try{fn();}catch(e){console.error('[AgriTrack] nav error:',e.message);}};
+  if(id==='block')_snav(loadBloqueados);
+  if(id==='cfg')_snav(initConfig);
+  if(id==='report')_snav(()=>{_populaRptDeptTabs();if(!_rptGerado)gerarRelatorio(false);});
+  if(id==='compras')_snav(loadCompras); // sempre chama — cache evita rebusca desnecessária
+  if(id==='gantt')_snav(initGantt);
+  if(id==='hauler')_snav(initHauler);
   // Retoma rotação ao voltar ao Dashboard
   if(id==='dash'&&_dashRotDepts.length>1&&!_dashRotTimer){
     _dashRotTimer=setInterval(_rotarDashDept,7000);
@@ -1367,6 +1373,11 @@ async function _jiraRefreshBg(){
 }
 
 function processData(data){
+  if(!Array.isArray(data)){
+    console.error('[AgriTrack] processData: dados inválidos',data);
+    document.getElementById('dashLoad').innerHTML='<div style="color:var(--red);text-align:center"><div style="font-size:24px;margin-bottom:10px">⚠️</div><div>Dados recebidos em formato inesperado. Tente atualizar.</div></div>';
+    return;
+  }
   // ── Normaliza Status via _statusKey (chave invariante do Jira) ──────────────
   // Garante que nomes customizados ("Em Andamento", "Concluído", etc.) sejam
   // mapeados para os 3 valores canônicos usados em todos os gráficos.
@@ -1479,25 +1490,32 @@ function calcPrazo(t){
 // FILTERS & RENDER
 // ════════════════════════════════════════════════════════════════
 function buildFilters(){
-  const depts=[...new Set(allTasks.map(t=>t['Campo personalizado (Departamento)']).filter(Boolean))].sort();
-  const fD=document.getElementById('fD');fD.innerHTML='<option value="all">Todos</option>'+depts.map(d=>`<option value="${d}">${d}</option>`).join('');
-  const yrs=[...new Set(allTasks.flatMap(t=>{const ys=[];const ds=pd(t['Campo personalizado (Start date)']);if(ds)ys.push(ds.getFullYear());if(t['Status']==='Feito'&&t._maxSubDL)ys.push(t._maxSubDL.getFullYear());return ys;}))].sort();
-  const fY=document.getElementById('fY');fY.innerHTML='<option value="all">Todos</option>'+yrs.map(y=>`<option value="${y}">${y}</option>`).join('');
+  try{
+    const depts=[...new Set(allTasks.map(t=>t['Campo personalizado (Departamento)']).filter(Boolean))].sort();
+    const fD=document.getElementById('fD');if(fD)fD.innerHTML='<option value="all">Todos</option>'+depts.map(d=>`<option value="${d}">${d}</option>`).join('');
+    const yrs=[...new Set(allTasks.flatMap(t=>{const ys=[];const ds=pd(t['Campo personalizado (Start date)']);if(ds)ys.push(ds.getFullYear());if(t['Status']==='Feito'&&t._maxSubDL)ys.push(t._maxSubDL.getFullYear());return ys;}))].sort();
+    const fY=document.getElementById('fY');if(fY)fY.innerHTML='<option value="all">Todos</option>'+yrs.map(y=>`<option value="${y}">${y}</option>`).join('');
+  }catch(e){console.error('[AgriTrack] buildFilters:',e.message);}
 }
 function setF(k,btn){document.querySelectorAll(`[data-k="${k}"]`).forEach(b=>b.classList.remove('on'));btn.classList.add('on');flt[k]=btn.dataset.v;go();}
 function go(){
-  flt.dept=document.getElementById('fD').value;flt.yr=document.getElementById('fY').value;
-  let src=flt.tipo==='Tarefa'?allTasks:flt.tipo==='Subtarefa'?allSubs:[...allTasks,...allSubs];
-  filtTasks=src.filter(t=>{
-    if(flt.dept!=='all'&&t['Campo personalizado (Departamento)']!==flt.dept)return false;
-    if(flt.yr!=='all'){
-      const yr=parseInt(flt.yr);
-      // Filtro por ano: só projetos entregues (Feito) com max DL subtarefa no ano
-      if(t['Status']!=='Feito')return false;
-      if(!t._maxSubDL||t._maxSubDL.getFullYear()!==yr)return false;
-    }
-    return true;
-  });render();
+  try{
+    flt.dept=document.getElementById('fD').value;flt.yr=document.getElementById('fY').value;
+    let src=flt.tipo==='Tarefa'?allTasks:flt.tipo==='Subtarefa'?allSubs:[...allTasks,...allSubs];
+    if(!Array.isArray(src))src=[];
+    filtTasks=src.filter(t=>{
+      if(!t)return false;
+      if(flt.dept!=='all'&&t['Campo personalizado (Departamento)']!==flt.dept)return false;
+      if(flt.yr!=='all'){
+        const yr=parseInt(flt.yr);
+        // Filtro por ano: só projetos entregues (Feito) com max DL subtarefa no ano
+        if(t['Status']!=='Feito')return false;
+        if(!t._maxSubDL||t._maxSubDL.getFullYear()!==yr)return false;
+      }
+      return true;
+    });
+  }catch(e){console.error('[AgriTrack] go():',e.message);filtTasks=[];}
+  render();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1512,7 +1530,21 @@ function mtx(data){
   const tv=Object.values(tpMap);const avgTp=tv.length?tv.reduce((a,b)=>a+b,0)/tv.length:0;
   return{tot,concl,faz,af,np,fp,avgD,avgTp,wip:faz+af,tpMap};
 }
-function render(){const m=mtx(filtTasks);kpis(m);pies(m);dBars();deptSt();deptPz(m);pan();thr(m);ent();cfd();tbl(m);}
+function _safeRender(name,fn){try{fn();}catch(e){console.error('[AgriTrack] erro em '+name+':',e.message,e);}}
+function render(){
+  if(!Array.isArray(filtTasks))return;
+  const m=mtx(filtTasks);
+  _safeRender('kpis',()=>kpis(m));
+  _safeRender('pies',()=>pies(m));
+  _safeRender('dBars',dBars);
+  _safeRender('deptSt',deptSt);
+  _safeRender('deptPz',()=>deptPz(m));
+  _safeRender('pan',pan);
+  _safeRender('thr',()=>thr(m));
+  _safeRender('ent',ent);
+  _safeRender('cfd',cfd);
+  _safeRender('tbl',()=>tbl(m));
+}
 
 function kpis(m){
   const p=v=>m.tot>0?Math.round(v/m.tot*100):0;const pp=v=>(m.np+m.fp)>0?Math.round(v/(m.np+m.fp)*100):0;
@@ -4197,12 +4229,13 @@ function _populaFiltros(){
 }
 
 function _renderTudo(){
-  renderCCCPanel();
-  renderTabKPIs();
-  renderComprasKPIs();
-  renderComprasCharts();
-  renderComprasSwimLanes();
-  renderComprasTable();
+  const _sc=(name,fn)=>{try{fn();}catch(e){console.error('[AgriTrack] Compras/'+name+':',e.message);}};
+  _sc('CCC',renderCCCPanel);
+  _sc('TabKPIs',renderTabKPIs);
+  _sc('KPIs',renderComprasKPIs);
+  _sc('Charts',renderComprasCharts);
+  _sc('SwimLanes',renderComprasSwimLanes);
+  _sc('Table',renderComprasTable);
 }
 
 // ── Painel CCC — compras em Cartão de Crédito ─────────────────
@@ -5405,9 +5438,10 @@ function ganttToggle(key,e){
 }
 
 function initGantt(){
+  try{
   _ganttFirstRender=true; // reseta ao entrar na aba
   const msg=document.getElementById('ganttMsg');
-  if(!allTasks.length){
+  if(!Array.isArray(allTasks)||!allTasks.length){
     msg.textContent='Sem dados. Acesse o Dashboard primeiro para carregar as tarefas do Jira.';
     msg.style.display='block';
     document.getElementById('ganttWrap').style.display='none';
@@ -5418,9 +5452,18 @@ function initGantt(){
   fD.innerHTML='<option value="all">Todos departamentos</option>'+depts.map(d=>`<option value="${d}">${d}</option>`).join('');
   depts.forEach((d,i)=>{ _gDeptMap[d]=G_DEPT_CLR[i%G_DEPT_CLR.length]; });
   renderGantt();
+  }catch(e){console.error('[AgriTrack] initGantt:',e.message);const m=document.getElementById('ganttMsg');if(m){m.textContent='Erro ao inicializar Gantt: '+e.message;m.style.display='block';}}
 }
 
 function renderGantt(){
+  try{_renderGanttInner();}catch(e){
+    console.error('[AgriTrack] renderGantt:',e.message,e);
+    const msg=document.getElementById('ganttMsg');
+    if(msg){msg.textContent='Erro ao renderizar Gantt: '+e.message;msg.style.display='block';}
+    const wrap=document.getElementById('ganttWrap');if(wrap)wrap.style.display='none';
+  }
+}
+function _renderGanttInner(){
   const dept=document.getElementById('gFDept').value;
   const status=document.getElementById('gFStatus').value;
   const periodo=document.getElementById('gFPeriod').value;
