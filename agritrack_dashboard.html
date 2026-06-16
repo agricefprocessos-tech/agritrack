@@ -577,6 +577,32 @@ tr:hover td{background:rgba(255,255,255,0.02)}
         <button class="btn-amber" onclick="submitApenasData()">Só Atualizar Datas</button>
         <button class="btn-sec" onclick="clearBloqueioForm()">Limpar</button>
       </div>
+
+      <!-- ── Resolução do Bloqueio ─────────────────────────────── -->
+      <div style="margin-top:20px;border-top:2px solid var(--green);padding-top:16px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+          <span style="font-size:14px">✅</span>
+          <div style="font-size:12px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.06em">Registrar Resolução e Desbloquear</div>
+        </div>
+        <div class="fg" style="margin-bottom:12px"><label>O que foi feito para resolver o bloqueio</label>
+          <textarea id="bResolucao" placeholder="Descreva as ações tomadas, quem resolveu e como o impedimento foi eliminado…" style="min-height:80px"></textarea>
+        </div>
+        <div class="form-grid" style="margin-bottom:12px">
+          <div class="fg"><label>Responsável pela Resolução</label>
+            <input id="bResponsavelRes" placeholder="Nome de quem resolveu"></div>
+          <div class="fg"><label>Data da Resolução</label>
+            <input type="date" id="bDataRes"></div>
+        </div>
+        <div class="form-msg" id="bMsgRes" style="margin-bottom:10px"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn-primary" onclick="submitResolucao(false)" style="background:var(--green);border-color:var(--green)">✅ Desbloquear Projeto</button>
+          <button class="btn-sec" onclick="submitResolucao(true)" style="font-size:12px">📝 Registrar resolução (manter label bloqueado)</button>
+        </div>
+        <div style="font-size:10px;color:var(--text3);margin-top:8px">
+          "Desbloquear" remove o label <strong>bloqueado</strong> do Jira e registra um comentário com a resolução.<br>
+          "Registrar resolução" apenas posta o comentário, mantendo o projeto na lista de bloqueados.
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -1913,13 +1939,50 @@ async function submitApenasData(){
 }
 
 function clearBloqueioForm(){
-  ['bKey','bSummary','bDescricao','bResponsavel','bNewDue','bNewAlvo','bNewStart','bPrazoRes'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  ['bKey','bSummary','bDescricao','bResponsavel','bNewDue','bNewAlvo','bNewStart','bPrazoRes',
+   'bResolucao','bResponsavelRes','bDataRes'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('bTipo').value='';
   document.getElementById('bImpacto').value='Alto (>5 dias)';
   document.getElementById('bIssueInfo').style.display='none';
   document.getElementById('bMsg').style.display='none';
+  document.getElementById('bMsgRes').style.display='none';
   document.querySelectorAll('.blk-item').forEach(el=>el.classList.remove('sel'));
   selectedBlkKey=null;
+}
+
+function showBMsgRes(msg,type){const el=document.getElementById('bMsgRes');el.textContent=msg;el.className='form-msg '+type;el.style.display='block';}
+
+async function submitResolucao(apenasComentario=false){
+  const key=(document.getElementById('bKey').value||'').trim().toUpperCase();
+  if(!key){showBMsgRes('Informe a chave da tarefa (selecione na lista ou busque acima).','err');return;}
+  const resolucao=document.getElementById('bResolucao').value.trim();
+  if(!resolucao){showBMsgRes('Descreva o que foi feito para resolver o bloqueio.','err');return;}
+  const responsavel=document.getElementById('bResponsavelRes').value.trim();
+  const dataRes=document.getElementById('bDataRes').value||new Date().toISOString().slice(0,10);
+  showBMsgRes(apenasComentario?'Registrando comentário…':'Desbloqueando projeto…','info');
+  try{
+    const r=await api({
+      action:'resolverBloqueio',
+      issueKey:key,
+      descricaoResolucao:resolucao,
+      responsavelResolucao:responsavel,
+      dataResolucao:dataRes,
+      removerLabel:!apenasComentario,
+    });
+    if(r.success){
+      showBMsgRes(apenasComentario
+        ?`✓ Resolução registrada em ${key} como comentário.`
+        :`✅ ${key} desbloqueado! Label removido e resolução registrada.`,'ok');
+      if(!apenasComentario){
+        document.getElementById('bResolucao').value='';
+        document.getElementById('bResponsavelRes').value='';
+        document.getElementById('bDataRes').value='';
+        setTimeout(()=>loadBloqueados(),2500);
+      }
+    } else {
+      showBMsgRes('Erro: '+(r.erro||JSON.stringify(r)),'err');
+    }
+  }catch(e){showBMsgRes('Erro: '+e.message,'err');}
 }
 
 // ════════════════════════════════════════════════════════════════
