@@ -1437,17 +1437,13 @@ function isoW(d){const t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDat
 function calcPrazo(t){
   const dl=pd(t['Data limite']);
   if(!dl)return null;
-  // Para tarefas CONCLUÍDAS: compara data real de resolução com o prazo
-  // (independe de ter ou não subtarefas — o que importa é quando foi entregue)
-  if(t['Status']==='Feito'){
-    const res=pd(t['Resolvido']);
-    if(res)return res<=dl?'NO PRAZO':'FORA DO PRAZO';
-    // Feito mas sem data Resolvido: assume no prazo (dado incompleto, benefício da dúvida)
-    return 'NO PRAZO';
-  }
-  // Para tarefas EM ANDAMENTO/A FAZER: compara max(prazo das subtarefas) com prazo da tarefa pai
-  // Se não tem subtarefas com prazo, compara hoje com o prazo
+  // Referência única: max(Data limite subtarefas) para concluídos e em andamento
+  // Para em andamento sem subtarefas: compara hoje com o prazo
   const maxSub=t._maxSubDL;
+  if(t['Status']==='Feito'){
+    if(!maxSub)return 'NO PRAZO'; // sem subtarefas com prazo: benefício da dúvida
+    return maxSub<=dl?'NO PRAZO':'FORA DO PRAZO';
+  }
   const ref=maxSub||new Date();
   return ref<=dl?'NO PRAZO':'FORA DO PRAZO';
 }
