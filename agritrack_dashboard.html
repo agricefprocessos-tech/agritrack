@@ -1458,7 +1458,7 @@ function calcPrazo(t){
 function buildFilters(){
   const depts=[...new Set(allTasks.map(t=>t['Campo personalizado (Departamento)']).filter(Boolean))].sort();
   const fD=document.getElementById('fD');fD.innerHTML='<option value="all">Todos</option>'+depts.map(d=>`<option value="${d}">${d}</option>`).join('');
-  const yrs=[...new Set(allTasks.map(t=>{const d=pd(t['Campo personalizado (Start date)']);return d?d.getFullYear():null;}).filter(Boolean))].sort();
+  const yrs=[...new Set(allTasks.flatMap(t=>{const ys=[];const ds=pd(t['Campo personalizado (Start date)']);if(ds)ys.push(ds.getFullYear());if(t['Status']==='Feito'&&t._maxSubDL)ys.push(t._maxSubDL.getFullYear());return ys;}))].sort();
   const fY=document.getElementById('fY');fY.innerHTML='<option value="all">Todos</option>'+yrs.map(y=>`<option value="${y}">${y}</option>`).join('');
 }
 function setF(k,btn){document.querySelectorAll(`[data-k="${k}"]`).forEach(b=>b.classList.remove('on'));btn.classList.add('on');flt[k]=btn.dataset.v;go();}
@@ -1470,10 +1470,11 @@ function go(){
     if(flt.yr!=='all'){
       const yr=parseInt(flt.yr);
       const dStart=pd(t['Campo personalizado (Start date)']);
-      const dRes  =pd(t['Resolvido']);
       const dCri  =pd(t['Criado']);
-      // Inclui se iniciou, concluiu OU foi criado no ano filtrado
-      const noAno=(dStart&&dStart.getFullYear()===yr)||(dRes&&dRes.getFullYear()===yr)||(dCri&&dCri.getFullYear()===yr);
+      // Ano de conclusão = max(Data limite subtarefas); só conta se Status=Feito
+      const dConc =t['Status']==='Feito'?t._maxSubDL:null;
+      // Inclui se iniciou, concluiu (via max subtarefa) OU foi criado no ano filtrado
+      const noAno=(dStart&&dStart.getFullYear()===yr)||(dConc&&dConc.getFullYear()===yr)||(dCri&&dCri.getFullYear()===yr);
       if(!noAno)return false;
     }
     return true;
@@ -1488,7 +1489,7 @@ function mtx(data){
   let np=0,fp=0;data.forEach(t=>{const p=t._prazo||calcPrazo(t);if(p==='NO PRAZO')np++;else if(p==='FORA DO PRAZO')fp++;});
   const durs=data.map(t=>{const s=pd(t['Campo personalizado (Start date)']);const dl=pd(t['Data limite']);if(s&&dl){const d=isoW(dl)-isoW(s);return d>0?d:null;}return null;}).filter(Boolean);
   const avgD=durs.length?durs.reduce((a,b)=>a+b,0)/durs.length:0;
-  const tpMap={};data.filter(t=>t['Status']==='Feito'&&t['Resolvido']).forEach(t=>{const d=pd(t['Resolvido']);if(d){const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;tpMap[k]=(tpMap[k]||0)+1;}});
+  const tpMap={};data.filter(t=>t['Status']==='Feito'&&t._maxSubDL).forEach(t=>{const d=t._maxSubDL;const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;tpMap[k]=(tpMap[k]||0)+1;});
   const tv=Object.values(tpMap);const avgTp=tv.length?tv.reduce((a,b)=>a+b,0)/tv.length:0;
   return{tot,concl,faz,af,np,fp,avgD,avgTp,wip:faz+af,tpMap};
 }
