@@ -2206,35 +2206,115 @@ async function _injetarAnaliseAI(data,bloqueados,foraPrazo,proxVenc,isDeptFiltro
       Gerando análise com Gemini AI…
     </div>`;
   rptBox.appendChild(aiDiv);
-  const bloqInfo=bloqueados.slice(0,10).map(t=>`- ${t['Chave da item']}: "${t['Resumo']}" [${t['Campo personalizado (Departamento)']||'?'}]`).join('\n');
-  const fpInfo=foraPrazo.slice(0,10).map(t=>`- ${t['Chave da item']}: "${t['Resumo']}" (DL: ${t['Data limite']}) [${t['Campo personalizado (Departamento)']||'?'}]`).join('\n');
-  const pvInfo=proxVenc.slice(0,8).map(t=>`- ${t['Chave da item']}: "${t['Resumo']}" (DL: ${t['Data limite']}) [${t['Campo personalizado (Departamento)']||'?'}]`).join('\n');
-  const prompt=`Você é um gestor de projetos experiente analisando o portfólio de projetos industriais da Agricef.
 
-CONTEXTO${isDeptFiltro?` — Departamento: ${deptNome}`:''}:
-Total de projetos: ${data.length}
+  const hoje=new Date();
 
-Projetos BLOQUEADOS (${bloqueados.length}):
-${bloqInfo||'Nenhum'}
+  // ── Subtarefas por projeto ────────────────────────────────────
+  function subInfo(task){
+    const subs=allSubs.filter(s=>s['Chave pai']===task['Chave da item']);
+    if(!subs.length)return '  (sem subtarefas)';
+    const feitas=subs.filter(s=>s['Status']==='Feito').length;
+    return subs.map(s=>`  • [${s['Status']}] ${s['Resumo']} (DL: ${s['Data limite']||'—'})`).join('\n')
+      +`\n  Progresso: ${feitas}/${subs.length} subtarefas concluídas (${Math.round(feitas/subs.length*100)}%)`;
+  }
 
-Projetos FORA DO PRAZO (${foraPrazo.length}):
-${fpInfo||'Nenhum'}
+  function semStr(t){
+    const ref=t._maxSubDL||pd(t['Data limite']);
+    if(!ref)return '?';
+    const s=Math.ceil((ref-hoje)/(7*24*60*60*1000));
+    return s<0?`${Math.abs(s)} sem atrasado`:`${s} sem restantes`;
+  }
 
-Projetos com prazo nos PRÓXIMOS 7 DIAS (${proxVenc.length}):
-${pvInfo||'Nenhum'}
+  // ── Capacidade por responsável ────────────────────────────────
+  const capMap={};
+  data.filter(t=>t['Status']!=='Feito').forEach(t=>{
+    const resp=t['Responsável']||'Sem responsável';
+    if(!capMap[resp])capMap[resp]={fazendo:[],aFazer:[]};
+    if(t['Status']==='Fazendo')capMap[resp].fazendo.push(t['Chave da item']);
+    else capMap[resp].aFazer.push(t['Chave da item']);
+  });
+  const capInfo=Object.entries(capMap).map(([r,v])=>
+    `- ${r}: ${v.fazendo.length} em andamento [${v.fazendo.join(', ')||'—'}] + ${v.aFazer.length} a fazer`
+  ).join('\n');
 
-Gere uma PAUTA OBJETIVA para a reunião semanal de alinhamento. Para cada item:
-- Use emoji de prioridade: 🔴 Urgente | 🟠 Alta | 🟡 Média
-- Descreva o que deve ser discutido e qual resultado esperado
-- Máximo 7 itens, ordenados por prioridade
-- Se não há problemas críticos, indique os próximos riscos a monitorar
+  // ── Projetos bloqueados com detalhes ─────────────────────────
+  const bloqInfo=bloqueados.slice(0,8).map(t=>`
+**${t['Chave da item']}** — ${t['Resumo']} [${t['Campo personalizado (Departamento)']||'?'}]
+- Responsável: ${t['Responsável']||'—'} | DL: ${t['Data limite']||'—'} | ${semStr(t)}
+- Status: ${t['Status']}
+${subInfo(t)}`).join('\n')||'Nenhum';
 
-Responda em português, direto ao ponto, sem introdução.`;
+  // ── Fora do prazo com detalhes ───────────────────────────────
+  const fpInfo=foraPrazo.slice(0,8).map(t=>`
+**${t['Chave da item']}** — ${t['Resumo']} [${t['Campo personalizado (Departamento)']||'?'}]
+- Responsável: ${t['Responsável']||'—'} | DL: ${t['Data limite']||'—'} | ${semStr(t)}
+${subInfo(t)}`).join('\n')||'Nenhum';
+
+  // ── Próximos vencimentos com detalhes ────────────────────────
+  const pvInfo=proxVenc.slice(0,8).map(t=>`
+**${t['Chave da item']}** — ${t['Resumo']} [${t['Campo personalizado (Departamento)']||'?'}]
+- Responsável: ${t['Responsável']||'—'} | DL: ${t['Data limite']||'—'} | ${semStr(t)}
+${subInfo(t)}`).join('\n')||'Nenhum';
+
+  // ── Em andamento próximos 6 semanas ──────────────────────────
+  const emAndamento=data
+    .filter(t=>t['Status']==='Fazendo')
+    .map(t=>({t,sem:t._maxSubDL?Math.ceil((t._maxSubDL-hoje)/(7*24*60*60*1000)):99}))
+    .sort((a,b)=>a.sem-b.sem)
+    .slice(0,12)
+    .map(({t})=>`
+**${t['Chave da item']}** — ${t['Resumo']} [${t['Campo personalizado (Departamento)']||'?'}]
+- Responsável: ${t['Responsável']||'—'} | DL: ${t['Data limite']||'—'} | ${semStr(t)}
+${subInfo(t)}`).join('\n');
+
+  const prompt=`Você é um gestor de projetos sênior analisando o portfólio da Agricef — empresa de ensaios agronômicos e fabricação de equipamentos agrícolas.
+Hoje: ${hoje.toLocaleDateString('pt-BR')}${isDeptFiltro?` | Departamento: ${deptNome}`:''}
+Total de projetos analisados: ${data.length}
+
+═══════════════════════════════════
+PROJETOS BLOQUEADOS (${bloqueados.length}):
+${bloqInfo}
+
+═══════════════════════════════════
+PROJETOS FORA DO PRAZO (${foraPrazo.length}):
+${fpInfo}
+
+═══════════════════════════════════
+PROJETOS COM PRAZO NOS PRÓXIMOS 7 DIAS (${proxVenc.length}):
+${pvInfo}
+
+═══════════════════════════════════
+PROJETOS EM ANDAMENTO — DETALHES:
+${emAndamento||'Nenhum'}
+
+═══════════════════════════════════
+CAPACIDADE POR RESPONSÁVEL (projetos ativos):
+${capInfo||'—'}
+
+═══════════════════════════════════
+
+Gere a PAUTA COMPLETA para a reunião semanal. Estruture cada item assim:
+
+**🔴/🟠/🟡 N. [CHAVE] Título do tema**
+- **Situação:** análise objetiva do estado atual com base nos dados acima (progresso real das subtarefas, semanas restantes, atrasos)
+- **Causa raiz:** o que explica o problema ou risco identificado
+- **Questionamentos para a reunião:** 2–3 perguntas diretas que o gestor deve fazer ao responsável
+- **Plano de ação:** 2–3 ações concretas com responsável e prazo sugerido
+- **Resultado esperado:** o que deve sair da discussão
+
+Seções obrigatórias (mesmo que não haja problemas):
+1. Bloqueios ativos (causa raiz + plano de ação por bloqueio)
+2. Projetos críticos com prazo iminente (análise de progresso + questionamentos)
+3. Gestão de capacidade da equipe (cenários de alocação, priorização, gargalos por responsável)
+4. Próximos riscos a monitorar (projetos que podem se tornar críticos nas próximas 2–4 semanas)
+
+Use 🔴 Urgente | 🟠 Alta | 🟡 Média. Máximo 8 itens. Responda em português, direto ao ponto, sem introdução.`;
+
   try{
     const resp=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.65,maxOutputTokens:2000,thinkingConfig:{thinkingBudget:0}}})
+      body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.65,maxOutputTokens:4000,thinkingConfig:{thinkingBudget:0}}})
     });
     const json=await resp.json();
     if(!resp.ok)throw new Error(json.error?.message||resp.statusText);
