@@ -2711,7 +2711,7 @@ function classificarHauler(rows){
     const depth=nivel.split('.').length-1;
     // Classify
     const tipos=[];
-    if(comercial==='SIM') tipos.push('comprar');
+    if(comercial==='SIM'||estado==='Itens Comerciais') tipos.push('comprar');
     if(cortePerfil&&cortePerfil!=='.') tipos.push('serra');
     if(corteChapa&&corteChapa!=='.') tipos.push('corte');
     if(soldagem&&soldagem!=='.') tipos.push('solda');
