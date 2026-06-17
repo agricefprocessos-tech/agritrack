@@ -1948,7 +1948,7 @@ async function submitBloqueio(){
       novaDataAlvo:document.getElementById('bNewAlvo').value||null,
       novaDataStart:document.getElementById('bNewStart').value||null,
     });
-    if(r.success){showBMsg('✓ Bloqueio registrado em '+key+'. Atualizando lista…','ok');clearBloqueioForm();setTimeout(()=>loadBloqueados(),3000);}
+    if(r.success){showBMsg('✓ Bloqueio registrado em '+key+'. Atualizando lista…','ok');if(r.drive&&r.drive.url){const el=document.getElementById('bMsg');el.innerHTML=el.textContent+` <a href="${r.drive.url}" target="_blank" style="color:inherit;text-decoration:underline">📄 ${r.drive.nome||'Relatório PDF'}</a>`;}clearBloqueioForm();setTimeout(()=>loadBloqueados(),3000);}
     else showBMsg('Erro: '+(r.erro||JSON.stringify(r)),'err');
   }catch(e){showBMsg('Erro: '+e.message,'err');}
 }
@@ -2002,9 +2002,9 @@ async function submitResolucao(apenasComentario=false){
       removerLabel:!apenasComentario,
     });
     if(r.success){
-      showBMsgRes(apenasComentario
-        ?`✓ Resolução registrada em ${key} como comentário.`
-        :`✅ ${key} desbloqueado! Label removido e resolução registrada.`,'ok');
+      const baseMsg=apenasComentario?`✓ Resolução registrada em ${key} como comentário.`:`✅ ${key} desbloqueado! Label removido e resolução registrada.`;
+      showBMsgRes(baseMsg,'ok');
+      if(r.drive&&r.drive.url){const el=document.getElementById('bMsgRes');el.innerHTML=el.textContent+` <a href="${r.drive.url}" target="_blank" style="color:inherit;text-decoration:underline">📄 ${r.drive.nome||'Relatório PDF'}</a>`;}
       if(!apenasComentario){
         document.getElementById('bResolucao').value='';
         document.getElementById('bResponsavelRes').value='';
