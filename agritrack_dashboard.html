@@ -2589,15 +2589,80 @@ function parsePvSeriais(text){
   return[...r];
 }
 
-// ── Carrega cobertura de compras por serial via PV parser ─────────
+// ── Constrói índice de compras por serial a partir de dados locais ─
+function _buildSerialIndexFromComprasTabs(){
+  let tabs=(_comprasTabs&&_comprasTabs.length>0)?_comprasTabs.filter(t=>!t.virtual):null;
+  if(!tabs||!tabs.some(t=>t.rows&&t.rows.length>0)){
+    const cache=_comprasCache();
+    if(cache&&cache.tabs&&cache.tabs.length>0)tabs=cache.tabs;
+  }
+  if(!tabs||!tabs.length)return null;
+  const relevant=tabs.filter(t=>{const n=(t.name||'').toLowerCase();return n.includes('solicit')||n.includes('fup')||n.includes('conclu');});
+  if(!relevant.length||!relevant.some(t=>t.rows&&t.rows.length>0))return null;
+  const idx={};
+  relevant.forEach(tab=>{
+    if(!tab.rows||!tab.rows.length)return;
+    const headers=tab.headers||[];
+    const findKey=(...cands)=>headers.find(h=>cands.some(c=>h.toLowerCase().includes(c.toLowerCase())))||'';
+    const pvKey=findKey('pv');
+    const codKey=findKey('cod. agri','cod agri','cód. agri','cód agri','agricef');
+    const qtdKey=findKey('qtd');
+    const statusKey=findKey('status','situaç');
+    const pedidoKey=findKey('pedido');
+    const dataEntKey=findKey('entrega efet','data entrega efet','data da entrega');
+    const dataAtuKey=findKey('entrega atualizada','atualizada');
+    if(!pvKey||!codKey)return;
+    const tabLow=(tab.name||'').toLowerCase();
+    const isSolic=tabLow.includes('solicit');
+    const isConclu=tabLow.includes('conclu');
+    tab.rows.forEach(row=>{
+      const pv=row[pvKey]||'';const rawCod=row[codKey]||'';
+      if(!pv||!rawCod)return;
+      const seriais=parsePvSeriais(pv);if(!seriais.length)return;
+      const cod=_normCod(rawCod);if(!cod)return;
+      const qtd=parseFloat(String(row[qtdKey]||'').replace(',','.'))||0;
+      const status=row[statusKey]||'';const pedido=row[pedidoKey]||'';
+      const dataEnt=isConclu?(row[dataEntKey]||''):'';
+      const dataAtu=!isConclu?(row[dataAtuKey]||''):'';
+      const estado=isConclu&&dataEnt?'entregue':pedido?'pedido':'solicitado';
+      seriais.forEach(serial=>{
+        if(!idx[serial])idx[serial]={codigos:new Set(),items:{},nLinhas:0};
+        idx[serial].codigos.add(cod);
+        if(!idx[serial].items[cod])
+          idx[serial].items[cod]={qtdSolicitada:0,qtdPedida:0,qtdEntregue:0,status:'',pedido:'',dataEnt:'',dataAtu:'',fontes:[]};
+        const item=idx[serial].items[cod];
+        if(estado==='entregue')item.qtdEntregue+=qtd;
+        else if(estado==='pedido')item.qtdPedida+=qtd;
+        else item.qtdSolicitada+=qtd;
+        if(pedido&&!item.pedido)item.pedido=pedido;
+        if(dataEnt&&!item.dataEnt)item.dataEnt=dataEnt;
+        if(dataAtu&&!item.dataAtu)item.dataAtu=dataAtu;
+        if(status&&!item.status)item.status=status;
+        if(!item.fontes.includes(tab.name))item.fontes.push(tab.name);
+      });
+    });
+  });
+  Object.values(idx).forEach(v=>{v.nLinhas=v.codigos.size;});
+  return Object.keys(idx).length>0?idx:null;
+}
+
+// ── Carrega cobertura de compras por serial ───────────────────────
 async function _haulerLoadComprasPorSerial(force=false){
   if(_haulerComprasIndexLoading&&!force)return;
   if(_haulerComprasIndex&&!force)return;
   _haulerComprasIndexLoading=true;
   try{
+    // Tenta construir a partir de dados locais/cache (sem chamada GAS)
+    const local=_buildSerialIndexFromComprasTabs();
+    if(local){
+      _haulerComprasIndex=local;
+      console.log('[AgriTrack] ComprasIndex local:',Object.keys(local).length,'seriais');
+      if(_haulerActiveTab==='serial'&&_haulerCompleto&&_haulerCompleto.serial)
+        renderHaulerSerial(_haulerCompleto.serial);
+      return;
+    }
+    // Fallback: GAS buscarComprasPorSerial (lento, ~30s cold)
     const d=await api({action:'buscarComprasPorSerial'},120000);
-    // Suporta formato novo {index:{serial:{cod:{qtdSolicitada,qtdPedida,qtdEntregue,...}}}}
-    // e formato legado {success:true, seriais:{serial:{codigos,nLinhas}}}
     if(d&&d.index){
       const idx={};
       Object.entries(d.index).forEach(([serial,codMap])=>{
@@ -2605,14 +2670,11 @@ async function _haulerLoadComprasPorSerial(force=false){
         idx[serial]={codigos,items:codMap,nLinhas:codigos.size};
       });
       _haulerComprasIndex=idx;
-      console.log('[AgriTrack] ComprasIndex v2 carregado:',Object.keys(idx).length,'seriais,',d.totalLinhas,'linhas');
+      console.log('[AgriTrack] ComprasIndex GAS:',Object.keys(idx).length,'seriais,',d.totalLinhas,'linhas');
       if(d.diagnostics&&d.diagnostics.length)console.warn('[AgriTrack] ComprasIndex diagnósticos:',d.diagnostics);
-      if(_haulerActiveTab==='serial'&&_haulerCompleto&&_haulerCompleto.serial){
-        console.log('[AgriTrack] ComprasIndex carregado — re-renderizando Por Serial');
+      if(_haulerActiveTab==='serial'&&_haulerCompleto&&_haulerCompleto.serial)
         renderHaulerSerial(_haulerCompleto.serial);
-      }
-    } else if(d&&d.success&&d.seriais){
-      // formato legado
+    }else if(d&&d.success&&d.seriais){
       const idx={};
       Object.entries(d.seriais).forEach(([serial,v])=>{
         idx[serial]={codigos:new Set(v.codigos),items:null,nLinhas:v.nLinhas||0};
@@ -4377,6 +4439,14 @@ function _aplicarDadosCompras(tabs, metaEl, sufixo){
   _comprasTabAtiva='all';
   _comprasCarregado=true;
   _comprasTabs._loadedAt=Date.now(); // timestamp para background refresh
+
+  // Atualiza o índice de compras por serial quando dados de compras carregam/atualizam
+  {const newIdx=_buildSerialIndexFromComprasTabs();
+  if(newIdx&&(_haulerActiveTab==='serial'||!_haulerComprasIndex)){
+    _haulerComprasIndex=newIdx;
+    if(_haulerActiveTab==='serial'&&_haulerCompleto&&_haulerCompleto.serial)
+      renderHaulerSerial(_haulerCompleto.serial);
+  }}
 
   const nAbas=_comprasTabs.filter(t=>!t.virtual).length;
   const hasCCC=_comprasTabs.some(t=>t.virtual&&t.name.includes('CCC'));
