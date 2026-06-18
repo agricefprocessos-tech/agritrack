@@ -1154,6 +1154,14 @@ tr:hover td{background:rgba(255,255,255,0.02)}
   </div>
 </div>
 
+<!-- ══ MODAL: COMPRAS POR SERIAL ══════════════════════════════════ -->
+<div id="serialCmpModal" style="display:none;position:fixed;inset:0;z-index:2050;background:rgba(0,0,0,.65);backdrop-filter:blur(4px);align-items:center;justify-content:center" onclick="closeSerialCmpModal(event)">
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;max-width:760px;width:95%;max-height:88vh;overflow-y:auto;padding:22px 24px;position:relative;box-shadow:0 24px 64px rgba(0,0,0,.5)" onclick="event.stopPropagation()">
+    <button onclick="closeSerialCmpModal()" style="position:absolute;top:14px;right:16px;background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;line-height:1">✕</button>
+    <div id="serialCmpModalContent"></div>
+  </div>
+</div>
+
 <!-- ══ MODAL: REGISTRAR BLOQUEIO (abre direto do Gantt) ══════════ -->
 <div id="blkModal" style="display:none;position:fixed;inset:0;z-index:2100;background:rgba(0,0,0,.72);backdrop-filter:blur(5px);align-items:center;justify-content:center" onclick="closeBlkModal(event)">
   <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;max-width:580px;width:92%;max-height:90vh;overflow-y:auto;padding:24px;position:relative;box-shadow:0 24px 64px rgba(0,0,0,.6)" onclick="event.stopPropagation()">
@@ -2588,17 +2596,30 @@ async function _haulerLoadComprasPorSerial(force=false){
   _haulerComprasIndexLoading=true;
   try{
     const d=await api({action:'buscarComprasPorSerial'},120000);
-    if(d&&d.success&&d.seriais){
+    // Suporta formato novo {index:{serial:{cod:{qtdSolicitada,qtdPedida,qtdEntregue,...}}}}
+    // e formato legado {success:true, seriais:{serial:{codigos,nLinhas}}}
+    if(d&&d.index){
       const idx={};
-      Object.entries(d.seriais).forEach(([serial,v])=>{
-        idx[serial]={codigos:new Set(v.codigos),nLinhas:v.nLinhas||0};
+      Object.entries(d.index).forEach(([serial,codMap])=>{
+        const codigos=new Set(Object.keys(codMap));
+        idx[serial]={codigos,items:codMap,nLinhas:codigos.size};
       });
       _haulerComprasIndex=idx;
-      // Re-renderizar Por Serial se estiver ativo
+      console.log('[AgriTrack] ComprasIndex v2 carregado:',Object.keys(idx).length,'seriais,',d.totalLinhas,'linhas');
+      if(d.diagnostics&&d.diagnostics.length)console.warn('[AgriTrack] ComprasIndex diagnósticos:',d.diagnostics);
       if(_haulerActiveTab==='serial'&&_haulerCompleto&&_haulerCompleto.serial){
         console.log('[AgriTrack] ComprasIndex carregado — re-renderizando Por Serial');
         renderHaulerSerial(_haulerCompleto.serial);
       }
+    } else if(d&&d.success&&d.seriais){
+      // formato legado
+      const idx={};
+      Object.entries(d.seriais).forEach(([serial,v])=>{
+        idx[serial]={codigos:new Set(v.codigos),items:null,nLinhas:v.nLinhas||0};
+      });
+      _haulerComprasIndex=idx;
+      if(_haulerActiveTab==='serial'&&_haulerCompleto&&_haulerCompleto.serial)
+        renderHaulerSerial(_haulerCompleto.serial);
     }
   }catch(e){
     console.warn('[AgriTrack] buscarComprasPorSerial:',e.message);
@@ -3469,18 +3490,45 @@ function renderHaulerSerial(data){
                .map(r=>_normCod(r.codigo))
   ):null;
 
-  // Helper: calcula cobertura real de itens BOM por serial usando índice FUP
-  // Se _haulerComprasIndex disponível → contagem exata; senão → estimativa por nPedidos
+  // Helper: calcula cobertura segmentada de itens BOM por serial usando índice compras
+  // Retorna {nEntregue, nPedido, nSolicitado, nDescoberto, total, count, exact, items}
   function bomCoverageForSerial(serial, nPedidos, bomComprasRef){
     if(!bomComprasRef)return null;
     if(_haulerComprasIndex&&_haulerComprasIndex[serial]&&bomComprarCodes){
-      const covered=[..._haulerComprasIndex[serial].codigos].filter(c=>bomComprarCodes.has(c)).length;
-      return {count:covered, total:bomComprasRef, exact:true,
-              nLinhasFup:_haulerComprasIndex[serial].nLinhas};
+      const entry=_haulerComprasIndex[serial];
+      // Se temos items detalhados (formato v2) → segmentar por estado
+      if(entry.items){
+        let nEnt=0,nPed=0,nSol=0,nDesc=0;
+        const itemDetails=[];
+        bomComprarCodes.forEach(cod=>{
+          const it=entry.items[cod];
+          if(!it){nDesc++;return;}
+          if((it.qtdEntregue||0)>0)     {nEnt++;itemDetails.push({cod,estado:'entregue',...it});}
+          else if((it.qtdPedida||0)>0)  {nPed++;itemDetails.push({cod,estado:'pedido',...it});}
+          else if((it.qtdSolicitada||0)>0){nSol++;itemDetails.push({cod,estado:'solicitado',...it});}
+          else                           {nDesc++;itemDetails.push({cod,estado:'descoberto',...it});}
+        });
+        // Também incluir itens comprados mas não no BOM (extras)
+        const extras=[];
+        Object.entries(entry.items).forEach(([cod,it])=>{
+          if(!bomComprarCodes.has(cod))extras.push({cod,estado:'extra',...it});
+        });
+        const count=nEnt+nPed+nSol;
+        return{nEnt,nPed,nSol,nDesc,count,total:bomComprasRef,exact:true,
+               nLinhasFup:entry.nLinhas,items:itemDetails,extras};
+      }
+      // formato legado: só set de codigos
+      const covered=[...entry.codigos].filter(c=>bomComprarCodes.has(c)).length;
+      const nDesc=bomComprasRef-covered;
+      return{nEnt:covered,nPed:0,nSol:0,nDesc:Math.max(0,nDesc),count:covered,
+             total:bomComprasRef,exact:true,nLinhasFup:entry.nLinhas,items:null,extras:null};
     }
-    // Fallback: estimativa (min de linhas vs total BOM)
-    const est=Math.min(nPedidos||0,bomComprasRef);
-    return {count:est, total:bomComprasRef, exact:false, nLinhasFup:nPedidos||0};
+    // Fallback: estimativa por nPedidos (sem dados de compras por serial)
+    if(!nPedidos)return{nEnt:0,nPed:0,nSol:0,nDesc:bomComprasRef,count:0,
+                        total:bomComprasRef,exact:false,nLinhasFup:0,items:null,extras:null};
+    const est=Math.min(nPedidos,bomComprasRef);
+    return{nEnt:est,nPed:0,nSol:0,nDesc:Math.max(0,bomComprasRef-est),count:est,
+           total:bomComprasRef,exact:false,nLinhasFup:nPedidos,items:null,extras:null};
   }
 
   if(!seriais.length){
@@ -3555,6 +3603,12 @@ function renderHaulerSerial(data){
 
   // Cartões por serial — grid plano ordenado por progresso desc
   const FASE_MAP=Object.fromEntries(FASES.map(f=>[f.key,f]));
+  // BOM lookup por código normalizado → {desc, qtd} — apenas itens "comprar"
+  const bomLookup=_haulerData?Object.fromEntries(
+    _haulerData.filter(r=>r.tipoAll&&r.tipoAll.includes('comprar')&&r.codigo)
+               .map(r=>[_normCod(r.codigo),{desc:r.desc||'',qtd:r.qtd||'1'}])
+  ):{};
+  window._serialCmpData={};
   const sortedSeriais=[...seriais].sort((a,b)=>calcPct_(b)-calcPct_(a));
   const cardsHtml=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;align-items:start">
     ${sortedSeriais.map(s=>{
@@ -3568,6 +3622,29 @@ function renderHaulerSerial(data){
           const covData=bomCoverageForSerial(s.serial,fc.nPedidos,bomCompRef);
           const pctComp=covData?Math.round(covData.count/covData.total*100):
             fc.nPedidos>0?Math.round((fc.nEntregues||0)/fc.nPedidos*100):null;
+          // Armazena covData para o modal de compras por serial
+          if(covData)window._serialCmpData[s.serial]={covData,bomLookup,serial:s.serial};
+          // Barra segmentada de cobertura de compras
+          const segBarHtml=(covData&&covData.items&&covData.total>0)?(()=>{
+            const t=covData.total;
+            const pEnt=Math.round(covData.nEnt/t*100);
+            const pPed=Math.round(covData.nPed/t*100);
+            const pSol=Math.round(covData.nSol/t*100);
+            const pDesc=Math.max(0,100-pEnt-pPed-pSol);
+            return`<div style="display:flex;height:5px;border-radius:3px;overflow:hidden;margin-top:4px;gap:1px" title="Entregue:${covData.nEnt} Pedido:${covData.nPed} Solicitado:${covData.nSol} Descoberto:${covData.nDesc}">
+              ${pEnt>0?`<div style="flex:${pEnt};background:var(--green)"></div>`:''}
+              ${pPed>0?`<div style="flex:${pPed};background:var(--blue)"></div>`:''}
+              ${pSol>0?`<div style="flex:${pSol};background:var(--amber)"></div>`:''}
+              ${pDesc>0?`<div style="flex:${pDesc};background:var(--bg3)"></div>`:''}
+            </div>
+            <div style="display:flex;gap:6px;margin-top:3px;font-size:8px;flex-wrap:wrap">
+              ${covData.nEnt>0?`<span style="color:var(--green)">✓ ${covData.nEnt}</span>`:''}
+              ${covData.nPed>0?`<span style="color:var(--blue)">📦 ${covData.nPed}</span>`:''}
+              ${covData.nSol>0?`<span style="color:var(--amber)">📋 ${covData.nSol}</span>`:''}
+              ${covData.nDesc>0?`<span style="color:var(--text3)">○ ${covData.nDesc}</span>`:''}
+              <button onclick="openSerialCmpModal('${s.serial}')" style="margin-left:auto;font-size:8px;padding:1px 6px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;cursor:pointer;color:var(--text2);font-family:inherit;white-space:nowrap">Ver itens</button>
+            </div>`;
+          })():'';
           const diasProd=s.diasProd;
           const opsAb=s.opsAbertas||[];
           const ops=s.operadores||[];
@@ -3613,10 +3690,11 @@ function renderHaulerSerial(data){
                  qty:covData
                    ?`${covData.count}/${covData.total} cobertos${covData.exact?'':' ~'}`
                    :fc.nPedidos>0?`${fc.nEntregues||0}/${fc.nPedidos} ent.`:null,
-                 // sub = linhas FUP (info secundária)
-                 sub:covData&&covData.nLinhasFup>0?`${covData.nLinhasFup} linhas FUP${covData.exact?' (por serial)':' (total)'}`:
-                     fc.nPedidos>0&&!covData?`${fc.nEntregues||0}/${fc.nPedidos} linhas FUP ent.`:null,
+                 // sub = linhas FUP (info secundária) — omite se barra segmentada presente
+                 sub:(!segBarHtml&&covData&&covData.nLinhasFup>0)?`${covData.nLinhasFup} linhas${covData.exact?' (por serial)':' (total)'}`:
+                     (!segBarHtml&&fc.nPedidos>0&&!covData)?`${fc.nEntregues||0}/${fc.nPedidos} ent.`:null,
                  bom:null,
+                 segBar:segBarHtml||null,
                  dtLbl:fc.status==='concluida'?'últ.ent.':'desde',
                  alert:comprasAlerta},
                 {f:ff,label:'⚙️ Fabricação',
@@ -3634,7 +3712,7 @@ function renderHaulerSerial(data){
                  sub:null,
                  bom:bomRef?`${bomRef.mont} itens`:null,
                  dtLbl:fm.status==='concluida'?'concl.':'desde',alert:false},
-              ].map(({f,label,qty,dtLbl,alert,bom,sub})=>{
+              ].map(({f,label,qty,dtLbl,alert,bom,sub,segBar})=>{
                 const st=f.status||'sem_dados';
                 const dt=st==='concluida'?fmtDtShort(f.fim):st==='em_andamento'?fmtDtShort(f.inicio):'';
                 const borderColor=alert?'var(--amber)':SC[st];
@@ -3645,6 +3723,7 @@ function renderHaulerSerial(data){
                   </div>
                   <div style="font-size:10px;color:${SC[st]};font-weight:600">${SI[st]}${qty?' '+qty:st==='sem_dados'?'<span style="font-weight:400;font-style:italic;opacity:.6"> Não iniciada</span>':''}</div>
                   ${sub?`<div style="font-size:8px;color:var(--text3);margin-top:2px;opacity:.6">${sub}</div>`:''}
+                  ${segBar||''}
                   ${bom!==null?`<div style="font-size:8px;color:var(--text3);margin-top:2px;opacity:.75">📋 BOM: ${bom}</div>`:''}
                 </div>`;
               }).join('')}
@@ -3835,6 +3914,112 @@ function renderHaulerSerial(data){
     };
     el.addEventListener('click',el._detDelegate);
   }
+}
+
+// ── Modal: Compras por Serial ─────────────────────────────────────
+function openSerialCmpModal(serial){
+  const entry=window._serialCmpData&&window._serialCmpData[serial];
+  const modal=document.getElementById('serialCmpModal');
+  const content=document.getElementById('serialCmpModalContent');
+  if(!modal||!content)return;
+
+  if(!entry||!entry.covData||!entry.covData.items){
+    content.innerHTML=`<h3 style="margin:0 0 12px;font-size:15px">🛒 Compras — ${serial}</h3>
+      <div style="color:var(--text3);font-size:13px;padding:20px 0;text-align:center">
+        ${!entry?'Dados de compras não carregados ainda.':'Sem dados segmentados disponíveis para este serial.'}
+      </div>`;
+    modal.style.display='flex';
+    return;
+  }
+
+  const {covData,bomLookup}=entry;
+  const ESTADO_LABEL={entregue:'Entregue',pedido:'Pedido (em trânsito)',solicitado:'Solicitado (sem PO)',descoberto:'Não comprado'};
+  const ESTADO_COLOR={entregue:'var(--green)',pedido:'var(--blue)',solicitado:'var(--amber)',descoberto:'var(--text3)'};
+
+  // Agrupa por estado para ordenar
+  const ORDER=['entregue','pedido','solicitado','descoberto'];
+  const byEstado={entregue:[],pedido:[],solicitado:[],descoberto:[]};
+  covData.items.forEach(it=>{
+    const g=byEstado[it.estado];
+    if(g)g.push(it);
+  });
+  // Descobertos = BOM codes sem entry
+  if(covData.nDesc>0&&bomLookup){
+    const covCodes=new Set(covData.items.map(it=>it.cod));
+    Object.entries(bomLookup).forEach(([cod,bom])=>{
+      if(!covCodes.has(cod)&&(window._serialCmpData[serial].covData.nDesc>0)){
+        byEstado.descoberto.push({cod,estado:'descoberto',qtdSolicitada:0,qtdPedida:0,qtdEntregue:0,status:'',pedido:'',dataEnt:null,dataAtu:null});
+      }
+    });
+  }
+
+  const fmtDt=d=>!d?'—':new Date(d).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'});
+  const esc2=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  // Resumo barra segmentada
+  const t=covData.total;
+  const barHtml=`<div style="display:flex;height:8px;border-radius:4px;overflow:hidden;gap:2px;margin:10px 0 4px">
+    ${covData.nEnt>0?`<div style="flex:${covData.nEnt};background:var(--green)" title="Entregue: ${covData.nEnt}"></div>`:''}
+    ${covData.nPed>0?`<div style="flex:${covData.nPed};background:var(--blue)" title="Pedido: ${covData.nPed}"></div>`:''}
+    ${covData.nSol>0?`<div style="flex:${covData.nSol};background:var(--amber)" title="Solicitado: ${covData.nSol}"></div>`:''}
+    ${covData.nDesc>0?`<div style="flex:${covData.nDesc};background:var(--bg3)" title="Não comprado: ${covData.nDesc}"></div>`:''}
+  </div>
+  <div style="display:flex;gap:12px;font-size:11px;margin-bottom:14px;flex-wrap:wrap">
+    <span style="color:var(--green)">✅ Entregue: <strong>${covData.nEnt}</strong></span>
+    <span style="color:var(--blue)">📦 Pedido: <strong>${covData.nPed}</strong></span>
+    <span style="color:var(--amber)">📋 Solicitado: <strong>${covData.nSol}</strong></span>
+    <span style="color:var(--text3)">○ Descoberto: <strong>${covData.nDesc}</strong></span>
+    <span style="color:var(--text2);margin-left:auto">Total BOM: <strong>${t}</strong></span>
+  </div>`;
+
+  // Tabela de itens
+  const rows=ORDER.flatMap(est=>byEstado[est]).filter(it=>it);
+  const tableRows=rows.map(it=>{
+    const bom=bomLookup[it.cod]||{desc:'',qtd:'?'};
+    const color=ESTADO_COLOR[it.estado];
+    return`<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:5px 8px;font-family:monospace;font-size:11px">${esc2(it.cod)}</td>
+      <td style="padding:5px 8px;font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc2(bom.desc)}">${esc2(bom.desc)||'—'}</td>
+      <td style="padding:5px 8px;text-align:center;font-size:11px">${esc2(bom.qtd)}</td>
+      <td style="padding:5px 8px;text-align:center;font-size:11px">${it.qtdSolicitada>0?it.qtdSolicitada.toFixed(0):'—'}</td>
+      <td style="padding:5px 8px;text-align:center;font-size:11px">${it.qtdPedida>0?it.qtdPedida.toFixed(0):'—'}</td>
+      <td style="padding:5px 8px;text-align:center;font-size:11px">${it.qtdEntregue>0?it.qtdEntregue.toFixed(0):'—'}</td>
+      <td style="padding:5px 8px;font-size:10px"><span style="color:${color};font-weight:600">${esc2(it.status)||ESTADO_LABEL[it.estado]}</span></td>
+      <td style="padding:5px 8px;font-size:10px">${esc2(it.pedido)||'—'}</td>
+      <td style="padding:5px 8px;font-size:10px;white-space:nowrap">${fmtDt(it.dataEnt||it.dataAtu)}</td>
+    </tr>`;
+  }).join('');
+
+  content.innerHTML=`
+    <h3 style="margin:0 0 4px;font-size:16px">🛒 Compras por Serial — <span style="font-family:monospace;color:var(--blue)">${esc2(serial)}</span></h3>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Cobertura de itens BOM classificados como "Comprar"</div>
+    ${barHtml}
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:560px">
+        <thead>
+          <tr style="background:var(--bg3);font-size:10px;color:var(--text3)">
+            <th style="padding:6px 8px;text-align:left">Código</th>
+            <th style="padding:6px 8px;text-align:left">Descrição</th>
+            <th style="padding:6px 8px;text-align:center">BOM Qtd</th>
+            <th style="padding:6px 8px;text-align:center">Solic.</th>
+            <th style="padding:6px 8px;text-align:center">Pedido</th>
+            <th style="padding:6px 8px;text-align:center">Entregue</th>
+            <th style="padding:6px 8px;text-align:left">Status</th>
+            <th style="padding:6px 8px;text-align:left">Pedido Nº</th>
+            <th style="padding:6px 8px;text-align:left">Data Entrega</th>
+          </tr>
+        </thead>
+        <tbody>${tableRows||'<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--text3)">Nenhum item encontrado</td></tr>'}</tbody>
+      </table>
+    </div>
+    ${covData.extras&&covData.extras.length?`<div style="margin-top:10px;font-size:10px;color:var(--text3)">+ ${covData.extras.length} linha(s) de compras não presentes no BOM atual (estoque/outros)</div>`:''}
+  `;
+  modal.style.display='flex';
+}
+
+function closeSerialCmpModal(e){
+  if(e&&e.target!==document.getElementById('serialCmpModal'))return;
+  document.getElementById('serialCmpModal').style.display='none';
 }
 
 async function enviarEmail(){
