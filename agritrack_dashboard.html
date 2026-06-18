@@ -3693,18 +3693,18 @@ function renderHaulerSerial(data){
             const pPed=Math.round(covData.nPed/t*100);
             const pSol=Math.round(covData.nSol/t*100);
             const pDesc=Math.max(0,100-pEnt-pPed-pSol);
-            return`<div style="display:flex;height:5px;border-radius:3px;overflow:hidden;margin-top:4px;gap:1px" title="Entregue:${covData.nEnt} Pedido:${covData.nPed} Solicitado:${covData.nSol} Descoberto:${covData.nDesc}">
+            return`<div style="display:flex;height:8px;border-radius:3px;overflow:hidden;margin-top:5px;gap:1px" title="Entregue:${covData.nEnt} Pedido:${covData.nPed} Solicitado:${covData.nSol} Descoberto:${covData.nDesc}">
               ${pEnt>0?`<div style="flex:${pEnt};background:var(--green)"></div>`:''}
               ${pPed>0?`<div style="flex:${pPed};background:var(--blue)"></div>`:''}
               ${pSol>0?`<div style="flex:${pSol};background:var(--amber)"></div>`:''}
               ${pDesc>0?`<div style="flex:${pDesc};background:var(--bg3)"></div>`:''}
             </div>
-            <div style="display:flex;gap:6px;margin-top:3px;font-size:8px;flex-wrap:wrap">
+            <div style="display:flex;gap:6px;margin-top:3px;font-size:9px;flex-wrap:wrap;align-items:center">
               ${covData.nEnt>0?`<span style="color:var(--green)">✓ ${covData.nEnt}</span>`:''}
               ${covData.nPed>0?`<span style="color:var(--blue)">📦 ${covData.nPed}</span>`:''}
               ${covData.nSol>0?`<span style="color:var(--amber)">📋 ${covData.nSol}</span>`:''}
               ${covData.nDesc>0?`<span style="color:var(--text3)">○ ${covData.nDesc}</span>`:''}
-              <button onclick="openSerialCmpModal('${s.serial}')" style="margin-left:auto;font-size:8px;padding:1px 6px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;cursor:pointer;color:var(--text2);font-family:inherit;white-space:nowrap">Ver itens</button>
+              <button onclick="openSerialCmpModal('${s.serial}')" style="margin-left:auto;font-size:9px;padding:2px 7px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;cursor:pointer;color:var(--text2);font-family:inherit;white-space:nowrap">Ver itens</button>
             </div>`;
           })():'';
           const diasProd=s.diasProd;
@@ -4347,7 +4347,7 @@ async function _refreshComprasBg(sheetId, metaEl){
       const newIdx=_buildSerialIndexFromComprasTabs();
       if(newIdx){
         _haulerComprasIndex=newIdx;
-        if(_haulerActiveTab==='serial'&&_haulerCompleto&&_haulerCompleto.serial)
+        if(_haulerCompleto&&_haulerCompleto.serial)
           renderHaulerSerial(_haulerCompleto.serial);
       }
     }
@@ -4457,9 +4457,9 @@ function _aplicarDadosCompras(tabs, metaEl, sufixo){
 
   // Atualiza o índice de compras por serial quando dados de compras carregam/atualizam
   {const newIdx=_buildSerialIndexFromComprasTabs();
-  if(newIdx&&(_haulerActiveTab==='serial'||!_haulerComprasIndex)){
+  if(newIdx){
     _haulerComprasIndex=newIdx;
-    if(_haulerActiveTab==='serial'&&_haulerCompleto&&_haulerCompleto.serial)
+    if(_haulerCompleto&&_haulerCompleto.serial)
       renderHaulerSerial(_haulerCompleto.serial);
   }}
 
