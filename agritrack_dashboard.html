@@ -4333,9 +4333,24 @@ async function _refreshComprasBg(sheetId, metaEl){
   try{
     const tabs=await _fetchComprasTabs(sheetId);
     _comprasCacheSet(sheetId, tabs);
-    // Só re-aplica se a aba compras ainda estiver visível
+    // Re-aplica se aba compras visível; de qualquer forma atualiza _comprasTabs para que
+    // _buildSerialIndexFromComprasTabs possa usar os dados frescos (FUP online + Concluídos)
+    _comprasTabs=tabs.filter(t=>t&&t.name);
+    const headersSet=new Set();_comprasTabs.forEach(t=>t.headers.forEach(h=>headersSet.add(h)));
+    _comprasHeaders=[...headersSet];
+    _comprasData=[];_comprasTabs.forEach(t=>t.rows.forEach(r=>_comprasData.push({...r,_tab:t.name})));
+    _comprasTabs._loadedAt=Date.now();
     const dash=document.getElementById('comprasDashboard');
     if(dash&&dash.style.display!=='none') _aplicarDadosCompras(tabs, metaEl, '✅ Atualizado');
+    else{
+      // Dashboard de compras não está visível — só atualiza o índice serial se necessário
+      const newIdx=_buildSerialIndexFromComprasTabs();
+      if(newIdx){
+        _haulerComprasIndex=newIdx;
+        if(_haulerActiveTab==='serial'&&_haulerCompleto&&_haulerCompleto.serial)
+          renderHaulerSerial(_haulerCompleto.serial);
+      }
+    }
   }catch(e){
     // Falha silenciosa — usuário já está vendo os dados do cache
     if(metaEl) metaEl.textContent=metaEl.textContent.replace('⟳ Atualizando…','⚠ Falha ao atualizar •');
