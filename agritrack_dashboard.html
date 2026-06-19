@@ -2604,7 +2604,8 @@ function _buildSerialIndexFromComprasTabs(){
     if(!tab.rows||!tab.rows.length)return;
     const headers=tab.headers||[];
     const findKey=(...cands)=>headers.find(h=>cands.some(c=>h.toLowerCase().includes(c.toLowerCase())))||'';
-    const pvKey=findKey('pv');
+    // Fallback para 1ª coluna: header de PV às vezes é editado/corrompido na planilha viva (ex: "f")
+    const pvKey=findKey('pv')||headers[0]||'';
     // FUP online e Pedidos Concluídos usam "Código"; Solicitações usa "CÓD. AGRICEF"
     const codKey=findKey('cod. agri','cod agri','cód. agri','cód agri','agricef','código','codigo');
     const qtdKey=findKey('qtd');
