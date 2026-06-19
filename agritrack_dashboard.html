@@ -3637,7 +3637,8 @@ function renderHaulerSerial(data){
     const P={compras:10,fabricacao:30,preMontagem:25,montagem:35};
     const fc_r=s.fases.compras;
     const fc_st=(fc_r.status==='concluida'&&fc_r.nPedidos>0&&(fc_r.nEntregues||0)<fc_r.nPedidos)?'em_andamento':fc_r.status;
-    const bomComprasRef=bomRef?bomRef.comprar:null;
+    // Usar códigos únicos (não linhas) como denominador de cobertura
+    const bomComprasRef=bomComprarCodes?bomComprarCodes.size:(bomRef?bomRef.comprar:null);
     // Cobertura de Compras: usa cruzamento BOM×FUP quando disponível, senão estimativa
     const cov=bomCoverageForSerial(s.serial,fc_r.nPedidos,bomComprasRef);
     const compCoverage=cov?cov.count/cov.total:null;
@@ -3687,7 +3688,8 @@ function renderHaulerSerial(data){
           const fc={...fc_raw, status:(fc_raw.status==='concluida'&&fc_raw.nPedidos>0&&(fc_raw.nEntregues||0)<fc_raw.nPedidos)?'em_andamento':fc_raw.status};
           const ff=s.fases.fabricacao, fp=s.fases.preMontagem, fm=s.fases.montagem;
           const pct=calcPct_(s);
-          const bomCompRef=bomRef?bomRef.comprar:null;
+          // Usar códigos únicos (não linhas) como denominador de cobertura
+          const bomCompRef=bomComprarCodes?bomComprarCodes.size:(bomRef?bomRef.comprar:null);
           // Cobertura real via PV parser (exata) ou estimativa (por linhas FUP)
           const covData=bomCoverageForSerial(s.serial,fc.nPedidos,bomCompRef);
           const pctComp=covData?Math.round(covData.count/covData.total*100):
