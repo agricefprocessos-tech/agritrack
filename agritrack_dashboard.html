@@ -2612,8 +2612,8 @@ function _buildSerialIndexFromComprasTabs(){
     const pedidoKey=findKey('pedido');
     const dataEntKey=findKey('entrega efet','data entrega efet','data da entrega');
     const dataAtuKey=findKey('entrega atualizada','atualizada');
-    // Coluna alternativa para serial quando PV está vazio (Observações, Conjunto/Apelido, Finalidade)
-    const altSerialKey=findKey('observa','conjunto','apelido','finalidade');
+    // Colunas alternativas para serial — pega TODAS que casam (FUP tem "Observação" E "Observações")
+    const altSerialKeys=headers.filter(h=>['observa','conjunto','apelido','finalidade'].some(c=>h.toLowerCase().includes(c.toLowerCase())));
     if(!pvKey||!codKey)return;
     const tabLow=(tab.name||'').toLowerCase();
     const isSolic=tabLow.includes('solicit');
@@ -2621,10 +2621,11 @@ function _buildSerialIndexFromComprasTabs(){
     tab.rows.forEach(row=>{
       const pv=row[pvKey]||'';const rawCod=row[codKey]||'';
       if(!rawCod)return;
-      // Extrair serial do PV; fallback para Observações/Conjunto/Apelido
+      // Extrair serial do PV; fallback para todas as colunas de texto alternativas
       let seriais=parsePvSeriais(pv);
-      if(!seriais.length&&altSerialKey){
-        seriais=parsePvSeriais(String(row[altSerialKey]||''));
+      if(!seriais.length&&altSerialKeys.length){
+        const combinado=altSerialKeys.map(k=>String(row[k]||'')).join(' ');
+        seriais=parsePvSeriais(combinado);
       }
       if(!seriais.length)return;
       const cod=_normCod(rawCod);if(!cod)return;
