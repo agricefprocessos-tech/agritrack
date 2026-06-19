@@ -3535,20 +3535,19 @@ function renderHaulerSerial(data){
   // Serra    = CORTE PERFIL  |  Solda = SOLDAGEM  |  Usinagem = USINAGEM
   // Mont     = MONTAGEM
   const bomRef=_haulerData&&_haulerData.length>0?(()=>{
-    const comprar=_haulerData.filter(r=>r.tipoAll.includes('comprar')).length;
-    const corte  =_haulerData.filter(r=>r.tipoAll.includes('corte')).length;
+    // Regra de negócio: usinagem e corte são terceirizados (comprar), não fabricar interno
+    const _isExterno=r=>r.tipoAll.includes('comprar')||r.tipoAll.includes('usinagem')||r.tipoAll.includes('corte');
+    const comprar=_haulerData.filter(r=>_isExterno(r)).length;
     const serra  =_haulerData.filter(r=>r.tipoAll.includes('serra')).length;
     const solda  =_haulerData.filter(r=>r.tipoAll.includes('solda')).length;
-    const usin   =_haulerData.filter(r=>r.tipoAll.includes('usinagem')).length;
     const mont   =_haulerData.filter(r=>r.tipoAll.includes('montagem')).length;
-    const fab=serra+solda+usin;
-    const c=comprar+corte;
-    return(c+fab+mont>0)?{comprar,corte,serra,solda,usinagem:usin,compras:c,fab,mont,total:c+fab+mont}:null;
+    const fab=serra+solda;
+    return(comprar+fab+mont>0)?{comprar,serra,solda,fab,mont,total:comprar+fab+mont}:null;
   })():null;
 
-  // Conjunto de códigos BOM do tipo "comprar" (normalizado) para cruzamento com FUP
+  // Conjunto de códigos BOM a comprar (comprar + usinagem terceirizada + corte externo)
   const bomComprarCodes=bomRef&&_haulerData?new Set(
-    _haulerData.filter(r=>r.tipoAll&&r.tipoAll.includes('comprar')&&r.codigo)
+    _haulerData.filter(r=>r.tipoAll&&(r.tipoAll.includes('comprar')||r.tipoAll.includes('usinagem')||r.tipoAll.includes('corte'))&&r.codigo)
                .map(r=>_normCod(r.codigo))
   ):null;
 
@@ -3667,8 +3666,8 @@ function renderHaulerSerial(data){
   const FASE_MAP=Object.fromEntries(FASES.map(f=>[f.key,f]));
   // BOM lookup por código normalizado → {desc, qtd} — apenas itens "comprar"
   const bomLookup=_haulerData?Object.fromEntries(
-    _haulerData.filter(r=>r.tipoAll&&r.tipoAll.includes('comprar')&&r.codigo)
-               .map(r=>[_normCod(r.codigo),{desc:r.desc||'',qtd:r.qtd||'1'}])
+    _haulerData.filter(r=>r.tipoAll&&(r.tipoAll.includes('comprar')||r.tipoAll.includes('usinagem')||r.tipoAll.includes('corte'))&&r.codigo)
+               .map(r=>[_normCod(r.codigo),{desc:r.desc||'',qtd:r.qtd||'1',tipo:r.tipoAll.includes('usinagem')?'usinagem':r.tipoAll.includes('corte')?'corte':'comprar'}])
   ):{};
   window._serialCmpData={};
   const sortedSeriais=[...seriais].sort((a,b)=>calcPct_(b)-calcPct_(a));
@@ -3763,7 +3762,7 @@ function renderHaulerSerial(data){
                  qty:ff.nOps>0?`${ff.nOps-(ff.nAbertas||0)}/${ff.nOps} ops`:null,
                  sub:null,
                  // bom = breakdown por op do BOM como referência
-                 bom:bomRef&&bomRef.fab>0?`⚙️${bomRef.serra} Serra · 🔧${bomRef.usinagem} Usin · 🔥${bomRef.solda} Solda`:null,
+                 bom:bomRef&&bomRef.fab>0?`⚙️${bomRef.serra} Serra · 🔥${bomRef.solda} Solda`:null,
                  dtLbl:ff.status==='concluida'?'concl.':'desde',alert:false},
                 {f:fp,label:'🔩 Pré-Mont',
                  qty:fp.nOps>0?`${fp.nOps-(fp.nAbertas||0)}/${fp.nOps} ops`:null,
