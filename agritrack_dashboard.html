@@ -774,9 +774,12 @@ tr:hover td{background:rgba(255,255,255,0.02)}
         </div>
       </div>
     </details>
-    <!-- Detail panel (shows on bar click) -->
-    <div id="ganttDetail" class="card" style="margin-top:14px;display:none;padding:16px"></div>
   </div>
+</div>
+
+<!-- Detail panel (popup ao clicar numa barra/tarefa do Gantt) -->
+<div id="ganttDetailModal" style="display:none;position:fixed;inset:0;z-index:2100;background:rgba(0,0,0,.72);backdrop-filter:blur(5px);align-items:center;justify-content:center" onclick="closeGanttDetailModal(event)">
+  <div class="card" id="ganttDetail" style="padding:16px;max-width:680px;width:92%;max-height:88vh;overflow-y:auto;box-shadow:0 24px 64px rgba(0,0,0,.6)" onclick="event.stopPropagation()"></div>
 </div>
 
 <!-- ══ PAGE: CONFIGURAÇÕES ══════════════════════════════════════ -->
@@ -6232,7 +6235,7 @@ function ganttClick(key){
   window._ganttClickData[key]={summary:t['Resumo']||'',duedate:due||'',alvodate:alvo||'',startdate:start||''};
   const jiraUrl='https://agricefprojetos.atlassian.net/browse/'+key;
 
-  det.style.display='block';
+  document.getElementById('ganttDetailModal').style.display='flex';
   det.innerHTML=`<div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
     <div style="flex:1;min-width:220px">
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px">
@@ -6278,15 +6281,13 @@ function ganttClick(key){
         <a href="${jiraUrl}" target="_blank" style="padding:7px 14px;background:transparent;border:1px solid var(--border2);color:var(--text2);border-radius:var(--rs);font-size:12px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:4px">↗ Abrir no Jira</a>
       </div>
     </div>
-    <button onclick="document.getElementById('ganttDetail').style.display='none'" style="background:transparent;border:1px solid var(--border2);border-radius:6px;padding:4px 10px;color:var(--text2);cursor:pointer;font-size:11px;flex-shrink:0">✕</button>
+    <button onclick="closeGanttDetailModal()" style="background:transparent;border:1px solid var(--border2);border-radius:6px;padding:4px 10px;color:var(--text2);cursor:pointer;font-size:11px;flex-shrink:0">✕</button>
   </div>`;
-  // Scroll so the panel top is clearly visible below the sticky header (56px + 12px margin)
-  const detTop=det.getBoundingClientRect().top+window.scrollY-70;
-  window.scrollTo({top:Math.max(0,detTop),behavior:'smooth'});
-  // Highlight the panel briefly to draw attention
-  det.style.transition='box-shadow .2s';
-  det.style.boxShadow='0 0 0 2px var(--green)';
-  setTimeout(()=>{det.style.boxShadow='';},1200);
+}
+
+function closeGanttDetailModal(e){
+  if(e&&e.target!==document.getElementById('ganttDetailModal'))return;
+  document.getElementById('ganttDetailModal').style.display='none';
 }
 
 function ganttRegistrarBloqueio(key){
