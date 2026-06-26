@@ -6422,7 +6422,21 @@ function setRptDept(dept,btn){
   autoFetch();
   // Pré-carrega Compras em background após 8s (não bloqueia o carregamento inicial)
   setTimeout(_preloadComprasBg, 8000);
+  // Deep-link de alerta de vencimento: ?abrir=CHAVE abre Bloqueios já preenchido
+  _checkDeepLink();
 })();
+
+function _checkDeepLink(){
+  const params=new URLSearchParams(location.search);
+  const key=(params.get('abrir')||'').trim().toUpperCase();
+  if(!key)return;
+  nav('block');
+  setTimeout(()=>{
+    const el=document.getElementById('bKey');
+    if(el){el.value=key;lookupIssue();}
+    showBMsg('⚠️ Vencimento próximo em '+key+'. Conclua a tarefa no Jira, ou registre abaixo o motivo da mudança de data.','info');
+  },300);
+}
 </script>
 </body>
 </html>
