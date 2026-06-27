@@ -4368,6 +4368,10 @@ let _comprasHeaders=[];
 let _comprasCarregado=false;
 let _comprasTabs=[];          // [{name, gid, rows, headers}]
 let _comprasTabAtiva='all';   // 'all' ou nome da aba
+// Únicas abas da planilha de compras que importam pro AgriTrack — a planilha
+// tem ~15 abas no total (Fornecedores, Cadastro Produtos, Histórico de compras,
+// Motoboy, etc.) que não são carregadas pra não inflar o tempo de fetch.
+const TABS_COMPRAS_RELEVANTES=['Solicitações','FUP online','Pedidos Concluídos'];
 let _cmpModalData=[];         // índice→row para o modal
 let _cmpChartResp=null, _cmpChartFinal=null, _cmpChartMes=null, _cmpChartAging=null, _cmpChartPrev=null, _cmpChartSolic=null;
 
@@ -4528,8 +4532,11 @@ async function _fetchComprasTabs(sheetId){
   }
 
   // ── Etapa 2: carregar dados de cada aba em lotes paralelos ──
-  const nonEmpty=metaTabs.filter(t=>!t.empty);
-  const emptyTabs=metaTabs.filter(t=>t.empty).map(t=>({name:t.name,gid:t.gid,headers:[],rows:[],total:0,empty:true}));
+  // Só as 3 abas relevantes pro AgriTrack — a planilha tem outras 12 abas
+  // (ex: "Cadastro Produtos" 23k+ linhas, "Histórico de compras" 12k+ linhas)
+  // que não dizem respeito a este painel e só inflam o tempo de carregamento.
+  const nonEmpty=metaTabs.filter(t=>!t.empty&&TABS_COMPRAS_RELEVANTES.includes(t.name));
+  const emptyTabs=metaTabs.filter(t=>t.empty&&TABS_COMPRAS_RELEVANTES.includes(t.name)).map(t=>({name:t.name,gid:t.gid,headers:[],rows:[],total:0,empty:true}));
   const loaded=[];
   const BATCH=3; // 3 abas em paralelo por vez
   const _t0=Date.now();
