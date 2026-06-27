@@ -267,6 +267,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
     <button class="ntab" onclick="nav('form')">➕ Novo Projeto</button>
     <button class="ntab" onclick="nav('block')">🚧 Bloqueios <span class="nbadge" id="blkBadge">0</span></button>
     <button class="ntab" onclick="nav('report')">📋 Relatório Semanal</button>
+    <button class="ntab" onclick="nav('votacao')">🗳️ Votação</button>
     <button class="ntab" onclick="nav('compras')">🛒 Compras</button>
     <button class="ntab" onclick="nav('gantt')">📅 Gantt</button>
     <button class="ntab" onclick="nav('hauler')">🔩 Hauler BOM</button>
@@ -974,6 +975,104 @@ tr:hover td{background:rgba(255,255,255,0.02)}
   </div>
 </div>
 
+<!-- ══ PAGE: VOTAÇÃO DE PRIORIDADE ══════════════════════════════ -->
+<div id="pg-votacao" class="pg">
+  <div class="ph">
+    <div><div class="ptitle">Votação de Prioridade</div><div class="psub">Calibração dos 4 pilares pelo comitê — auto-avaliação do gestor vs. consenso</div></div>
+  </div>
+  <div class="main" style="max-width:760px">
+    <div class="card" style="margin-bottom:16px">
+      <div class="fg" style="margin-bottom:0">
+        <label>Chave do projeto (ex: AGTK-123)</label>
+        <div style="display:flex;gap:8px">
+          <input id="votKeyInput" placeholder="AGTK-123" style="flex:1">
+          <button class="btn-primary" onclick="buscarVotacaoUI()">Buscar</button>
+        </div>
+      </div>
+    </div>
+    <div id="votMsg" class="form-msg" style="display:none;margin-bottom:16px"></div>
+    <div id="votContent" style="display:none">
+
+      <!-- Resumo do item + score do gestor -->
+      <div class="card" style="margin-bottom:16px">
+        <div style="font-size:11px;font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--text2)" id="votKey"></div>
+        <div style="font-size:14px;font-weight:600;color:var(--text);margin:4px 0 14px" id="votSummary"></div>
+        <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Auto-avaliação do gestor</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px">
+          <div style="background:var(--bg3);border-radius:6px;padding:8px"><div style="font-size:9px;color:var(--text3)">Classificação</div><div style="font-size:11px;font-weight:600;color:var(--text)" id="votGClass"></div></div>
+          <div style="background:var(--bg3);border-radius:6px;padding:8px"><div style="font-size:9px;color:var(--text3)">Impacto</div><div style="font-size:11px;font-weight:600;color:var(--text)" id="votGImpacto"></div></div>
+          <div style="background:var(--bg3);border-radius:6px;padding:8px"><div style="font-size:9px;color:var(--text3)">Urgência</div><div style="font-size:11px;font-weight:600;color:var(--text)" id="votGUrgencia"></div></div>
+          <div style="background:var(--bg3);border-radius:6px;padding:8px"><div style="font-size:9px;color:var(--text3)">Complexidade</div><div style="font-size:11px;font-weight:600;color:var(--text)" id="votGComplexidade"></div></div>
+        </div>
+        <div id="votGScorePill"></div>
+        <div style="font-size:11px;color:var(--text2);margin-top:10px" id="votPrazo"></div>
+      </div>
+
+      <!-- Resultado final (se já apurado) -->
+      <div class="card" id="votFinalCard" style="display:none;margin-bottom:16px;border-top:3px solid var(--green)">
+        <div style="font-size:13px;font-weight:700;color:var(--green);margin-bottom:10px">✅ Votação apurada — nota final do comitê</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px">
+          <div style="background:var(--bg3);border-radius:6px;padding:8px"><div style="font-size:9px;color:var(--text3)">Classificação</div><div style="font-size:11px;font-weight:600;color:var(--text)" id="votFClass"></div></div>
+          <div style="background:var(--bg3);border-radius:6px;padding:8px"><div style="font-size:9px;color:var(--text3)">Impacto</div><div style="font-size:11px;font-weight:600;color:var(--text)" id="votFImpacto"></div></div>
+          <div style="background:var(--bg3);border-radius:6px;padding:8px"><div style="font-size:9px;color:var(--text3)">Urgência</div><div style="font-size:11px;font-weight:600;color:var(--text)" id="votFUrgencia"></div></div>
+          <div style="background:var(--bg3);border-radius:6px;padding:8px"><div style="font-size:9px;color:var(--text3)">Complexidade</div><div style="font-size:11px;font-weight:600;color:var(--text)" id="votFComplexidade"></div></div>
+        </div>
+        <div id="votFScorePill"></div>
+      </div>
+
+      <!-- Votos registrados (aberto — todos veem todos) -->
+      <div class="card" style="margin-bottom:16px">
+        <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:10px">Votos do comitê (<span id="votCount">0</span>)</div>
+        <div id="votLista" style="display:flex;flex-direction:column;gap:6px"></div>
+      </div>
+
+      <!-- Formulário de voto -->
+      <div class="card" id="votFormCard">
+        <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px">Registrar meu voto</div>
+        <div class="fg" style="margin-bottom:10px"><label>Seu nome</label><input id="votNome" placeholder="Nome completo"></div>
+        <div class="form-grid" style="margin-bottom:10px">
+          <div class="fg"><label>Classificação Estratégica</label>
+            <select id="votClass">
+              <option value="">— Selecione —</option>
+              <option value="Receita direta">Receita direta</option>
+              <option value="Estratégico e Posicionamento">Estratégico e Posicionamento</option>
+              <option value="Sustentação e Excelência Operacional">Sustentação e Excelência Operacional</option>
+            </select></div>
+          <div class="fg"><label>Impacto Financeiro</label>
+            <select id="votImpacto">
+              <option value="">— Selecione —</option>
+              <option value="Transformacional">Transformacional</option>
+              <option value="Estratégico">Estratégico</option>
+              <option value="Relevante">Relevante</option>
+              <option value="Incremental">Incremental</option>
+              <option value="Marginal">Marginal</option>
+            </select></div>
+        </div>
+        <div class="form-grid" style="margin-bottom:14px">
+          <div class="fg"><label>Urgência / Janela de Oportunidade</label>
+            <select id="votUrgencia">
+              <option value="">— Selecione —</option>
+              <option value="Imediata (Crítica)">Imediata (Crítica)</option>
+              <option value="Alta (Próximo Trimestre)">Alta (Próximo Trimestre)</option>
+              <option value="Média (Semestral)">Média (Semestral)</option>
+              <option value="Baixa (Desejável)">Baixa (Desejável)</option>
+              <option value="Backlog">Backlog</option>
+            </select></div>
+          <div class="fg"><label>Complexidade</label>
+            <select id="votComplexidade">
+              <option value="">— Selecione —</option>
+              <option value="Alta">Alta</option>
+              <option value="Média">Média</option>
+              <option value="Baixa">Baixa</option>
+            </select></div>
+        </div>
+        <div id="votFormMsg" class="form-msg" style="display:none;margin-bottom:10px"></div>
+        <button class="btn-primary" onclick="submitVoto()">Registrar voto</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ══ PAGE: COMPRAS ════════════════════════════════════════════ -->
 <div id="pg-compras" class="pg">
   <div class="ph">
@@ -1330,12 +1429,13 @@ function nav(id){
   document.querySelectorAll('.ntab').forEach(t=>t.classList.remove('on'));
   document.getElementById('pg-'+id).classList.add('on');
   const tabs=document.querySelectorAll('.ntab');
-  const idx={'dash':0,'form':1,'block':2,'report':3,'compras':4,'gantt':5,'hauler':6,'cfg':7};
+  const idx={'dash':0,'form':1,'block':2,'report':3,'votacao':4,'compras':5,'gantt':6,'hauler':7,'cfg':8};
   if(idx[id]!==undefined)tabs[idx[id]].classList.add('on');
   const _snav=(fn)=>{try{fn();}catch(e){console.error('[AgriTrack] nav error:',e.message);}};
   if(id==='block')_snav(loadBloqueados);
   if(id==='cfg')_snav(initConfig);
   if(id==='report')_snav(()=>{_populaRptDeptTabs();if(!_rptGerado)gerarRelatorio(false);});
+  if(id==='votacao')_snav(initVotacao);
   if(id==='compras')_snav(loadCompras); // sempre chama — cache evita rebusca desnecessária
   if(id==='gantt')_snav(initGantt);
   if(id==='hauler')_snav(initHauler);
@@ -6490,6 +6590,101 @@ function setRptDept(dept,btn){
 }
 
 // ════════════════════════════════════════════════════════════════
+// VOTAÇÃO DE PRIORIDADE (comitê)
+// ════════════════════════════════════════════════════════════════
+let _votKeyAtual=null;
+
+function initVotacao(){
+  const params=new URLSearchParams(location.search);
+  const key=(params.get('votar')||'').trim().toUpperCase();
+  if(key){document.getElementById('votKeyInput').value=key;buscarVotacaoUI(key);}
+}
+
+function showVotMsg(msg,type){const el=document.getElementById('votMsg');el.textContent=msg;el.className='form-msg '+type;el.style.display='block';}
+
+function _votScorePillHtml(s){
+  const cls=s.tier.startsWith('P1')?'sp-p1':s.tier.startsWith('P2')?'sp-p2':s.tier.startsWith('P3')?'sp-p3':'sp-p4';
+  return `<span class="score-pill ${cls}">${s.tier} · nota ${s.score}</span>`;
+}
+
+async function buscarVotacaoUI(keyParam){
+  const key=(keyParam||document.getElementById('votKeyInput').value||'').trim().toUpperCase();
+  if(!key){showVotMsg('Informe a chave do projeto.','err');return;}
+  document.getElementById('votKeyInput').value=key;
+  document.getElementById('votContent').style.display='none';
+  showVotMsg('Buscando…','info');
+  try{
+    const r=await api({action:'buscarVotacao',issueKey:key});
+    if(!r.success){showVotMsg(r.erro||'Projeto não encontrado em votação.','err');return;}
+    document.getElementById('votMsg').style.display='none';
+    renderVotacao(r);
+  }catch(e){showVotMsg('Erro: '+e.message,'err');}
+}
+
+function renderVotacao(r){
+  _votKeyAtual=r.key;
+  document.getElementById('votContent').style.display='block';
+  document.getElementById('votKey').textContent=r.key;
+  document.getElementById('votSummary').textContent=r.summary||'';
+  document.getElementById('votGClass').textContent=r.gestor.classificacao||'—';
+  document.getElementById('votGImpacto').textContent=r.gestor.impacto||'—';
+  document.getElementById('votGUrgencia').textContent=r.gestor.urgencia||'—';
+  document.getElementById('votGComplexidade').textContent=r.gestor.complexidade||'—';
+  document.getElementById('votGScorePill').innerHTML=_votScorePillHtml(r.gestor);
+  const prazo=r.prazoApuracao?new Date(r.prazoApuracao):null;
+  document.getElementById('votPrazo').textContent=r.apurado?'Votação encerrada.':(prazo?'Apuração automática em: '+prazo.toLocaleString('pt-BR'):'');
+
+  const finalCard=document.getElementById('votFinalCard');
+  if(r.apurado&&r.final){
+    finalCard.style.display='block';
+    document.getElementById('votFClass').textContent=r.final.classificacao||'—';
+    document.getElementById('votFImpacto').textContent=r.final.impacto||'—';
+    document.getElementById('votFUrgencia').textContent=r.final.urgencia||'—';
+    document.getElementById('votFComplexidade').textContent=r.final.complexidade||'—';
+    document.getElementById('votFScorePill').innerHTML=_votScorePillHtml(r.final);
+    document.getElementById('votFormCard').style.display='none';
+  }else{
+    finalCard.style.display='none';
+    document.getElementById('votFormCard').style.display='block';
+  }
+
+  document.getElementById('votCount').textContent=r.votos.length;
+  const lista=document.getElementById('votLista');
+  if(!r.votos.length){
+    lista.innerHTML='<div style="color:var(--text3);font-size:12px">Nenhum voto registrado ainda.</div>';
+  }else{
+    lista.innerHTML=r.votos.map(v=>{
+      const dt=v.data?new Date(v.data).toLocaleString('pt-BR'):'';
+      return `<div style="background:var(--bg3);border-radius:6px;padding:8px 10px;font-size:11px;color:var(--text2);display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+        <strong style="color:var(--text);min-width:120px">${esc(v.votante)}</strong>
+        <span>${esc(v.classificacao)}</span>·<span>${esc(v.impacto)}</span>·<span>${esc(v.urgencia)}</span>·<span>${esc(v.complexidade)}</span>
+        ${_votScorePillHtml(v)}
+        <span style="color:var(--text3);margin-left:auto;font-size:10px">${dt}</span>
+      </div>`;
+    }).join('');
+  }
+}
+
+function showVotFormMsg(msg,type){const el=document.getElementById('votFormMsg');el.textContent=msg;el.className='form-msg '+type;el.style.display='block';}
+
+async function submitVoto(){
+  if(!_votKeyAtual){showVotFormMsg('Busque um projeto primeiro.','err');return;}
+  const nome=document.getElementById('votNome').value.trim();
+  const classificacao=document.getElementById('votClass').value;
+  const impacto=document.getElementById('votImpacto').value;
+  const urgencia=document.getElementById('votUrgencia').value;
+  const complexidade=document.getElementById('votComplexidade').value;
+  if(!nome||!classificacao||!impacto||!urgencia||!complexidade){showVotFormMsg('Preencha seu nome e os 4 pilares.','err');return;}
+  showVotFormMsg('Registrando voto…','info');
+  try{
+    const r=await api({action:'registrarVoto',issueKey:_votKeyAtual,votante:nome,classificacao,impacto,urgencia,complexidade});
+    if(!r.success){showVotFormMsg(r.erro||'Erro ao registrar voto.','err');return;}
+    document.getElementById('votFormMsg').style.display='none';
+    renderVotacao(r);
+  }catch(e){showVotFormMsg('Erro: '+e.message,'err');}
+}
+
+// ════════════════════════════════════════════════════════════════
 // INIT
 // ════════════════════════════════════════════════════════════════
 (function init(){
@@ -6515,6 +6710,8 @@ function setRptDept(dept,btn){
 
 function _checkDeepLink(){
   const params=new URLSearchParams(location.search);
+  const votarKey=(params.get('votar')||'').trim().toUpperCase();
+  if(votarKey){nav('votacao');return;} // initVotacao() já lê o param 'votar' da URL
   const key=(params.get('abrir')||'').trim().toUpperCase();
   if(!key)return;
   // Aguarda allTasks carregar (autoFetch é assíncrono) antes de abrir o Gantt
