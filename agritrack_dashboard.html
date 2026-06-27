@@ -4376,10 +4376,14 @@ let _cmpModalData=[];         // índice→row para o modal
 let _cmpChartResp=null, _cmpChartFinal=null, _cmpChartMes=null, _cmpChartAging=null, _cmpChartPrev=null, _cmpChartSolic=null;
 
 // Categorias operacionais — usadas no swim lane E no filtro de categoria
+// Fonte única de verdade: _cmpCateg() é chamada em todos os lugares que
+// precisam categorizar um item (filtro dropdown, swim lanes, KPI "categoria
+// crítica") para evitar resultados divergentes entre painéis.
 const CMP_CATS=[
   {icon:'🎨',title:'Pintura',        color:'#a78bfa', kws:['pintura','tinta','paint','lacqu','epóxi','epox']},
   {icon:'⚙️', title:'Usinagem',      color:'#60a5fa', kws:['usinagem','usinar','torneamento','fresament','cnc','retifica']},
-  {icon:'🔩', title:'Tratamento',    color:'#34d399', kws:['tratamento','galvanis','zinco','fosfat','oxidac','niquela','cro','zincagem']},
+  // 'cro' removido — capturava falsos positivos via "velcro"/"sincronizadora".
+  {icon:'🔩', title:'Tratamento',    color:'#34d399', kws:['tratamento','galvanis','zinco','fosfat','oxidac','niquela','cromag','cromad','zincagem']},
   {icon:'✂️', title:'Corte / Chapa', color:'#fb923c', kws:['chapa','corte laser','dobra','guilhot','plasma','estampagem','corte chapa']},
   {icon:'🧱', title:'Matéria-Prima', color:'#f59e0b', kws:['materia prima','matéria prima','mp ','tubo ','aço','alumin','barra','perfil','vergalhão','chapa bruta','fabricação de produto','fabricacao de produto']},
   {icon:'🔌', title:'Elétrico / EPI',color:'#38bdf8', kws:['eletric','eletrôn','eletr','sensor','cabo ','fiação','chave','botão','botao','refletor','led','relé','rele','fusível','epi','capacete','luva','bota']},
@@ -4387,13 +4391,26 @@ const CMP_CATS=[
   {icon:'📦', title:'Compras Gerais',color:'#64748b', kws:['venda','5.01','commerci','adesivo','etiqueta']},
 ];
 function _cmpCateg(row){
+  // Inclui Almoxarifado/Centro de Custo (mesmos campos usados nos swim lanes)
+  // — sem isso, itens com Finalidade vazia mas Almoxarifado="MATERIA PRIMA"
+  // (por ex.) caem em "Outros" no filtro mas aparecem categorizados no painel
+  // operacional, gerando contagens divergentes entre as duas visões.
   const f=(row[cmpKey('finalid')]||'').toLowerCase();
   const s=(row[cmpKey('status','situac','situação')]||'').toLowerCase();
   const d=(row[cmpKey('descri','item','produto')]||'').toLowerCase();
+  const almox=(row[cmpKey('almox','almoxarifado')]||'').toLowerCase();
+  const cc=(row[cmpKey('centro de custo','cent.custo','cc ')]||'').toLowerCase();
   for(const c of CMP_CATS){
-    if(c.kws.some(k=>f.includes(k)||s.includes(k)||d.includes(k))) return c.title;
+    if(c.kws.some(k=>f.includes(k)||s.includes(k)||d.includes(k)||almox.includes(k)||cc.includes(k))) return c.title;
   }
   return 'Outros';
+}
+
+// Status que indicam que o item já foi finalizado (entregue ou cancelado) —
+// usado para não contar itens concluídos como "vencidos" ainda pendentes.
+function _cmpEstaConcluido(row){
+  const s=(row[cmpKey('status','situac','situação')]||'').trim().toLowerCase();
+  return s.startsWith('entregue')||s==='cancelado'||s.startsWith('consta entregue');
 }
 
 // Colunas mapeadas dinamicamente (busca por substring case-insensitive)
@@ -4949,7 +4966,6 @@ function renderComprasKPIs(){
   const dtKey=cmpKey('desejada','entrega','prazo');
   const frnKey=cmpKey('fornecedor','forn');
   const respKey=cmpKey('respons');
-  const finalKey=cmpKey('finalid');
 
   const total=_comprasFilt.length;
   const resps=new Set(_comprasFilt.map(r=>(r[respKey]||'').trim()).filter(Boolean));
@@ -4957,16 +4973,20 @@ function renderComprasKPIs(){
   const vencByResp={}, vencByCat={};
 
   _comprasFilt.forEach(row=>{
+    if(frnKey&&!(row[frnKey]||'').trim()) semForn++;
+    // Itens já entregues/cancelados não contam como "vencidos" pendentes,
+    // mesmo que a data desejada original já tenha passado — o que importa
+    // aqui é o que ainda está em aberto e precisa de ação.
+    if(_cmpEstaConcluido(row)) return;
     const dt=parseDate(row[dtKey]);
     if(!dt){ semData++; }
     else if(dt<hoje){
       vencidos++;
       const r=(row[respKey]||'Sem resp.').trim();
-      const c=(row[finalKey]||'Sem cat.').trim();
+      const c=_cmpCateg(row);
       vencByResp[r]=(vencByResp[r]||0)+1;
       vencByCat[c]=(vencByCat[c]||0)+1;
     } else if(dt<=em7) prox7++;
-    if(frnKey&&!(row[frnKey]||'').trim()) semForn++;
   });
 
   // KPI row 1
@@ -5276,28 +5296,22 @@ function renderComprasSwimLanes(){
     </div>`;
   }
 
-  // Função de match por keyword — usa Descrição + Finalidade + Almoxarifado + CC
-  // NÃO usa Status para evitar que "Aguardando aprovação" capture tudo
-  function match(row,...kws){
-    const desc =(row[descKey]  ||'').toLowerCase();
-    const final=(row[finalKey] ||'').toLowerCase();
-    const almox=(almoxKey?row[almoxKey]||'':'').toLowerCase();
-    const cc   =(ccKey?row[ccKey]||'':'').toLowerCase();
-    return kws.some(k=>desc.includes(k)||final.includes(k)||almox.includes(k)||cc.includes(k));
-  }
-
-  // Usa as categorias globais (definidas acima, compartilhadas com o filtro)
+  // Usa _cmpCateg() — mesma função usada no filtro dropdown e no KPI de
+  // "categoria crítica" — em vez de uma lógica de match duplicada aqui.
+  // Antes, esta função tinha seu próprio matching (sem Status, com
+  // Almoxarifado/CC) que divergia do filtro dropdown (com Status, sem
+  // Almoxarifado/CC), fazendo até 338 itens mudarem de categoria dependendo
+  // de qual painel você olhava.
   const CATS=CMP_CATS;
+  const catIdxByTitle={};
+  CATS.forEach((c,i)=>catIdxByTitle[c.title]=i);
 
-  // Distribui itens — cada item vai para a PRIMEIRA categoria que bate
   const catItems=CATS.map(()=>[]);
   const outros=[];
   data.forEach(row=>{
-    let matched=false;
-    for(let i=0;i<CATS.length;i++){
-      if(match(row,...CATS[i].kws)){catItems[i].push(row);matched=true;break;}
-    }
-    if(!matched)outros.push(row);
+    const idx=catIdxByTitle[_cmpCateg(row)];
+    if(idx!==undefined) catItems[idx].push(row);
+    else outros.push(row);
   });
 
   // Card especial: Por Série/Modelo (agrupamento, não lista de itens)
