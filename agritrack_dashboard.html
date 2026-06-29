@@ -4413,6 +4413,20 @@ function _cmpEstaConcluido(row){
   return s.startsWith('entregue')||s==='cancelado'||s.startsWith('consta entregue');
 }
 
+// Descarta linhas-lixo: a planilha tem fórmulas (PROCV) arrastadas além do
+// range de dados reais, que retornam "#N/A" em todas as colunas quando a
+// referência está vazia. Sem este filtro, ~1248 linhas vazias da aba
+// Solicitações eram contadas como itens reais, inflando todos os KPIs.
+function _cmpDescartarLinhasLixo(tabs){
+  tabs.forEach(t=>{
+    if(!t.rows||!t.rows.length)return;
+    const descK=(t.headers||[]).find(h=>/descri|item|produto/i.test(h));
+    if(!descK)return;
+    t.rows=t.rows.filter(row=>{const v=String(row[descK]||'').trim();return v&&v!=='#N/A';});
+    t.total=t.rows.length;
+  });
+}
+
 // Colunas mapeadas dinamicamente (busca por substring case-insensitive)
 function cmpCol(row, ...candidates){
   for(const c of candidates){
@@ -4575,6 +4589,7 @@ async function _fetchComprasTabs(sheetId){
   // Une e ordena conforme a planilha
   const all=[...loaded,...emptyTabs];
   all.sort((a,b)=>metaTabs.findIndex(t=>t.name===a.name)-metaTabs.findIndex(t=>t.name===b.name));
+  _cmpDescartarLinhasLixo(all); // remove linhas-lixo (#N/A) antes de cachear/exibir
   return all;
 }
 
@@ -4602,6 +4617,8 @@ function _aplicarDadosCompras(tabs, metaEl, sufixo){
     noConf.innerHTML='<div style="padding:40px;text-align:center;color:var(--text2);font-size:13px">Nenhum dado encontrado.</div>';
     noConf.style.display='block'; return;
   }
+
+  _cmpDescartarLinhasLixo(_comprasTabs);
 
   // Headers unificados
   const headersSet=new Set();
@@ -5463,7 +5480,10 @@ function interpretarLocal(pergunta){
   function fmtList(entries,max=8,bullet=''){
     return entries.slice(0,max).map(([k,n],i)=>`${bullet||(i+1+'.')} **${k}**: ${n} item${n>1?'s':''}`).join('\n');
   }
-  function getVenc(arr){return arr.filter(r=>{const d=parseDate(r[dtKey]||'');return d&&d<hoje;});}
+  // Exclui itens já entregues/cancelados — mesmo critério do KPI "Vencidos"
+  // do topo do painel (ver _cmpEstaConcluido), pra não dar respostas
+  // inconsistentes com o que o usuário vê nos cards.
+  function getVenc(arr){return arr.filter(r=>{if(_cmpEstaConcluido(r))return false;const d=parseDate(r[dtKey]||'');return d&&d<hoje;});}
   function descItem(r){return (r[codKey]?r[codKey]+' — ':'')+((r[descKey]||'').slice(0,45)||(r[descKey]||'Item'));}
 
   // ── lookup de código específico ───────────────────────────────
