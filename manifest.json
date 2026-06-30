@@ -1,0 +1,33 @@
+{
+  "name": "AgriTrack — Central de Projetos",
+  "short_name": "AgriTrack",
+  "description": "Painel PMO Agricef — gestão integrada de projetos, compras e produção",
+  "start_url": "/agritrack/agritrack_dashboard.html",
+  "display": "standalone",
+  "background_color": "#0b0f17",
+  "theme_color": "#0b0f17",
+  "orientation": "any",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "categories": ["productivity", "business"],
+  "screenshots": []
+}
