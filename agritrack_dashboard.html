@@ -623,6 +623,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
   <div class="ph">
     <div><div class="ptitle">Relatório Semanal</div><div class="psub" id="rptMeta">Gerado automaticamente ao abrir esta aba</div></div>
     <div style="display:flex;gap:8px">
+      <button class="btn-sec" onclick="abrirModalSolicitacao()" style="font-size:12px;background:#22d37a11;border-color:var(--green);color:var(--green)" title="Envia e-mail a cada gestor listando seus projetos em andamento e pedindo atualização">📨 Solicitar Atualização</button>
       <button class="btn-sec" onclick="enviarEmail()" id="emailBtn" style="font-size:12px">📧 Enviar Email</button>
       <button class="btn-sec" onclick="gerarRelatorio(true)" id="rptBtn" style="font-size:12px">🔄 Atualizar</button>
     </div>
@@ -1433,6 +1434,36 @@ tr:hover td{background:rgba(255,255,255,0.02)}
         style="padding:9px 20px;background:#f05252;border:none;color:#fff;border-radius:var(--rs);cursor:not-allowed;font-size:13px;font-weight:700;font-family:inherit;opacity:.4;transition:all .15s">Excluir permanentemente</button>
       <button onclick="document.getElementById('delModal').style.display='none'"
         style="padding:9px 16px;background:transparent;border:1px solid var(--border2);color:var(--text2);border-radius:var(--rs);cursor:pointer;font-size:13px;font-family:inherit">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Solicitar Atualização de Projetos -->
+<div id="solicitacaoModal" style="display:none;position:fixed;inset:0;z-index:2200;background:rgba(0,0,0,.8);backdrop-filter:blur(6px);align-items:center;justify-content:center" onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;max-width:480px;width:92%;padding:24px;box-shadow:0 24px 64px rgba(0,0,0,.7);position:relative" onclick="event.stopPropagation()">
+    <button onclick="document.getElementById('solicitacaoModal').style.display='none'" style="position:absolute;top:14px;right:16px;background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;line-height:1">✕</button>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px">
+      <div style="width:36px;height:36px;background:var(--gdim);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📨</div>
+      <div>
+        <div style="font-size:15px;font-weight:700;color:var(--text)">Solicitar Atualização de Projetos</div>
+        <div style="font-size:11px;color:var(--text2)">Envia um e-mail a cada gestor com seus projetos em andamento</div>
+      </div>
+    </div>
+    <div style="background:var(--bg3);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;color:var(--text2);line-height:1.6">
+      Cada gestor receberá a lista dos seus projetos com status <strong style="color:#f59e0b">Fazendo</strong>, datas planejadas e um link direto para atualizar cada um no painel.
+    </div>
+    <div style="margin-bottom:14px">
+      <label style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:6px">Filtrar por departamento <span style="color:var(--text3)">(opcional — deixe em branco para todos)</span></label>
+      <input id="solDept" placeholder="Ex: PCP, Engenharia, Marketing…" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--rs);padding:8px 12px;color:var(--text);font-size:12px;font-family:inherit;box-sizing:border-box">
+    </div>
+    <div style="margin-bottom:18px">
+      <label style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:6px">Mensagem adicional <span style="color:var(--text3)">(opcional)</span></label>
+      <textarea id="solMsg" rows="3" placeholder="Ex: Reunião de alinhamento na sexta — por favor, atualize até quinta-feira." style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--rs);padding:8px 12px;color:var(--text);font-size:12px;font-family:inherit;resize:vertical;box-sizing:border-box"></textarea>
+    </div>
+    <div id="solFeedback" style="font-size:12px;min-height:18px;margin-bottom:12px"></div>
+    <div style="display:flex;gap:10px">
+      <button id="solBtn" onclick="confirmarSolicitacao()" style="padding:9px 20px;background:var(--green);border:none;color:#000;border-radius:var(--rs);cursor:pointer;font-size:13px;font-weight:700;font-family:inherit">Enviar e-mails</button>
+      <button onclick="document.getElementById('solicitacaoModal').style.display='none'" style="padding:9px 16px;background:transparent;border:1px solid var(--border2);color:var(--text2);border-radius:var(--rs);cursor:pointer;font-size:13px;font-family:inherit">Cancelar</button>
     </div>
   </div>
 </div>
@@ -4270,6 +4301,38 @@ function openSerialCmpModal(serial){
 function closeSerialCmpModal(e){
   if(e&&e.target!==document.getElementById('serialCmpModal'))return;
   document.getElementById('serialCmpModal').style.display='none';
+}
+
+function abrirModalSolicitacao(){
+  document.getElementById('solDept').value='';
+  document.getElementById('solMsg').value='';
+  document.getElementById('solFeedback').textContent='';
+  const btn=document.getElementById('solBtn');
+  btn.disabled=false;btn.textContent='Enviar e-mails';
+  document.getElementById('solicitacaoModal').style.display='flex';
+}
+
+async function confirmarSolicitacao(){
+  const btn=document.getElementById('solBtn');
+  const fb=document.getElementById('solFeedback');
+  const dept=(document.getElementById('solDept').value||'').trim();
+  const msg=(document.getElementById('solMsg').value||'').trim();
+  btn.disabled=true;btn.textContent='Enviando…';
+  fb.style.color='var(--text2)';fb.textContent='Consultando projetos em andamento no Jira…';
+  try{
+    const r=await api({action:'enviarSolicitacaoAtualizacao',departamento:dept,mensagemExtra:msg});
+    if(!r.success)throw new Error(r.erro||'Erro ao enviar');
+    fb.style.color='var(--green)';
+    fb.textContent='✓ E-mails enviados para '+r.gestoresNotificados+' gestor(es) — '+r.totalProjetos+' projeto(s) listados.';
+    btn.textContent='Enviado ✓';
+    if(r.semEmailMapeado&&Object.keys(r.semEmailMapeado).length>0){
+      fb.textContent+=' ⚠ Sem e-mail mapeado: '+Object.keys(r.semEmailMapeado).join(', ');
+    }
+    setTimeout(()=>{document.getElementById('solicitacaoModal').style.display='none';},3000);
+  }catch(err){
+    fb.style.color='var(--red)';fb.textContent='Erro: '+(err.message||err);
+    btn.disabled=false;btn.textContent='Enviar e-mails';
+  }
 }
 
 async function enviarEmail(){

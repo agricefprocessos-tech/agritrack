@@ -178,6 +178,157 @@ function statusAlertaVencimentosTrigger() {
   return { ativo: ativos.length > 0, triggers: ativos };
 }
 
+// ─── SOLICITAÇÃO DE ATUALIZAÇÃO DE PROJETOS EM ANDAMENTO ──────
+
+/**
+ * Dispara um e-mail para cada gestor com a lista dos seus projetos "Fazendo",
+ * solicitando que acesse o painel e atualize status/datas/progresso.
+ * Pode ser chamada manualmente (via action no frontend) ou agendada.
+ * Parâmetros opcionais:
+ *   dados.departamento  — filtra por departamento (ex: "PCP"); se omitido envia para todos
+ *   dados.mensagemExtra — texto adicional inserido no corpo do e-mail
+ */
+function enviarSolicitacaoAtualizacao(dados) {
+  try {
+    dados = dados || {};
+    var deptFiltro = dados.departamento ? dados.departamento.trim() : '';
+    var msgExtra   = dados.mensagemExtra ? dados.mensagemExtra.trim() : '';
+
+    // Busca projetos em andamento via Jira JQL
+    var jql = encodeURIComponent(
+      'project=' + JIRA_PROJECT +
+      ' AND issueType not in ("Subtarefa","Subtask")' +
+      ' AND statusCategory = "In Progress"' +
+      ' ORDER BY assignee ASC, duedate ASC'
+    );
+    var fields = ['summary','status','assignee','duedate','customfield_10015','customfield_10469','customfield_10470','customfield_10073','issuetype'].join(',');
+    var all = [];
+    var nextPageToken = null;
+    while (all.length < 1000) {
+      var path = '/rest/api/3/search/jql?jql=' + jql + '&maxResults=100&fields=' + fields;
+      if (nextPageToken) path += '&nextPageToken=' + encodeURIComponent(nextPageToken);
+      var r = jiraRequest_('GET', path);
+      if (!r.issues || !r.issues.length) break;
+      all = all.concat(r.issues);
+      nextPageToken = r.nextPageToken || null;
+      if (!nextPageToken) break;
+    }
+
+    var porGestor = {}; // email → { nome, projetos[] }
+    var semEmail  = {};
+
+    all.forEach(function(i) {
+      var f = i.fields || {};
+      var dept = f.customfield_10073 ? (f.customfield_10073.value || String(f.customfield_10073)) : '';
+      if (deptFiltro && dept.toLowerCase().indexOf(deptFiltro.toLowerCase()) === -1) return;
+
+      var nome  = f.assignee ? f.assignee.displayName : 'Sem responsável';
+      var email = RESPONSAVEL_EMAIL[nome];
+      if (!email) { semEmail[nome] = (semEmail[nome] || 0) + 1; return; }
+
+      if (!porGestor[email]) porGestor[email] = { nome: nome, projetos: [] };
+      porGestor[email].projetos.push({
+        key:      i.key,
+        summary:  f.summary || '',
+        status:   f.status ? f.status.name : '',
+        duedate:  f.duedate || '',
+        alvo:     f.customfield_10470 || '',
+        baseline: f.customfield_10469 || '',
+        start:    f.customfield_10015 || '',
+        dept:     dept,
+      });
+    });
+
+    var enviados = 0;
+    var totalProjetos = 0;
+    Object.keys(porGestor).forEach(function(email) {
+      var g = porGestor[email];
+      _enviarSolicitacaoGestor_(email, g.nome, g.projetos, msgExtra);
+      enviados++;
+      totalProjetos += g.projetos.length;
+    });
+
+    if (Object.keys(semEmail).length > 0)
+      console.warn('enviarSolicitacaoAtualizacao: sem e-mail mapeado: ' + JSON.stringify(semEmail));
+
+    return { success: true, gestoresNotificados: enviados, totalProjetos: totalProjetos, semEmailMapeado: semEmail };
+  } catch(err) {
+    console.error('enviarSolicitacaoAtualizacao ERRO: ' + err.message);
+    return { success: false, erro: err.message };
+  }
+}
+
+function _fmtDate_(s) {
+  if (!s) return '—';
+  var d = new Date(s + 'T12:00:00');
+  if (isNaN(d)) return s;
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+}
+
+function _enviarSolicitacaoGestor_(email, nome, projetos, msgExtra) {
+  var hoje = new Date(); hoje.setHours(0,0,0,0);
+
+  var linhas = projetos.map(function(p) {
+    var link = DASHBOARD_URL + '?abrir=' + encodeURIComponent(p.key);
+    var due = p.duedate ? new Date(p.duedate + 'T12:00:00') : null;
+    var diasDue = due ? Math.round((due - hoje) / 86400000) : null;
+    var prazoColor = diasDue === null ? '#8896b0'
+      : diasDue < 0  ? '#f05252'
+      : diasDue <= 7 ? '#f59e0b'
+      : '#22d37a';
+    var prazoTxt = diasDue === null ? 'sem prazo'
+      : diasDue < 0  ? Math.abs(diasDue) + ' dia(s) atrasado'
+      : diasDue === 0 ? 'vence hoje'
+      : 'vence em ' + diasDue + ' dia(s) (' + _fmtDate_(p.duedate) + ')';
+
+    return '<tr><td style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.06)">' +
+      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">' +
+        '<span style="font-family:monospace;font-size:11px;font-weight:700;color:#8896b0">' + esc_(p.key) + '</span>' +
+        '<span style="background:#f59e0b22;color:#f59e0b;border-radius:8px;padding:1px 7px;font-size:10px;font-weight:700">Fazendo</span>' +
+        '<span style="color:' + prazoColor + ';font-size:11px;font-weight:700">' + prazoTxt + '</span>' +
+      '</div>' +
+      '<div style="font-size:13px;font-weight:600;color:#e2e8f4;margin-bottom:4px">' + esc_(p.summary) + '</div>' +
+      '<div style="font-size:11px;color:#8896b0;margin-bottom:6px">' +
+        (p.dept ? esc_(p.dept) + ' · ' : '') +
+        'Início: ' + _fmtDate_(p.start) + ' · Alvo: ' + _fmtDate_(p.alvo) +
+      '</div>' +
+      '<a href="' + link + '" style="display:inline-block;background:#22d37a;color:#000;font-size:11px;font-weight:700;padding:5px 14px;border-radius:20px;text-decoration:none">Atualizar projeto →</a>' +
+    '</td></tr>';
+  }).join('');
+
+  var extraBloco = msgExtra
+    ? '<tr><td style="padding:12px 28px;background:#22d37a11;border-left:3px solid #22d37a;margin:0 28px;font-size:12px;color:#c5cfe0;line-height:1.6">' + esc_(msgExtra) + '</td></tr>'
+    : '';
+
+  var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"></head>' +
+    '<body style="margin:0;padding:0;background:#f0f4f8;font-family:Arial,Helvetica,sans-serif">' +
+    '<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f4f8;padding:32px 16px"><tr><td align="center">' +
+    '<table width="600" cellpadding="0" cellspacing="0" style="background:#111827;border-radius:14px;overflow:hidden;max-width:600px">' +
+    '<tr><td style="background:#0b0f17;padding:20px 28px;border-bottom:1px solid rgba(255,255,255,0.06)">' +
+      '<span style="color:#e2e8f4;font-size:17px;font-weight:700">📋 AgriTrack — Atualização de Projetos</span>' +
+    '</td></tr>' +
+    '<tr><td style="padding:20px 28px 8px;color:#c5cfe0;font-size:13px;line-height:1.7">' +
+      'Olá <strong style="color:#e2e8f4">' + esc_(nome.split(' ')[0]) + '</strong>, ' +
+      'você tem <strong style="color:#f59e0b">' + projetos.length + ' projeto(s) em andamento</strong> no Jira. ' +
+      'Por favor, acesse o painel e confirme se as datas e status estão atualizados.' +
+    '</td></tr>' +
+    extraBloco +
+    '<tr><td style="padding:8px 28px 24px"><table width="100%" cellpadding="0" cellspacing="0">' + linhas + '</table></td></tr>' +
+    '<tr><td style="background:#0b0f17;padding:16px 28px;border-top:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:space-between">' +
+      '<a href="' + DASHBOARD_URL + '" style="color:#22d37a;font-size:11px;text-decoration:none;font-weight:600">Abrir painel completo →</a>' +
+      '<span style="color:#3a4558;font-size:10px;margin-left:16px">AgriTrack — Agricef PMO</span>' +
+    '</td></tr>' +
+    '</table></td></tr></table></body></html>';
+
+  GmailApp.sendEmail(
+    _destinoEmail(email),
+    '📋 AgriTrack — Por favor, atualize seus ' + projetos.length + ' projeto(s) em andamento' +
+      (TEST_MODE ? ' [TESTE — destino real: ' + email + ']' : ''),
+    'Você tem ' + projetos.length + ' projeto(s) em andamento que precisam de atualização. Acesse: ' + DASHBOARD_URL,
+    { htmlBody: html, name: 'AgriTrack — Agricef PMO' }
+  );
+}
+
 // ─── RELATÓRIO SEMANAL POR GESTOR ──────────────────────────────
 
 function _pd(s) { if (!s) return null; var d = new Date(s); return isNaN(d) ? null : d; }
