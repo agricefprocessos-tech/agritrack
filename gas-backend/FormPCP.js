@@ -863,6 +863,63 @@ function buscarIssue(dados) {
   }
 }
 
+// ─── MUDAR STATUS DE UM ISSUE (transição Jira) ────────────────
+
+function mudarStatus(dados) {
+  try {
+    var issueKey = (dados.issueKey || '').trim().toUpperCase();
+    var novoStatus = (dados.novoStatus || '').trim();    // ex: 'Fazendo', 'Feito', 'A Fazer'
+    var comentario = (dados.comentario || '').trim();
+
+    if (!issueKey)   throw new Error('issueKey obrigatório');
+    if (!novoStatus) throw new Error('novoStatus obrigatório');
+
+    // Mapa de nomes amigáveis → fragmentos a procurar no nome da transição do Jira
+    var ALIAS = {
+      'A Fazer':  ['a fazer', 'to do', 'open', 'aberto', 'novo', 'new'],
+      'Fazendo':  ['fazendo', 'in progress', 'em andamento', 'andamento'],
+      'Feito':    ['feito', 'done', 'concluído', 'concluido', 'closed', 'fechado', 'resolvido', 'resolved'],
+    };
+    var targets = ALIAS[novoStatus] || [novoStatus.toLowerCase()];
+
+    // Busca as transições disponíveis para o issue
+    var trans = jiraRequest_('GET', '/rest/api/3/issue/' + issueKey + '/transitions');
+    var list  = (trans.transitions) || [];
+    var match = null;
+    for (var i = 0; i < list.length; i++) {
+      var tn = (list[i].name || '').toLowerCase();
+      for (var j = 0; j < targets.length; j++) {
+        if (tn.indexOf(targets[j]) !== -1) { match = list[i]; break; }
+      }
+      if (match) break;
+    }
+    if (!match) {
+      var nomes = list.map(function(t){ return t.name; }).join(', ');
+      throw new Error('Transição "' + novoStatus + '" não encontrada. Disponíveis: ' + nomes);
+    }
+
+    // Executa a transição
+    jiraRequest_('POST', '/rest/api/3/issue/' + issueKey + '/transitions', {
+      transition: { id: match.id }
+    });
+
+    // Adiciona comentário justificando a mudança (se informado)
+    if (comentario) {
+      var texto = 'Status alterado para "' + novoStatus + '" via AgriTrack PMO Dashboard.\n\n' + comentario;
+      jiraRequest_('POST', '/rest/api/3/issue/' + issueKey + '/comment', {
+        body: {
+          type: 'doc', version: 1,
+          content: [{ type: 'paragraph', content: [{ type: 'text', text: texto }] }]
+        }
+      });
+    }
+
+    return { success: true, key: issueKey, novoStatus: novoStatus, transicao: match.name };
+  } catch (err) {
+    return { success: false, erro: err.message };
+  }
+}
+
 // ─── ENVIAR RELATÓRIO SEMANAL POR E-MAIL ──────────────────────
 
 function enviarRelatorio(dados) {
