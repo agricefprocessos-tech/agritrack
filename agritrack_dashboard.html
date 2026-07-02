@@ -1405,6 +1405,38 @@ tr:hover td{background:rgba(255,255,255,0.02)}
   </div>
 </div>
 
+<!-- Modal de confirmação de exclusão de projeto -->
+<div id="delModal" style="display:none;position:fixed;inset:0;z-index:2200;background:rgba(0,0,0,.82);backdrop-filter:blur(6px);align-items:center;justify-content:center" onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:var(--bg2);border:1px solid #f0525244;border-radius:14px;max-width:460px;width:92%;padding:24px;box-shadow:0 24px 64px rgba(0,0,0,.7);position:relative" onclick="event.stopPropagation()">
+    <button onclick="document.getElementById('delModal').style.display='none'" style="position:absolute;top:14px;right:16px;background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;line-height:1">✕</button>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+      <div style="width:36px;height:36px;background:#f0525222;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🗑</div>
+      <div>
+        <div style="font-size:15px;font-weight:700;color:#f05252">Excluir projeto</div>
+        <div style="font-size:11px;color:var(--text2)">Esta ação é permanente e não pode ser desfeita</div>
+      </div>
+    </div>
+    <div style="background:#f0525211;border:1px solid #f0525233;border-radius:8px;padding:12px;margin-bottom:16px">
+      <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Projeto a excluir</div>
+      <div style="font-size:12px;font-family:'IBM Plex Mono',monospace;font-weight:700;color:#f05252" id="delMKey"></div>
+      <div style="font-size:12px;color:var(--text2);margin-top:3px;line-height:1.4" id="delMSum"></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px" id="delMSubInfo"></div>
+    </div>
+    <div style="margin-bottom:16px">
+      <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:6px">Para confirmar, digite a chave do projeto: <strong style="color:var(--text)" id="delMKeyHint"></strong></label>
+      <input id="delMConfirm" placeholder="Ex: AGTK-900" oninput="validarConfirmacaoExclusao()"
+        style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--rs);padding:9px 12px;color:var(--text);font-size:13px;font-family:'IBM Plex Mono',monospace;font-weight:700;letter-spacing:.04em;box-sizing:border-box;text-transform:uppercase">
+    </div>
+    <div id="delMMsg" style="font-size:11px;margin-bottom:12px;min-height:16px"></div>
+    <div style="display:flex;gap:10px">
+      <button id="delMBtn" onclick="confirmarExclusao()" disabled
+        style="padding:9px 20px;background:#f05252;border:none;color:#fff;border-radius:var(--rs);cursor:not-allowed;font-size:13px;font-weight:700;font-family:inherit;opacity:.4;transition:all .15s">Excluir permanentemente</button>
+      <button onclick="document.getElementById('delModal').style.display='none'"
+        style="padding:9px 16px;background:transparent;border:1px solid var(--border2);color:var(--text2);border-radius:var(--rs);cursor:pointer;font-size:13px;font-family:inherit">Cancelar</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ════════════════════════════════════════════════════════════════
 // CONFIG
@@ -6463,6 +6495,7 @@ function ganttClick(key){
         ${isBlk?`<button onclick="ganttResolverBloqueio('${key}')" style="padding:7px 14px;background:#22d37a11;border:1px solid var(--green);color:var(--green);border-radius:var(--rs);cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;transition:all .15s" onmouseover="this.style.background='#22d37a22'" onmouseout="this.style.background='#22d37a11'">✅ Já tenho solução — Desbloquear</button>`:''}
         <button onclick="ganttRegistrarBloqueio('${key}')" style="padding:7px 14px;background:#f0525211;border:1px solid #f05252;color:#f05252;border-radius:var(--rs);cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;transition:all .15s" onmouseover="this.style.background='#f0525222'" onmouseout="this.style.background='#f0525211'">🚧 Registrar Bloqueio</button>
         <a href="${jiraUrl}" target="_blank" style="padding:7px 14px;background:transparent;border:1px solid var(--border2);color:var(--text2);border-radius:var(--rs);font-size:12px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:4px">↗ Abrir no Jira</a>
+        <button onclick="abrirModalExcluir('${key.replace(/'/g,"\\'")}','${(t['Resumo']||'').replace(/'/g,"\\'").replace(/"/g,'&quot;').slice(0,60)}')" style="padding:7px 14px;background:transparent;border:1px solid var(--border);color:var(--text3);border-radius:var(--rs);cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;transition:all .15s;margin-left:auto" onmouseover="this.style.borderColor='#f05252';this.style.color='#f05252'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text3)'">🗑 Excluir</button>
       </div>
     </div>
     <button onclick="closeGanttDetailModal()" style="background:transparent;border:1px solid var(--border2);border-radius:6px;padding:4px 10px;color:var(--text2);cursor:pointer;font-size:11px;flex-shrink:0">✕</button>
@@ -6569,6 +6602,81 @@ async function ganttConfirmarMudarStatus(){
   }catch(err){
     if(btn){btn.disabled=false;btn.textContent='Confirmar';}
     if(msg){msg.style.color='var(--red)';msg.textContent='Erro: '+(err.message||err);}
+  }
+}
+
+// ── Exclusão de projeto ─────────────────────────────────────────
+function abrirModalExcluir(key, summary){
+  document.getElementById('delMKey').textContent = key;
+  document.getElementById('delMKeyHint').textContent = key;
+  document.getElementById('delMSum').textContent = summary;
+  document.getElementById('delMSubInfo').textContent = '';
+  document.getElementById('delMConfirm').value = '';
+  document.getElementById('delMMsg').textContent = '';
+  document.getElementById('delMBtn').disabled = true;
+  document.getElementById('delMBtn').style.opacity = '.4';
+  document.getElementById('delMBtn').style.cursor = 'not-allowed';
+  // Fecha o modal de detalhe antes de abrir o de exclusão
+  document.getElementById('ganttDetailModal').style.display = 'none';
+  document.getElementById('delModal').style.display = 'flex';
+  // Foca o campo de confirmação
+  setTimeout(()=>document.getElementById('delMConfirm').focus(), 100);
+  // Busca info de subtarefas (async, não bloqueia abertura)
+  api({action:'buscarIssue', issueKey:key}).then(r=>{
+    if(r.success && r.issue){
+      const nSubs = r.issue.subtasks || 0;
+      if(nSubs > 0)
+        document.getElementById('delMSubInfo').textContent = '⚠ Este projeto tem ' + nSubs + ' subtarefa(s) — também serão excluídas.';
+    }
+  }).catch(()=>{});
+}
+
+function validarConfirmacaoExclusao(){
+  const key = (document.getElementById('delMKey').textContent||'').trim();
+  const val = (document.getElementById('delMConfirm').value||'').trim().toUpperCase();
+  const btn = document.getElementById('delMBtn');
+  const ok  = val === key;
+  btn.disabled = !ok;
+  btn.style.opacity = ok ? '1' : '.4';
+  btn.style.cursor  = ok ? 'pointer' : 'not-allowed';
+}
+
+async function confirmarExclusao(){
+  const key = (document.getElementById('delMKey').textContent||'').trim();
+  const confirmacao = (document.getElementById('delMConfirm').value||'').trim().toUpperCase();
+  const btn = document.getElementById('delMBtn');
+  const msg = document.getElementById('delMMsg');
+  btn.disabled = true;
+  btn.textContent = 'Excluindo…';
+  msg.style.color = 'var(--text2)';
+  msg.textContent = 'Aguardando confirmação do Jira…';
+  try{
+    const r = await api({action:'deletarProjeto', issueKey:key, confirmacao});
+    if(!r.success) throw new Error(r.erro||'Erro ao excluir');
+    msg.style.color = 'var(--green)';
+    msg.textContent = '✓ Projeto ' + key + ' excluído com sucesso.';
+    // Remove do array local e re-renderiza
+    if(Array.isArray(allTasks)){
+      const idx = allTasks.findIndex(t=>t['Chave da item']===key);
+      if(idx!==-1) allTasks.splice(idx,1);
+    }
+    if(Array.isArray(allSubs)){
+      // Remove subtarefas órfãs do projeto excluído
+      for(let i=allSubs.length-1;i>=0;i--){
+        if(allSubs[i]['Chave pai']===key) allSubs.splice(i,1);
+      }
+    }
+    setTimeout(()=>{
+      document.getElementById('delModal').style.display='none';
+      renderGantt();
+    },1800);
+  }catch(err){
+    msg.style.color='var(--red)';
+    msg.textContent='Erro: '+(err.message||err);
+    btn.disabled=false;
+    btn.textContent='Excluir permanentemente';
+    btn.style.opacity='1';
+    btn.style.cursor='pointer';
   }
 }
 

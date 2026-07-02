@@ -839,7 +839,7 @@ function buscarIssue(dados) {
     if (!issueKey) throw new Error('Chave não informada.');
     const fields = [
       'summary','status','issuetype','parent','duedate',
-      'customfield_10015','customfield_10073','labels','assignee',
+      'customfield_10015','customfield_10073','labels','assignee','subtasks',
     ].join(',');
     const r = jiraRequest_('GET', '/rest/api/3/issue/' + issueKey + '?fields=' + fields);
     if (!r.key) throw new Error('Issue não encontrada: ' + issueKey);
@@ -856,8 +856,40 @@ function buscarIssue(dados) {
         departamento: f.customfield_10073 ? (f.customfield_10073.value || f.customfield_10073) : '',
         assignee:     f.assignee ? f.assignee.displayName : '',
         labels:       f.labels || [],
+        subtasks:     (f.subtasks || []).length,
       },
     };
+  } catch (err) {
+    return { success: false, erro: err.message };
+  }
+}
+
+// ─── EXCLUIR ISSUE DO JIRA ────────────────────────────────────
+
+function deletarProjeto(dados) {
+  try {
+    var issueKey = (dados.issueKey || '').trim().toUpperCase();
+    var confirmacao = (dados.confirmacao || '').trim().toUpperCase();
+
+    if (!issueKey) throw new Error('issueKey obrigatório');
+    if (confirmacao !== issueKey) throw new Error('Confirmação incorreta — digite a chave exata do projeto');
+
+    // Verifica se a issue existe antes de excluir
+    var check = jiraRequest_('GET', '/rest/api/3/issue/' + issueKey + '?fields=summary,issuetype,subtasks');
+    if (!check.key) throw new Error('Issue não encontrada: ' + issueKey);
+
+    // Impede exclusão acidental de subtarefas (só permite Story/Task/Epic-like top-level)
+    var tipo = check.fields && check.fields.issuetype ? check.fields.issuetype.name : '';
+    if (tipo.toLowerCase() === 'subtarefa' || tipo.toLowerCase() === 'subtask') {
+      throw new Error('Use esta função apenas para projetos (não subtarefas). Tipo encontrado: ' + tipo);
+    }
+
+    var nSubs = check.fields && check.fields.subtasks ? check.fields.subtasks.length : 0;
+
+    // DELETE /rest/api/3/issue/{key}?deleteSubtasks=true
+    jiraRequest_('DELETE', '/rest/api/3/issue/' + issueKey + '?deleteSubtasks=true', null);
+
+    return { success: true, key: issueKey, summary: (check.fields || {}).summary || '', subtasksExcluidas: nSubs };
   } catch (err) {
     return { success: false, erro: err.message };
   }

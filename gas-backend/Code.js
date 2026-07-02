@@ -21,6 +21,7 @@ function doGet(e) {
       case 'resolverBloqueio':    return jsonResp_(resolverBloqueio(data));
       case 'atualizarDatas':       return jsonResp_(atualizarDatas(data));
       case 'mudarStatus':          return jsonResp_(mudarStatus(data));
+      case 'deletarProjeto':       return jsonResp_(deletarProjeto(data));
       case 'buscarIssue':          return jsonResp_(buscarIssue(data));
       case 'enviarRelatorio':      return jsonResp_(enviarRelatorio(data));
       case 'buscarCompras':            return jsonResp_(buscarCompras(data));
