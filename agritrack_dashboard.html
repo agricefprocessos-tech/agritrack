@@ -1450,7 +1450,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
       </div>
     </div>
     <div style="background:var(--bg3);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;color:var(--text2);line-height:1.6">
-      Cada gestor receberá a lista dos seus projetos com status <strong style="color:#f59e0b">Fazendo</strong>, datas planejadas e um link direto para atualizar cada um no painel.
+      Cada gestor receberá a lista dos seus projetos com status <strong style="color:#f59e0b">Fazendo</strong>, datas planejadas, as subtarefas em aberto que precisam de atenção (priorizando bloqueadas e atrasadas) e um link direto para atualizar cada uma no painel.
     </div>
     <div style="margin-bottom:14px">
       <label style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:6px">Filtrar por departamento <span style="color:var(--text3)">(opcional — deixe em branco para todos)</span></label>
@@ -6484,6 +6484,10 @@ function ganttClick(key){
   // detalhes extras
   const nSubs=!isSub?allSubs.filter(s=>s['Chave pai']===key).length:0;
   const lbls=(t['Labels']||'').split(' ').filter(l=>l&&l!=='bloqueado');
+  // Link de volta ao projeto pai, quando estamos vendo o detalhe de uma subtarefa
+  const paiKey=isSub?(t['Chave pai']||''):'';
+  const paiTask=paiKey?allTasks.find(x=>x['Chave da item']===paiKey):null;
+  const paiSummary=paiTask?(paiTask['Resumo']||paiKey):paiKey;
   // Armazena dados no mapa global em vez de embutir strings no onclick
   // (evita quebra quando o Resumo contém aspas duplas ou outros chars especiais)
   window._ganttClickData=window._ganttClickData||{};
@@ -6507,8 +6511,46 @@ function ganttClick(key){
       ${active?'disabled':''} title="${active?'Status atual':'Mudar para '+s.k}">${s.k}</button>`;
   }).join('');
 
+  // Lista de subtarefas do projeto — clicável, abre o detalhe da própria subtarefa
+  // no mesmo pop-up (drill-down), já com pills de status/bloqueio pra editar ali mesmo.
+  let subtarefasHtml='';
+  if(!isSub&&nSubs>0){
+    const hoje=new Date();
+    const comInfo=allSubs.filter(s=>s['Chave pai']===key).map(s=>{
+      const dlDt=s._plannedEndDt||pd(s['Data limite']);
+      const feita=s['Status']==='Feito';
+      const atrasada=!feita&&dlDt&&dlDt<hoje;
+      const bloqueada=(s['Labels']||'').includes('bloqueado');
+      return {s,dlDt,atrasada,bloqueada,feita};
+    });
+    comInfo.sort((a,b)=>{
+      const rank=x=>x.feita?3:x.bloqueada?0:x.atrasada?1:2;
+      const ra=rank(a),rb=rank(b);
+      if(ra!==rb)return ra-rb;
+      return (a.dlDt?a.dlDt.getTime():Infinity)-(b.dlDt?b.dlDt.getTime():Infinity);
+    });
+    const rows=comInfo.map(({s,dlDt,atrasada,bloqueada,feita})=>{
+      const sKey=s['Chave da item'];
+      const sc2=G_STATUS_CLR[s['Status']]||'#60a5fa';
+      const prazoTxt=dlDt?iL(s['Data limite']):'—';
+      const prazoCor=bloqueada||atrasada?'#f05252':feita?'var(--text3)':'var(--text2)';
+      return `<div onclick="ganttClick('${sKey.replace(/'/g,"\\'")}')" style="display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:6px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='transparent'">
+        <span style="width:8px;height:8px;border-radius:50%;background:${sc2};flex-shrink:0"></span>
+        <span style="font-size:11px;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s['Resumo']||sKey)}</span>
+        ${bloqueada?'<span style="font-size:10px;flex-shrink:0" title="Bloqueada">🚧</span>':''}
+        <span style="font-size:10px;color:${prazoCor};flex-shrink:0">${prazoTxt}</span>
+      </div>`;
+    }).join('');
+    subtarefasHtml=`
+      <div style="margin-top:10px;margin-bottom:12px">
+        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">📂 Subtarefas (${nSubs}) — clique para ver e editar</div>
+        <div style="max-height:220px;overflow-y:auto;background:var(--bg4);border-radius:8px;border:1px solid var(--border);padding:2px 6px">${rows}</div>
+      </div>`;
+  }
+
   det.innerHTML=`<div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
     <div style="flex:1;min-width:220px">
+      ${isSub&&paiKey?`<div onclick="ganttClick('${paiKey.replace(/'/g,"\\'")}')" style="font-size:11px;color:var(--blue);cursor:pointer;margin-bottom:8px;display:inline-flex;align-items:center;gap:4px" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">← Voltar para ${esc(paiKey)} — ${esc((paiSummary||'').slice(0,50))}</div>`:''}
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px">
         <span style="font-size:11px;font-weight:700;color:var(--text2);font-family:'IBM Plex Mono',monospace">${key}</span>
         ${isSub?`<span style="background:#60a5fa22;color:#60a5fa;border-radius:10px;padding:2px 8px;font-size:10px">subtarefa</span>`:''}
@@ -6551,6 +6593,7 @@ function ganttClick(key){
         </div>
       </div>
       <div style="font-size:11px;color:var(--text2);margin-bottom:0">📌 Baseline: <strong style="color:var(--text)">${iL(base)}</strong> &nbsp;·&nbsp; 🏢 ${esc(dept)} &nbsp;·&nbsp; 👤 ${esc(assignee)}${nSubs>0?` &nbsp;·&nbsp; 📂 <strong style="color:var(--text)">${nSubs}</strong> subtarefa${nSubs!==1?'s':''}`:''}</div>
+      ${subtarefasHtml}
       `:`
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
         <div onclick="ganttRegistrarBloqueio('${key}')" title="Clique para alterar" style="background:var(--bg3);border-radius:6px;padding:8px;cursor:pointer" onmouseover="this.style.outline='1px solid #60a5fa'" onmouseout="this.style.outline='none'">
@@ -6567,7 +6610,7 @@ function ganttClick(key){
         ${isBlk?`<button onclick="ganttResolverBloqueio('${key}')" style="padding:7px 14px;background:#22d37a11;border:1px solid var(--green);color:var(--green);border-radius:var(--rs);cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;transition:all .15s" onmouseover="this.style.background='#22d37a22'" onmouseout="this.style.background='#22d37a11'">✅ Já tenho solução — Desbloquear</button>`:''}
         <button onclick="ganttRegistrarBloqueio('${key}')" style="padding:7px 14px;background:#f0525211;border:1px solid #f05252;color:#f05252;border-radius:var(--rs);cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;transition:all .15s" onmouseover="this.style.background='#f0525222'" onmouseout="this.style.background='#f0525211'">🚧 Registrar Bloqueio</button>
         <a href="${jiraUrl}" target="_blank" style="padding:7px 14px;background:transparent;border:1px solid var(--border2);color:var(--text2);border-radius:var(--rs);font-size:12px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:4px">↗ Abrir no Jira</a>
-        <button onclick="abrirModalExcluir('${key.replace(/'/g,"\\'")}','${(t['Resumo']||'').replace(/'/g,"\\'").replace(/"/g,'&quot;').slice(0,60)}')" style="padding:7px 14px;background:transparent;border:1px solid var(--border);color:var(--text3);border-radius:var(--rs);cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;transition:all .15s;margin-left:auto" onmouseover="this.style.borderColor='#f05252';this.style.color='#f05252'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text3)'">🗑 Excluir</button>
+        ${!isSub?`<button onclick="abrirModalExcluir('${key.replace(/'/g,"\\'")}','${(t['Resumo']||'').replace(/'/g,"\\'").replace(/"/g,'&quot;').slice(0,60)}')" style="padding:7px 14px;background:transparent;border:1px solid var(--border);color:var(--text3);border-radius:var(--rs);cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;transition:all .15s;margin-left:auto" onmouseover="this.style.borderColor='#f05252';this.style.color='#f05252'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text3)'">🗑 Excluir</button>`:''}
       </div>
     </div>
     <button onclick="closeGanttDetailModal()" style="background:transparent;border:1px solid var(--border2);border-radius:6px;padding:4px 10px;color:var(--text2);cursor:pointer;font-size:11px;flex-shrink:0">✕</button>
