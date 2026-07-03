@@ -6837,6 +6837,32 @@ function closeBlkModal(e){
   document.getElementById('blkModal').style.display='none';
 }
 
+// Aplica localmente as datas/label recém-salvas no Jira (atualizarDatas e
+// registrarBloqueio alteram datas) — sem isso, o card e as barras do Gantt
+// continuam mostrando os valores antigos até um refresh completo. Mesma classe
+// de bug já corrigida em mudarStatus/exclusão/resolução de bloqueio.
+function _patchTaskDatas_(key,{startDate,dueDate,alvoDate}={},addBloqueadoLabel){
+  const t=allTasks.find(x=>x['Chave da item']===key)||allSubs.find(x=>x['Chave da item']===key);
+  if(!t)return null;
+  const isSub=t['Tipo de item']==='Subtarefa';
+  if(startDate) t['Campo personalizado (Start date)']=startDate;
+  if(dueDate)   t['Data limite']=dueDate;
+  if(alvoDate)  t['Campo personalizado (Data alvo)']=alvoDate;
+  if(addBloqueadoLabel){
+    const lbls=(t['Labels']||'').split(' ').filter(Boolean);
+    if(!lbls.includes('bloqueado')){lbls.push('bloqueado');t['Labels']=lbls.join(' ');}
+  }
+  // Recalcula os campos de data já parseados (usados no posicionamento das barras do Gantt)
+  if(isSub){
+    if(startDate) t._plannedStartDt=pd(t['Campo personalizado (Start date)']);
+    if(dueDate)   t._plannedEndDt  =pd(t['Data limite']);
+  }else{
+    if(startDate) t._startDt=pd(t['Campo personalizado (Start date)']);
+    if(dueDate)   t._dlDt   =pd(t['Data limite']);
+  }
+  return t;
+}
+
 async function submitBlkModal(apenasData){
   const key=document.getElementById('blkModal').dataset.key;
   const tipo=document.getElementById('blkMTipo').value;
@@ -6868,6 +6894,17 @@ async function submitBlkModal(apenasData){
     if(r.success){
       msg.textContent=apenasData?'✓ Datas atualizadas!':'✓ Bloqueio registrado em '+key+'!';
       msg.className='form-msg ok';
+      // Aplica localmente o que foi salvo — sem isso a tela só refletia a mudança
+      // depois de um refresh completo (F5), mesmo com o Jira já atualizado.
+      _patchTaskDatas_(key,{
+        startDate:document.getElementById('blkMStart').value||null,
+        dueDate:document.getElementById('blkMDue').value||null,
+        alvoDate:document.getElementById('blkMAlvo').value||null,
+      },!apenasData); // registrarBloqueio sempre adiciona a label 'bloqueado'
+      _jiraCacheSync();
+      renderGantt();
+      // Se o pop-up de detalhe deste mesmo item estiver aberto atrás deste modal, atualiza-o também
+      if(document.getElementById('ganttDetailModal').style.display==='flex')ganttClick(key);
       // Atualiza o badge de bloqueios em segundo plano e fecha o modal após 2s
       setTimeout(()=>{
         document.getElementById('blkModal').style.display='none';
