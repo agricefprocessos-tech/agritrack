@@ -139,6 +139,15 @@ function notificarComiteVotacao_(key, summary, scoresGestor) {
 // ─── REGISTRAR VOTO ─────────────────────────────────────────────
 
 function registrarVoto(dados) {
+  // LockService serializa esta seção contra outros registrarVoto() concorrentes
+  // e contra apurarVotacoesPendentes() — evita voto perdido/corrompido se ambos
+  // tentarem ler+escrever a planilha ao mesmo tempo.
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+  } catch (eLock) {
+    return { success: false, erro: 'Sistema de votação ocupado — tente novamente em alguns segundos.' };
+  }
   try {
     const key = (dados.issueKey || '').trim().toUpperCase();
     if (!key) throw new Error('issueKey obrigatório.');
@@ -155,6 +164,8 @@ function registrarVoto(dados) {
     return buscarVotacao({ issueKey: key });
   } catch (err) {
     return { success: false, erro: err.message };
+  } finally {
+    lock.releaseLock();
   }
 }
 
@@ -215,6 +226,15 @@ function _moda_(valores, fallback) {
 }
 
 function apurarVotacoesPendentes() {
+  // Mesmo lock de registrarVoto() — evita apurar com votos parcialmente
+  // escritos, ou disputar a planilha com um voto sendo registrado agora.
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+  } catch (eLock) {
+    console.warn('apurarVotacoesPendentes: não obteve lock, tentará na próxima execução do trigger.');
+    return { success: false, erro: 'Lock ocupado — tentará novamente no próximo ciclo.' };
+  }
   try {
     const sh = _getVotacaoSheet_();
     const pendentesRows = sh.pendentes.getDataRange().getValues();
@@ -258,6 +278,8 @@ function apurarVotacoesPendentes() {
   } catch (err) {
     console.error('apurarVotacoesPendentes ERRO: ' + err.message);
     return { success: false, erro: err.message };
+  } finally {
+    lock.releaseLock();
   }
 }
 

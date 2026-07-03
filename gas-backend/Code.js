@@ -12,6 +12,15 @@ function doGet(e) {
 
   try {
     const data = JSON.parse(payload);
+
+    // Ações que alteram dados exigem o token compartilhado (ver _validarToken_ em FormPCP.js).
+    // Ações somente-leitura permanecem abertas — elas só expõem dados já visíveis no painel.
+    const ACOES_MUTANTES = [
+      'deletarProjeto', 'mudarStatus', 'resolverBloqueio', 'registrarBloqueio',
+      'atualizarDatas', 'enviarSolicitacaoAtualizacao', 'enviarRelatorio', 'registrarVoto',
+    ];
+    if (ACOES_MUTANTES.indexOf(data.action) !== -1) _validarToken_(data);
+
     switch (data.action) {
       case 'criarProjetoJira':     return jsonResp_(criarProjetoJira(data));
       case 'buscarProximoSerial':  return jsonResp_(buscarProximoSerial());

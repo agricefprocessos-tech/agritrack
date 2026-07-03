@@ -10,6 +10,60 @@
 const JIRA_BASE    = 'https://agricefprojetos.atlassian.net';
 const JIRA_PROJECT = 'AGTK';
 
+// ─── LOG DE AUDITORIA (ações irreversíveis/impactantes) ───────
+// Planilha criada automaticamente no 1º uso, mesmo padrão da planilha
+// de votação (VOTACAO_SHEET_ID em Votacao.js).
+function _auditLog_(acao, issueKey, detalhes) {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    let id = props.getProperty('AUDIT_SHEET_ID');
+    let ss;
+    if (id) { try { ss = SpreadsheetApp.openById(id); } catch (e) { id = null; } }
+    if (!id) {
+      ss = SpreadsheetApp.create('AgriTrack — Log de Auditoria');
+      id = ss.getId();
+      props.setProperty('AUDIT_SHEET_ID', id);
+      ss.getSheets()[0].setName('Log');
+      ss.getSheets()[0].appendRow(['DataHora', 'Ação', 'Chave', 'Detalhes']);
+    }
+    ss.getSheetByName('Log').appendRow([new Date(), acao, issueKey, detalhes || '']);
+  } catch (e) {
+    // Log é best-effort — nunca deve impedir a ação principal de completar.
+    console.warn('_auditLog_ falhou: ' + e.message);
+  }
+}
+
+// ─── AUTORIZAÇÃO DE AÇÕES MUTANTES ────────────────────────────
+// O Web App é publicado como ANYONE_ANONYMOUS (necessário para o
+// frontend hospedado no GitHub Pages funcionar sem login). Isso
+// significa que QUALQUER pessoa com a URL pode chamar qualquer
+// action via curl. Para ações que alteram dados (excluir, mudar
+// status, enviar e-mails em massa etc.) exigimos um token simples
+// guardado em Script Properties — não é autenticação de identidade,
+// apenas eleva o esforço de acesso não autorizado.
+function _validarToken_(dados) {
+  const esperado = PropertiesService.getScriptProperties().getProperty('APP_SHARED_SECRET');
+  if (!esperado) throw new Error('APP_SHARED_SECRET não configurado no servidor — rode _setupSharedSecret() uma vez no editor GAS.');
+  const recebido = (dados && dados.token) || '';
+  if (recebido !== esperado) throw new Error('Não autorizado — token inválido ou ausente.');
+}
+
+// Bootstrap: roda UMA VEZ no editor do Apps Script (Executar > _setupSharedSecret)
+// para gerar e salvar o token. Depois disso, copie o token do log de execução
+// para a constante APP_TOKEN no frontend (agritrack_dashboard.html).
+function _setupSharedSecret() {
+  const props = PropertiesService.getScriptProperties();
+  let token = props.getProperty('APP_SHARED_SECRET');
+  if (!token) {
+    token = Utilities.getUuid();
+    props.setProperty('APP_SHARED_SECRET', token);
+    Logger.log('Token gerado e salvo: ' + token);
+  } else {
+    Logger.log('Token já existente: ' + token);
+  }
+  return token;
+}
+
 // ─── CATÁLOGO DE TIPOS — fonte única de verdade ───────────────
 // Espelhado no frontend (CATALOGO_JS em FormularioPCP.html).
 // Ao adicionar um tipo aqui, adicionar também no frontend.
@@ -458,8 +512,25 @@ function jiraRequest_(method, path, payload) {
   }
 
   const resp = UrlFetchApp.fetch(JIRA_BASE + path, opts);
-  try { return JSON.parse(resp.getContentText()); }
-  catch (_) { return { _raw: resp.getContentText(), _status: resp.getResponseCode() }; }
+  const status = resp.getResponseCode();
+  const raw = resp.getContentText();
+
+  // Erros HTTP (Jira fora do ar, rate limit, permissão negada etc.) não devem
+  // ser tratados como sucesso silencioso — propaga como exceção real para que
+  // os callers (que já têm try/catch) recebam a falha de verdade.
+  if (status >= 400) {
+    let detalhe = raw;
+    try {
+      const parsed = JSON.parse(raw);
+      detalhe = (parsed.errorMessages && parsed.errorMessages.join('; '))
+        || (parsed.errors && JSON.stringify(parsed.errors))
+        || raw;
+    } catch (_) { /* corpo não é JSON — usa raw mesmo */ }
+    throw new Error('Jira HTTP ' + status + ': ' + detalhe);
+  }
+
+  try { return JSON.parse(raw); }
+  catch (_) { return { _raw: raw, _status: status }; } // ex: 204 No Content em updates
 }
 
 // ─── HELPER DATAS ─────────────────────────────────────────────
@@ -889,6 +960,8 @@ function deletarProjeto(dados) {
     // DELETE /rest/api/3/issue/{key}?deleteSubtasks=true
     jiraRequest_('DELETE', '/rest/api/3/issue/' + issueKey + '?deleteSubtasks=true', null);
 
+    _auditLog_('deletarProjeto', issueKey, 'summary="' + ((check.fields || {}).summary || '') + '" subtasksExcluidas=' + nSubs);
+
     return { success: true, key: issueKey, summary: (check.fields || {}).summary || '', subtasksExcluidas: nSubs };
   } catch (err) {
     return { success: false, erro: err.message };
@@ -945,6 +1018,8 @@ function mudarStatus(dados) {
         }
       });
     }
+
+    _auditLog_('mudarStatus', issueKey, 'novoStatus=' + novoStatus + (comentario ? ' comentario="' + comentario + '"' : ''));
 
     return { success: true, key: issueKey, novoStatus: novoStatus, transicao: match.name };
   } catch (err) {

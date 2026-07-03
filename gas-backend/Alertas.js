@@ -32,6 +32,29 @@ const RESPONSAVEL_EMAIL = {
   'Yasmin Boiago': 'yasmin.boiago@agricef.com.br',
 };
 
+// Índice normalizado (trim + lowercase) do mapa acima — construído uma vez.
+// Evita que gestores fiquem sem notificação por diferença de maiúsculas/
+// espaços entre o nome cadastrado aqui e o "assignee.displayName" do Jira.
+const _RESPONSAVEL_EMAIL_NORM_ = Object.keys(RESPONSAVEL_EMAIL).reduce(function(acc, k) {
+  acc[k.trim().toLowerCase()] = RESPONSAVEL_EMAIL[k];
+  return acc;
+}, {});
+function _buscarEmailGestor_(nome) {
+  if (!nome) return null;
+  return RESPONSAVEL_EMAIL[nome] || _RESPONSAVEL_EMAIL_NORM_[nome.trim().toLowerCase()] || null;
+}
+
+// Verifica se há cota de Gmail suficiente antes de um envio em lote.
+// GAS limita o envio diário (100/dia em conta pessoal, 1500/dia em Workspace) —
+// sem essa checagem, o laço estoura no meio e os envios restantes falham
+// silenciosamente, sem nenhum aviso pro usuário.
+function _checarCotaEmail_(qtdNecessaria) {
+  const restante = MailApp.getRemainingDailyQuota();
+  if (restante < qtdNecessaria) {
+    throw new Error('Cota diária de e-mail insuficiente: restam ' + restante + ', necessário ' + qtdNecessaria + '. Tente novamente amanhã ou reduza o escopo (filtro de departamento).');
+  }
+}
+
 // ─── ALERTAS DE VENCIMENTO ─────────────────────────────────────
 
 // Marcos (dias até o vencimento) que disparam alerta. Negativos = atrasado.
@@ -78,7 +101,7 @@ function alertaVencimentos() {
       if (!_alertaDeveDisparar(diasRestantes)) return;
 
       const nome = f.assignee ? f.assignee.displayName : '';
-      const email = RESPONSAVEL_EMAIL[nome];
+      const email = _buscarEmailGestor_(nome);
       if (!email) { semEmail[nome] = (semEmail[nome] || 0) + 1; return; }
 
       if (!porGestor[email]) porGestor[email] = { nome: nome, itens: [] };
@@ -92,6 +115,8 @@ function alertaVencimentos() {
         tipo: f.issuetype ? f.issuetype.name : '',
       });
     });
+
+    _checarCotaEmail_(Object.keys(porGestor).length);
 
     let enviados = 0;
     Object.keys(porGestor).forEach(function (email) {
@@ -223,7 +248,7 @@ function enviarSolicitacaoAtualizacao(dados) {
       if (deptFiltro && dept.toLowerCase().indexOf(deptFiltro.toLowerCase()) === -1) return;
 
       var nome  = f.assignee ? f.assignee.displayName : 'Sem responsável';
-      var email = RESPONSAVEL_EMAIL[nome];
+      var email = _buscarEmailGestor_(nome);
       if (!email) { semEmail[nome] = (semEmail[nome] || 0) + 1; return; }
 
       if (!porGestor[email]) porGestor[email] = { nome: nome, projetos: [] };
@@ -238,6 +263,8 @@ function enviarSolicitacaoAtualizacao(dados) {
         dept:     dept,
       });
     });
+
+    _checarCotaEmail_(Object.keys(porGestor).length);
 
     var enviados = 0;
     var totalProjetos = 0;
@@ -353,11 +380,13 @@ function relatorioSemanalGestores() {
     r.issues.forEach(function (t) {
       const nome = t['Responsável'];
       if (!nome) return;
-      const email = RESPONSAVEL_EMAIL[nome];
+      const email = _buscarEmailGestor_(nome);
       if (!email) { semEmail[nome] = (semEmail[nome] || 0) + 1; return; }
       if (!porGestor[nome]) porGestor[nome] = { email: email, itens: [] };
       porGestor[nome].itens.push(t);
     });
+
+    _checarCotaEmail_(Object.keys(porGestor).length);
 
     let enviados = 0;
     Object.keys(porGestor).forEach(function (nome) {

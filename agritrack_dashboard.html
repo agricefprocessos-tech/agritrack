@@ -1473,12 +1473,18 @@ tr:hover td{background:rgba(255,255,255,0.02)}
 // CONFIG
 // ════════════════════════════════════════════════════════════════
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbxeB715oIGkd1jIcCaWbOuOm7ND_NTohw0massZKh_hzH9rXFEebvlIDxqfgcqEMBJLmQ/exec';
+// Token compartilhado exigido pelo backend para ações que alteram dados
+// (ver _validarToken_ em FormPCP.js). Não é autenticação de identidade —
+// só eleva o esforço de acesso não autorizado ao endpoint público do GAS.
+const APP_TOKEN = '413992f5-025c-4254-9c97-9ea8aeb1d651';
+const ACOES_MUTANTES = ['deletarProjeto','mudarStatus','resolverBloqueio','registrarBloqueio','atualizarDatas','enviarSolicitacaoAtualizacao','enviarRelatorio','registrarVoto'];
 function getApi(){return localStorage.getItem('agritrack_api')||DEFAULT_API;}
 function saveApiUrl(){localStorage.setItem('agritrack_api',document.getElementById('cfgApi').value);}
 function saveGeminiKey(){localStorage.setItem('gemini_key',document.getElementById('geminiKey').value);}
 async function api(payload, timeoutMs=28000){
   const ctrl=new AbortController();
   const tid=setTimeout(()=>ctrl.abort(),timeoutMs);
+  if(payload&&ACOES_MUTANTES.includes(payload.action)&&!payload.token) payload={...payload,token:APP_TOKEN};
   try{
     const r=await fetch(getApi()+'?payload='+encodeURIComponent(JSON.stringify(payload)),{redirect:'follow',signal:ctrl.signal});
     const text=await r.text();
@@ -1528,6 +1534,10 @@ const JIRA_CACHE_TTL=10*60*1000; // 10 min
 
 function _jiraCache(){try{const r=localStorage.getItem(JIRA_CACHE_KEY);return r?JSON.parse(r):null;}catch(e){return null;}}
 function _jiraCacheSet(issues){try{localStorage.setItem(JIRA_CACHE_KEY,JSON.stringify({ts:Date.now(),issues}));}catch(e){console.warn('[AgriTrack] jiraCache write falhou (quota?):', e.message);}}
+// Regrava o cache com o estado atual de allTasks/allSubs (já em memória) após
+// uma mutação bem-sucedida (mudar status, excluir, resolver bloqueio) — sem
+// isso, um F5 dentro da janela do TTL (10 min) faz o dado antigo "voltar".
+function _jiraCacheSync(){_jiraCacheSet(allTasks.concat(allSubs));}
 
 async function autoFetch(force=false){
   const cache=_jiraCache();
@@ -4322,13 +4332,12 @@ async function confirmarSolicitacao(){
   try{
     const r=await api({action:'enviarSolicitacaoAtualizacao',departamento:dept,mensagemExtra:msg});
     if(!r.success)throw new Error(r.erro||'Erro ao enviar');
-    fb.style.color='var(--green)';
-    fb.textContent='✓ E-mails enviados para '+r.gestoresNotificados+' gestor(es) — '+r.totalProjetos+' projeto(s) listados.';
     btn.textContent='Enviado ✓';
-    if(r.semEmailMapeado&&Object.keys(r.semEmailMapeado).length>0){
-      fb.textContent+=' ⚠ Sem e-mail mapeado: '+Object.keys(r.semEmailMapeado).join(', ');
-    }
-    setTimeout(()=>{document.getElementById('solicitacaoModal').style.display='none';},3000);
+    const semEmail=r.semEmailMapeado&&Object.keys(r.semEmailMapeado).length>0?Object.keys(r.semEmailMapeado):[];
+    fb.innerHTML='<div style="color:var(--green)">✓ E-mails enviados para '+r.gestoresNotificados+' gestor(es) — '+r.totalProjetos+' projeto(s) listados.</div>'+
+      (semEmail.length?'<div style="color:var(--amber);margin-top:6px;padding:8px;background:var(--adim);border-radius:6px">⚠ '+semEmail.length+' nome(s) sem e-mail cadastrado — NÃO notificados: <strong>'+semEmail.map(esc).join(', ')+'</strong>. Adicione ao mapa RESPONSAVEL_EMAIL no backend.</div>':'');
+    // Não fecha automaticamente se houver gestores sem e-mail — usuário precisa ver o aviso
+    if(!semEmail.length) setTimeout(()=>{document.getElementById('solicitacaoModal').style.display='none';},3000);
   }catch(err){
     fb.style.color='var(--red)';fb.textContent='Erro: '+(err.message||err);
     btn.disabled=false;btn.textContent='Enviar e-mails';
@@ -6655,6 +6664,7 @@ async function ganttConfirmarMudarStatus(){
       const task=arr.find(x=>x['Chave da item']===key);
       if(task)task['Status']=novoStatus;
     });
+    _jiraCacheSync(); // regrava o cache para o F5 não trazer o status antigo de volta
     if(msg){msg.style.color='var(--green)';msg.textContent='✓ Status atualizado!';}
     // Fecha o form e reabre o card com o novo status
     setTimeout(()=>{
@@ -6729,6 +6739,7 @@ async function confirmarExclusao(){
         if(allSubs[i]['Chave pai']===key) allSubs.splice(i,1);
       }
     }
+    _jiraCacheSync(); // regrava o cache para o F5 não trazer o projeto excluído de volta
     setTimeout(()=>{
       document.getElementById('delModal').style.display='none';
       renderGantt();
@@ -6769,6 +6780,7 @@ async function submitResModal(apenasComentario){
         // Atualiza o label localmente para o painel refletir o desbloqueio sem precisar recarregar tudo
         const t=allTasks.find(x=>x['Chave da item']===key)||allSubs.find(x=>x['Chave da item']===key);
         if(t)t['Labels']=(t['Labels']||'').split(' ').filter(l=>l!=='bloqueado').join(' ');
+        _jiraCacheSync(); // regrava o cache para o F5 não trazer o label "bloqueado" de volta
         setTimeout(()=>{document.getElementById('resModal').style.display='none';ganttClick(key);},2500);
       }
     } else {
