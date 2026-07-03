@@ -2174,7 +2174,21 @@ async function submitBloqueio(){
       novaDataAlvo:document.getElementById('bNewAlvo').value||null,
       novaDataStart:document.getElementById('bNewStart').value||null,
     });
-    if(r.success){showBMsg('✓ Bloqueio registrado em '+key+'. Atualizando lista…','ok');if(r.drive&&r.drive.url){const el=document.getElementById('bMsg');el.innerHTML=el.textContent+` <a href="${r.drive.url}" target="_blank" style="color:inherit;text-decoration:underline">📄 ${r.drive.nome||'Relatório PDF'}</a>`;}clearBloqueioForm();setTimeout(()=>loadBloqueados(),3000);}
+    if(r.success){
+      showBMsg('✓ Bloqueio registrado em '+key+'. Atualizando lista…','ok');
+      if(r.drive&&r.drive.url){const el=document.getElementById('bMsg');el.innerHTML=el.textContent+` <a href="${r.drive.url}" target="_blank" style="color:inherit;text-decoration:underline">📄 ${r.drive.nome||'Relatório PDF'}</a>`;}
+      // Aplica localmente (label + datas) — sem isso o Gantt/pop-up de detalhe
+      // continuavam mostrando o item como não-bloqueado até um refresh completo.
+      _patchTaskDatas_(key,{
+        startDate:document.getElementById('bNewStart').value||null,
+        dueDate:document.getElementById('bNewDue').value||null,
+        alvoDate:document.getElementById('bNewAlvo').value||null,
+      },true);
+      _jiraCacheSync();
+      renderGantt();
+      clearBloqueioForm();
+      setTimeout(()=>loadBloqueados(),3000);
+    }
     else showBMsg('Erro: '+(r.erro||JSON.stringify(r)),'err');
   }catch(e){showBMsg('Erro: '+e.message,'err');}
 }
@@ -2191,7 +2205,16 @@ async function submitApenasData(){
       alvoDate:document.getElementById('bNewAlvo').value||null,
       startDate:document.getElementById('bNewStart').value||null,
     });
-    if(r.success){showBMsg('✓ Datas atualizadas em '+key,'ok');}
+    if(r.success){
+      showBMsg('✓ Datas atualizadas em '+key,'ok');
+      _patchTaskDatas_(key,{
+        startDate:document.getElementById('bNewStart').value||null,
+        dueDate:document.getElementById('bNewDue').value||null,
+        alvoDate:document.getElementById('bNewAlvo').value||null,
+      });
+      _jiraCacheSync();
+      renderGantt();
+    }
     else showBMsg('Erro: '+(r.erro||JSON.stringify(r)),'err');
   }catch(e){showBMsg('Erro: '+e.message,'err');}
 }
@@ -2235,6 +2258,12 @@ async function submitResolucao(apenasComentario=false){
         document.getElementById('bResolucao').value='';
         document.getElementById('bResponsavelRes').value='';
         document.getElementById('bDataRes').value='';
+        // Remove a label localmente — sem isso o item continuava aparecendo como
+        // bloqueado no Gantt/pop-up de detalhe até um refresh completo.
+        const t=allTasks.find(x=>x['Chave da item']===key)||allSubs.find(x=>x['Chave da item']===key);
+        if(t)t['Labels']=(t['Labels']||'').split(' ').filter(l=>l!=='bloqueado').join(' ');
+        _jiraCacheSync();
+        renderGantt();
         setTimeout(()=>loadBloqueados(),2500);
       }
     } else {
