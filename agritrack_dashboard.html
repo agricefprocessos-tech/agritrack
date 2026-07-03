@@ -6511,40 +6511,84 @@ function ganttClick(key){
       ${active?'disabled':''} title="${active?'Status atual':'Mudar para '+s.k}">${s.k}</button>`;
   }).join('');
 
-  // Lista de subtarefas do projeto — clicável, abre o detalhe da própria subtarefa
-  // no mesmo pop-up (drill-down), já com pills de status/bloqueio pra editar ali mesmo.
+  // Mini-Gantt das subtarefas do projeto — clicável, abre o detalhe da própria
+  // subtarefa no mesmo pop-up (drill-down), já com pills de status pra editar ali mesmo.
   let subtarefasHtml='';
   if(!isSub&&nSubs>0){
-    const hoje=new Date();
-    const comInfo=allSubs.filter(s=>s['Chave pai']===key).map(s=>{
-      const dlDt=s._plannedEndDt||pd(s['Data limite']);
+    const hoje=new Date();hoje.setHours(0,0,0,0);
+    const fmtEixo=d=>d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+    const todas=allSubs.filter(s=>s['Chave pai']===key).map(s=>{
+      const sDt=s._plannedStartDt||pd(s['Campo personalizado (Start date)']);
+      const eDt=s._plannedEndDt||pd(s['Data limite']);
       const feita=s['Status']==='Feito';
-      const atrasada=!feita&&dlDt&&dlDt<hoje;
+      const atrasada=!feita&&eDt&&eDt<hoje;
       const bloqueada=(s['Labels']||'').includes('bloqueado');
-      return {s,dlDt,atrasada,bloqueada,feita};
+      return {s,sDt,eDt,feita,atrasada,bloqueada};
     });
-    comInfo.sort((a,b)=>{
-      const rank=x=>x.feita?3:x.bloqueada?0:x.atrasada?1:2;
-      const ra=rank(a),rb=rank(b);
-      if(ra!==rb)return ra-rb;
-      return (a.dlDt?a.dlDt.getTime():Infinity)-(b.dlDt?b.dlDt.getTime():Infinity);
-    });
-    const rows=comInfo.map(({s,dlDt,atrasada,bloqueada,feita})=>{
-      const sKey=s['Chave da item'];
-      const sc2=G_STATUS_CLR[s['Status']]||'#60a5fa';
-      const prazoTxt=dlDt?iL(s['Data limite']):'—';
-      const prazoCor=bloqueada||atrasada?'#f05252':feita?'var(--text3)':'var(--text2)';
-      return `<div onclick="ganttClick('${sKey.replace(/'/g,"\\'")}')" style="display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:6px;cursor:pointer;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='transparent'">
-        <span style="width:8px;height:8px;border-radius:50%;background:${sc2};flex-shrink:0"></span>
-        <span style="font-size:11px;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s['Resumo']||sKey)}</span>
-        ${bloqueada?'<span style="font-size:10px;flex-shrink:0" title="Bloqueada">🚧</span>':''}
-        <span style="font-size:10px;color:${prazoCor};flex-shrink:0">${prazoTxt}</span>
-      </div>`;
-    }).join('');
+    const comData=todas.filter(x=>x.sDt||x.eDt);
+    const semData=todas.filter(x=>!x.sDt&&!x.eDt);
+
+    let ganttHtml='';
+    if(comData.length>0){
+      let minD=null,maxD=null;
+      comData.forEach(({sDt,eDt})=>{
+        const s=sDt||eDt,e=eDt||sDt;
+        if(!minD||s<minD)minD=s;
+        if(!maxD||e>maxD)maxD=e;
+      });
+      if(hoje<minD)minD=hoje;
+      if(hoje>maxD)maxD=hoje;
+      const totalMs=Math.max(maxD-minD,86400000);
+      const padMs=totalMs*0.06;
+      minD=new Date(minD.getTime()-padMs);
+      maxD=new Date(maxD.getTime()+padMs);
+      const totalMs2=maxD-minD;
+      const pct=d=>Math.max(0,Math.min(100,((d-minD)/totalMs2)*100));
+      const hojePct=pct(hoje).toFixed(2);
+
+      comData.sort((a,b)=>(a.sDt||a.eDt)-(b.sDt||b.eDt));
+
+      const trilhaBg=`background:linear-gradient(to right, transparent calc(${hojePct}% - 1px), #f59e0b66 calc(${hojePct}% - 1px), #f59e0b66 calc(${hojePct}% + 1px), transparent calc(${hojePct}% + 1px))`;
+
+      const linhas=comData.map(({s,sDt,eDt,feita,atrasada,bloqueada})=>{
+        const sKey=s['Chave da item'];
+        const start=sDt||eDt,end=eDt||sDt;
+        let x1=pct(start),x2=pct(end);
+        if(x2-x1<2)x2=Math.min(100,x1+2);
+        const cor=bloqueada?'#f05252':atrasada?'#f05252':feita?'#22d37a':(G_STATUS_CLR[s['Status']]||'#60a5fa');
+        const label=(s['Resumo']||sKey);
+        const keyEsc=sKey.replace(/'/g,"\\'");
+        return `<div onclick="ganttClick('${keyEsc}')" style="cursor:pointer;font-size:9.5px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:4px" title="${esc(label)}" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--text2)'">${esc(label)}</div>` +
+               `<div onclick="ganttClick('${keyEsc}')" style="position:relative;height:14px;cursor:pointer;border-radius:3px;${trilhaBg}">` +
+                 `<div style="position:absolute;left:${x1}%;width:${x2-x1}%;height:100%;background:${cor};border-radius:3px;${bloqueada?'box-shadow:0 0 0 1px #fff4':''}"></div>` +
+               `</div>`;
+      }).join('');
+
+      ganttHtml=`
+        <div style="display:grid;grid-template-columns:112px 1fr;row-gap:4px;column-gap:8px;align-items:center">${linhas}</div>
+        <div style="display:flex;justify-content:space-between;margin-top:6px;padding-left:120px;font-size:8px;color:var(--text3)">
+          <span>${fmtEixo(minD)}</span>
+          <span style="color:#f59e0b">▲ hoje</span>
+          <span>${fmtEixo(maxD)}</span>
+        </div>`;
+    }
+
+    const semDataHtml=semData.length>0?`
+      <div style="margin-top:${comData.length>0?'8':'0'}px;padding-top:${comData.length>0?'8':'0'}px;${comData.length>0?'border-top:1px solid var(--border);':''}">
+        ${semData.map(({s,bloqueada})=>{
+          const sKey=s['Chave da item'];
+          return `<div onclick="ganttClick('${sKey.replace(/'/g,"\\'")}')" style="display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer;font-size:9.5px;color:var(--text3)" onmouseover="this.style.color='var(--text2)'" onmouseout="this.style.color='var(--text3)'">
+            ${bloqueada?'🚧 ':''}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s['Resumo']||sKey)}</span><span style="flex-shrink:0">· sem prazo</span>
+          </div>`;
+        }).join('')}
+      </div>`:'';
+
     subtarefasHtml=`
       <div style="margin-top:10px;margin-bottom:12px">
-        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">📂 Subtarefas (${nSubs}) — clique para ver e editar</div>
-        <div style="max-height:220px;overflow-y:auto;background:var(--bg4);border-radius:8px;border:1px solid var(--border);padding:2px 6px">${rows}</div>
+        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">📊 Cronograma das subtarefas (${nSubs}) — clique numa linha pra ver e editar</div>
+        <div style="background:var(--bg4);border-radius:8px;border:1px solid var(--border);padding:10px;max-height:260px;overflow-y:auto">
+          ${ganttHtml}${semDataHtml}
+        </div>
       </div>`;
   }
 
