@@ -356,14 +356,33 @@ tr:hover td{background:rgba(255,255,255,0.02)}
         <div class="card"><div class="ct">Tarefas por departamento e status</div><div class="cs">Agrupado por status</div><div class="leg" id="lgDS"></div><div class="cw" id="wDS"><canvas id="chDS"></canvas></div></div>
         <div class="card"><div class="ct">Prazo por departamento</div><div class="cs">No prazo vs. fora do prazo</div><div class="cw" id="wPD"><canvas id="chPD"></canvas></div></div>
       </div>
+      <div class="card full" style="margin-bottom:14px"><div class="ct">Cumprimento de prazo ao longo do tempo</div><div class="cs">Concluídos no prazo vs. fora do prazo, por mês de conclusão</div><div class="leg" id="lgPzT"></div><div class="cw"><canvas id="chPzT" height="150"></canvas></div></div>
+      <div class="sec">Duração &amp; Previsibilidade</div>
+      <div class="gw">
+        <div class="card"><div class="ct">Duração das subtarefas por departamento</div><div class="cs">Distribuição da duração planejada (início → limite), em semanas · boxplot</div><div id="boxSub" style="margin-top:6px"></div></div>
+        <div class="card" style="display:flex;flex-direction:column"><div class="ct">Previsibilidade do throughput</div><div class="cs">Coeficiente de variação das entregas mensais</div>
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:8px 0">
+            <div id="cvValor" style="font-size:40px;font-weight:600;font-family:'IBM Plex Mono',monospace;letter-spacing:-1px;line-height:1">—</div>
+            <div id="cvTag" style="font-size:12px;font-weight:600;padding:3px 12px;border-radius:20px"></div>
+            <div id="cvHint" style="font-size:11px;color:var(--text2);text-align:center;line-height:1.5;margin-top:4px"></div>
+          </div>
+        </div>
+      </div>
       <div class="sec">Panorama Temporal</div>
       <div class="card full" style="margin-bottom:14px"><div class="ct">Entregas ao longo do tempo</div><div class="cs">Real (data resolução) vs. Planejado (data limite)</div><div class="cw"><canvas id="chPan" height="185"></canvas></div></div>
+      <div class="card full" style="margin-bottom:14px"><div class="ct">Entregas de subtarefas ao longo do ano</div><div class="cs">Subtarefas concluídas por mês (para comparação com o ritmo das tarefas acima)</div><div class="cw"><canvas id="chPanSub" height="150"></canvas></div></div>
       <div class="g2">
         <div class="card"><div class="ct">Throughput mensal</div><div class="cs">Tarefas concluídas por mês (data de resolução)</div><div class="cw"><canvas id="chTP" height="175"></canvas></div></div>
         <div class="card"><div class="ct">Entradas mensais</div><div class="cs">Novas tarefas criadas por mês</div><div class="cw"><canvas id="chEnt" height="175"></canvas></div></div>
       </div>
       <div class="card full" style="margin-bottom:14px"><div class="ct">CFD — Cumulative Flow Diagram</div><div class="cs">Evolução acumulada por status</div><div class="leg" id="lgCFD"></div><div class="cw"><canvas id="chCFD" height="195"></canvas></div></div>
       <div class="sec">Projetos Detalhados</div>
+      <div class="card full" style="margin-bottom:14px">
+        <div class="ct">Projetos com data replanejada</div>
+        <div class="cs">Projetos cuja data limite atual difere da baseline/alvo original — indica que o prazo foi remarcado. O motivo textual da mudança fica registrado no Jira ao registrar o bloqueio.</div>
+        <div class="tw"><table><thead><tr><th>Chave</th><th>Projeto</th><th>Depto</th><th>Original</th><th>Atual</th><th>Desvio</th><th>Ref.</th></tr></thead><tbody id="replanBdy"></tbody></table></div>
+        <div style="margin-top:8px;font-size:11px;color:var(--text2)">Exibindo <span id="replanCnt">0</span> projeto(s) replanejado(s)</div>
+      </div>
       <div class="card full">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
           <div><div class="ct" style="margin:0">Lista de tarefas</div><div class="cs" style="margin:0">Tarefas com subtarefas</div></div>
@@ -1755,7 +1774,11 @@ function mtx(data){
   const avgD=durs.length?durs.reduce((a,b)=>a+b,0)/durs.length:0;
   const tpMap={};data.filter(t=>t['Status']==='Feito'&&t._maxSubDL).forEach(t=>{const d=t._maxSubDL;const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;tpMap[k]=(tpMap[k]||0)+1;});
   const tv=Object.values(tpMap);const avgTp=tv.length?tv.reduce((a,b)=>a+b,0)/tv.length:0;
-  return{tot,concl,faz,af,np,fp,avgD,avgTp,wip:faz+af,tpMap};
+  // Coeficiente de variação do throughput mensal (desvio-padrão / média).
+  // Métrica de PREVISIBILIDADE: quanto menor, mais estável/previsível o ritmo de entregas.
+  const cvVar=tv.length?tv.reduce((a,b)=>a+(b-avgTp)**2,0)/tv.length:0;
+  const cv=avgTp>0?Math.sqrt(cvVar)/avgTp:0;
+  return{tot,concl,faz,af,np,fp,avgD,avgTp,cv,tvN:tv.length,wip:faz+af,tpMap};
 }
 function _safeRender(name,fn){try{fn();}catch(e){console.error('[AgriTrack] erro em '+name+':',e.message,e);}}
 function render(){
@@ -1767,10 +1790,15 @@ function render(){
   _safeRender('deptSt',deptSt);
   _safeRender('deptPz',()=>deptPz(m));
   _safeRender('pan',pan);
+  _safeRender('panSub',panSub);
+  _safeRender('pzTempo',pzTempo);
+  _safeRender('boxSub',boxSub);
+  _safeRender('cvStat',()=>cvStat(m));
   _safeRender('thr',()=>thr(m));
   _safeRender('ent',ent);
   _safeRender('cfd',cfd);
   _safeRender('tbl',()=>tbl(m));
+  _safeRender('tblReplan',tblReplan);
 }
 
 function kpis(m){
@@ -1877,6 +1905,133 @@ function fTbl(){
     <td>${r.pr==='NO PRAZO'?'<span class="badge np">✓ No Prazo</span>':r.pr==='FORA DO PRAZO'?'<span class="badge fp">✗ Fora</span>':'—'}</td>
     <td style="text-align:center;font-family:'IBM Plex Mono',monospace;font-size:12px">${r.dur}</td>
   </tr>`).join('');
+}
+
+// ── D: Coeficiente de Variação (previsibilidade do throughput) ──
+function cvStat(m){
+  const el=document.getElementById('cvValor'), tag=document.getElementById('cvTag'), hint=document.getElementById('cvHint');
+  if(!el)return;
+  if(!m.tvN||m.tvN<2){el.textContent='—';el.style.color='var(--text2)';tag.textContent='dados insuficientes';tag.style.background='var(--bg3)';tag.style.color='var(--text2)';hint.textContent='São necessários ao menos 2 meses com entregas para calcular a previsibilidade.';return;}
+  el.textContent=m.cv.toFixed(2);
+  // CV baixo = ritmo estável/previsível; alto = irregular
+  let cor,txt,desc;
+  if(m.cv<0.5){cor='#22d37a';txt='Alta previsibilidade';desc='O ritmo de entregas é estável mês a mês — bom para planejar capacidade.';}
+  else if(m.cv<1){cor='#f59e0b';txt='Previsibilidade média';desc='O ritmo oscila moderadamente entre os meses. Vale investigar o que causa os picos e vales.';}
+  else{cor='#f05252';txt='Baixa previsibilidade';desc='As entregas variam muito de mês para mês — difícil prever capacidade e prazos com confiança.';}
+  el.style.color=cor;tag.textContent=txt;tag.style.background=cor+'22';tag.style.color=cor;hint.textContent=desc;
+}
+
+// ── B: Panorama de entregas de subtarefas ao longo do ano ──
+function panSub(){
+  let subs=allSubs.filter(s=>s['Status']==='Feito');
+  if(flt.dept!=='all') subs=subs.filter(s=>s['Campo personalizado (Departamento)']===flt.dept);
+  const s=mSeries(subs,'Resolvido',18);
+  charts['chPanSub']=new Chart(ch('chPanSub'),{type:'line',data:{labels:s.labels,datasets:[{label:'Subtarefas entregues',data:s.vals,borderColor:'#a78bfa',backgroundColor:'rgba(167,139,250,0.10)',borderWidth:2,pointRadius:2,fill:true,tension:.3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:'rgba(255,255,255,0.03)'},ticks:{...tk,autoSkip:true,maxTicksLimit:12,maxRotation:45}},y:{grid:grd,ticks:tk}}}});
+}
+
+// ── C: Cumprimento de prazo ao longo do tempo (empilhado por mês) ──
+function pzTempo(){
+  const concl=filtTasks.filter(t=>t['Status']==='Feito');
+  const mapNp={},mapFp={};
+  concl.forEach(t=>{const d=pd(t['Resolvido']);if(!d)return;const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;const p=t._prazo||calcPrazo(t);if(p==='NO PRAZO')mapNp[k]=(mapNp[k]||0)+1;else if(p==='FORA DO PRAZO')mapFp[k]=(mapFp[k]||0)+1;});
+  const keys=[...new Set([...Object.keys(mapNp),...Object.keys(mapFp)])].sort().slice(-18);
+  const labels=keys.map(k=>{const[y,mo]=k.split('-');return`${mo}/${y.slice(2)}`;});
+  document.getElementById('lgPzT').innerHTML=[['#22d37a','No Prazo'],['#f05252','Fora do Prazo']].map(([c,l])=>`<span class="li"><span class="ld" style="background:${c}"></span>${l}</span>`).join('');
+  charts['chPzT']=new Chart(ch('chPzT'),{type:'bar',data:{labels,datasets:[
+    {label:'No Prazo',data:keys.map(k=>mapNp[k]||0),backgroundColor:'#22d37a',borderRadius:3},
+    {label:'Fora do Prazo',data:keys.map(k=>mapFp[k]||0),backgroundColor:'#f05252',borderRadius:3}
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{stacked:true,grid:{display:false},ticks:{...tk,autoSkip:true,maxTicksLimit:12,maxRotation:45}},y:{stacked:true,grid:grd,ticks:tk}}}});
+}
+
+// ── A: Boxplot da duração das subtarefas por departamento (SVG) ──
+function boxSub(){
+  const wk=(a,b)=>(b-a)/(7*864e5);
+  // Agrupa duração planejada (semanas) por departamento, mesclando variações de caixa
+  const grupos={}; // KEY maiúsculo -> {nome, vals[]}
+  allSubs.forEach(s=>{
+    const ps=s._plannedStartDt, pe=s._plannedEndDt;
+    if(!ps||!pe||pe<=ps)return;
+    const raw=(s['Campo personalizado (Departamento)']||'').trim()||'Sem Depto';
+    const key=raw.toUpperCase();
+    if(!grupos[key])grupos[key]={nome:raw,vals:[]};
+    grupos[key].vals.push(wk(ps,pe));
+  });
+  const q=(arr,p)=>{const s=[...arr].sort((a,b)=>a-b);const idx=(s.length-1)*p;const lo=Math.floor(idx),hi=Math.ceil(idx);return lo===hi?s[lo]:s[lo]+(s[hi]-s[lo])*(idx-lo);};
+  let deps=Object.values(grupos).filter(g=>g.vals.length>=3); // só depto com amostra mínima
+  deps=deps.map(g=>{const q1=q(g.vals,.25),med=q(g.vals,.5),q3=q(g.vals,.75),iqr=q3-q1;
+    const lo=q1-1.5*iqr, hi=q3+1.5*iqr;
+    const dentro=g.vals.filter(v=>v>=lo&&v<=hi);
+    const wmin=Math.min(...dentro), wmax=Math.max(...dentro);
+    const outliers=g.vals.filter(v=>v<lo||v>hi);
+    return{nome:g.nome,n:g.vals.length,q1,med,q3,wmin,wmax,outliers,medOrd:med};
+  }).sort((a,b)=>b.medOrd-a.medOrd);
+  const el=document.getElementById('boxSub');
+  if(!deps.length){el.innerHTML='<div style="color:var(--text2);font-size:12px;padding:20px;text-align:center">Sem dados de duração suficientes.</div>';return;}
+  const maxV=Math.max(...deps.map(d=>Math.max(d.wmax,...d.outliers,d.q3)));
+  const escMax=Math.ceil(maxV/2)*2||2;
+  const W=100, rowH=34, padL=88, padR=14, plotW=W-0; // usaremos % para x dentro do plot
+  const H=deps.length*rowH+26;
+  const xPct=v=>Math.max(0,Math.min(100,(v/escMax)*100));
+  const cores=['#22d37a','#60a5fa','#f59e0b','#a78bfa','#34d399','#fb923c','#f05252','#e879f9'];
+  let rows='';
+  deps.forEach((d,i)=>{
+    const c=cores[i%cores.length];
+    const y=i*rowH+6;
+    const cy=y+11;
+    const x1=xPct(d.wmin), xq1=xPct(d.q1), xmed=xPct(d.med), xq3=xPct(d.q3), x2=xPct(d.wmax);
+    // whiskers, caixa, mediana, outliers — tudo em % dentro de um container flex (label + plot)
+    rows+=`<div style="display:flex;align-items:center;height:${rowH}px">
+      <div style="width:${padL}px;flex-shrink:0;font-size:11px;color:var(--text);text-align:right;padding-right:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(d.nome)} (n=${d.n})">${esc(d.nome)} <span style="color:var(--text3)">·${d.n}</span></div>
+      <div style="flex:1;position:relative;height:100%">
+        <div style="position:absolute;left:${x1}%;right:${100-x2}%;top:50%;height:1.5px;background:${c};opacity:.5"></div>
+        <div style="position:absolute;left:${x1}%;top:35%;height:30%;width:1.5px;background:${c};opacity:.6"></div>
+        <div style="position:absolute;left:${x2}%;top:35%;height:30%;width:1.5px;background:${c};opacity:.6"></div>
+        <div style="position:absolute;left:${xq1}%;width:${xq3-xq1}%;top:26%;height:48%;background:${c}22;border:1.5px solid ${c};border-radius:3px"></div>
+        <div style="position:absolute;left:${xmed}%;top:26%;height:48%;width:2px;background:${c}"></div>
+        ${d.outliers.map(o=>`<div title="outlier: ${o.toFixed(1)} sem" style="position:absolute;left:${xPct(o)}%;top:50%;width:4px;height:4px;border-radius:50%;background:${c};transform:translate(-2px,-2px);opacity:.7"></div>`).join('')}
+        <div style="position:absolute;left:${xmed}%;top:-2px;transform:translateX(-50%);font-size:9px;color:${c};font-weight:600">${d.med.toFixed(1)}</div>
+      </div>
+    </div>`;
+  });
+  // eixo X
+  const ticks=[0,.25,.5,.75,1].map(f=>{const v=escMax*f;return`<span style="position:absolute;left:${f*100}%;transform:translateX(-50%);font-size:9px;color:var(--text3)">${v.toFixed(0)}</span>`;}).join('');
+  el.innerHTML=`<div>${rows}</div>
+    <div style="display:flex;align-items:center;height:16px;margin-top:2px">
+      <div style="width:${padL}px;flex-shrink:0;text-align:right;padding-right:10px;font-size:9px;color:var(--text3)">semanas →</div>
+      <div style="flex:1;position:relative;height:100%">${ticks}</div>
+    </div>`;
+}
+
+// ── E: Tabela de projetos com data replanejada ──
+function tblReplan(){
+  const hoje=new Date();
+  const rows=[];
+  filtTasks.forEach(t=>{
+    const bl=pd(t['Campo personalizado (Data Baseline)']);
+    const al=pd(t['Campo personalizado (Data alvo)']);
+    const dl=pd(t['Data limite']);
+    const ref=bl||al;
+    if(ref&&dl&&Math.abs(dl-ref)>864e5){
+      const dias=Math.round((dl-ref)/864e5);
+      rows.push({ch:t['Chave da item']||'—',res:t['Resumo']||'—',dep:t['Campo personalizado (Departamento)']||'—',de:fd(ref),para:fd(dl),dias,ref:bl?'Baseline':'Alvo'});
+    }
+  });
+  rows.sort((a,b)=>b.dias-a.dias); // maiores atrasos primeiro
+  document.getElementById('replanCnt').textContent=rows.length.toLocaleString('pt-BR');
+  document.getElementById('replanBdy').innerHTML=rows.length?rows.map(r=>{
+    const atraso=r.dias>0;
+    const cor=atraso?'#f05252':'#22d37a';
+    const sinal=atraso?'+':'';
+    return `<tr>
+      <td><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--blue)">${esc(r.ch)}</span></td>
+      <td style="max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(r.res)}">${esc(r.res)}</td>
+      <td>${esc(r.dep)}</td>
+      <td style="font-size:11px;color:var(--text2)">${r.de}</td>
+      <td style="font-size:11px;color:var(--text)">${r.para}</td>
+      <td style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;color:${cor}">${sinal}${r.dias}d</td>
+      <td style="font-size:10px;color:var(--text3)">${r.ref}</td>
+    </tr>`;
+  }).join(''):'<tr><td colspan="7" style="text-align:center;color:var(--text2);padding:16px">Nenhum projeto com data replanejada no filtro atual.</td></tr>';
 }
 
 // ════════════════════════════════════════════════════════════════
