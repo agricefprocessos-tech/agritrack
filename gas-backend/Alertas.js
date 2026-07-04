@@ -49,7 +49,16 @@ function _buscarEmailGestor_(nome) {
 // sem essa checagem, o laço estoura no meio e os envios restantes falham
 // silenciosamente, sem nenhum aviso pro usuário.
 function _checarCotaEmail_(qtdNecessaria) {
-  const restante = MailApp.getRemainingDailyQuota();
+  let restante;
+  try {
+    restante = MailApp.getRemainingDailyQuota();
+  } catch (eQuota) {
+    // Falta autorizar o escopo script.send_mail (ver appsscript.json) — não
+    // trava o envio por causa disso, só avisa. Rode qualquer função uma vez
+    // no editor GAS pra aparecer a tela de autorização e resolver de vez.
+    console.warn('_checarCotaEmail_: não foi possível checar a cota (' + eQuota.message + ') — prosseguindo sem essa checagem.');
+    return;
+  }
   if (restante < qtdNecessaria) {
     throw new Error('Cota diária de e-mail insuficiente: restam ' + restante + ', necessário ' + qtdNecessaria + '. Tente novamente amanhã ou reduza o escopo (filtro de departamento).');
   }
@@ -239,13 +248,58 @@ function enviarSolicitacaoAtualizacao(dados) {
       if (!nextPageToken) break;
     }
 
+    // Filtra por departamento primeiro — só busca subtarefas dos projetos que
+    // de fato vão entrar no e-mail (evita JQL desnecessária).
+    var relevantes = all.filter(function(i) {
+      var f = i.fields || {};
+      var dept = f.customfield_10073 ? (f.customfield_10073.value || String(f.customfield_10073)) : '';
+      return !deptFiltro || dept.toLowerCase().indexOf(deptFiltro.toLowerCase()) !== -1;
+    });
+
+    // Busca subtarefas ainda abertas (não "Feito") dos projetos relevantes —
+    // é isso que o gestor precisa ver: não só "o projeto está em andamento",
+    // mas exatamente quais frentes dentro dele ainda pedem atenção.
+    var subsPorPai = {};
+    if (relevantes.length > 0) {
+      var chaves = relevantes.map(function(i) { return i.key; });
+      var jqlSub = encodeURIComponent(
+        'parent in (' + chaves.join(',') + ')' +
+        ' AND statusCategory != Done' +
+        ' ORDER BY duedate ASC'
+      );
+      var fieldsSub = ['summary','status','duedate','parent','labels'].join(',');
+      var subtarefasBrutas = [];
+      var nextSub = null;
+      while (subtarefasBrutas.length < 2000) {
+        var pathSub = '/rest/api/3/search/jql?jql=' + jqlSub + '&maxResults=100&fields=' + fieldsSub;
+        if (nextSub) pathSub += '&nextPageToken=' + encodeURIComponent(nextSub);
+        var rSub = jiraRequest_('GET', pathSub);
+        if (!rSub.issues || !rSub.issues.length) break;
+        subtarefasBrutas = subtarefasBrutas.concat(rSub.issues);
+        nextSub = rSub.nextPageToken || null;
+        if (!nextSub) break;
+      }
+      subtarefasBrutas.forEach(function(s) {
+        var fs = s.fields || {};
+        var paiKey = fs.parent ? fs.parent.key : null;
+        if (!paiKey) return;
+        if (!subsPorPai[paiKey]) subsPorPai[paiKey] = [];
+        subsPorPai[paiKey].push({
+          key: s.key,
+          summary: fs.summary || '',
+          status: fs.status ? fs.status.name : '',
+          duedate: fs.duedate || '',
+          bloqueada: (fs.labels || []).indexOf('bloqueado') !== -1,
+        });
+      });
+    }
+
     var porGestor = {}; // email → { nome, projetos[] }
     var semEmail  = {};
 
-    all.forEach(function(i) {
+    relevantes.forEach(function(i) {
       var f = i.fields || {};
       var dept = f.customfield_10073 ? (f.customfield_10073.value || String(f.customfield_10073)) : '';
-      if (deptFiltro && dept.toLowerCase().indexOf(deptFiltro.toLowerCase()) === -1) return;
 
       var nome  = f.assignee ? f.assignee.displayName : 'Sem responsável';
       var email = _buscarEmailGestor_(nome);
@@ -261,6 +315,7 @@ function enviarSolicitacaoAtualizacao(dados) {
         baseline: f.customfield_10469 || '',
         start:    f.customfield_10015 || '',
         dept:     dept,
+        subtarefas: subsPorPai[i.key] || [],
       });
     });
 
@@ -292,6 +347,48 @@ function _fmtDate_(s) {
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' });
 }
 
+// Renderiza a lista de subtarefas em aberto de um projeto, priorizando
+// bloqueadas e atrasadas primeiro, com limite de itens pra não estourar o e-mail.
+function _renderSubtarefasHtml_(subtarefas, hoje) {
+  if (!subtarefas || !subtarefas.length) return '';
+
+  var LIMITE = 6;
+  var comInfo = subtarefas.map(function(s) {
+    var due = s.duedate ? new Date(s.duedate + 'T12:00:00') : null;
+    var diasDue = due ? Math.round((due - hoje) / 86400000) : null;
+    var atrasada = diasDue !== null && diasDue < 0;
+    return Object.assign({}, s, { diasDue: diasDue, atrasada: atrasada });
+  });
+
+  // Prioridade: bloqueada > atrasada > vence em breve > resto; dentro de cada grupo, prazo mais próximo primeiro
+  comInfo.sort(function(a, b) {
+    var pa = a.bloqueada ? 0 : a.atrasada ? 1 : 2;
+    var pb = b.bloqueada ? 0 : b.atrasada ? 1 : 2;
+    if (pa !== pb) return pa - pb;
+    return (a.diasDue === null ? 999 : a.diasDue) - (b.diasDue === null ? 999 : b.diasDue);
+  });
+
+  var visiveis = comInfo.slice(0, LIMITE);
+  var resto = comInfo.length - visiveis.length;
+
+  var itens = visiveis.map(function(s) {
+    var cor = s.bloqueada ? '#f05252' : s.atrasada ? '#f05252' : (s.diasDue !== null && s.diasDue <= 7) ? '#f59e0b' : '#8896b0';
+    var tag = s.bloqueada ? '🚧 bloqueada' : s.atrasada ? Math.abs(s.diasDue) + 'd atrasada' : s.diasDue === null ? 'sem prazo' : s.diasDue === 0 ? 'vence hoje' : 'vence em ' + s.diasDue + 'd';
+    var link = DASHBOARD_URL + '?abrir=' + encodeURIComponent(s.key);
+    return '<a href="' + link + '" style="display:block;text-decoration:none;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04)">' +
+      '<span style="font-size:11px;color:#c5cfe0"><strong style="color:#e2e8f4">' + esc_(s.key) + '</strong> — ' + esc_(s.summary) + '</span> ' +
+      '<span style="color:' + cor + ';font-size:10px;font-weight:700">(' + tag + ')</span>' +
+    '</a>';
+  }).join('');
+
+  var maisTxt = resto > 0 ? '<div style="font-size:10px;color:#8896b0;margin-top:3px">+ ' + resto + ' subtarefa(s) — veja todas no painel</div>' : '';
+
+  return '<div style="margin-top:8px;padding:8px 10px;background:rgba(255,255,255,0.03);border-radius:6px;border-left:2px solid #60a5fa33">' +
+    '<div style="font-size:9px;color:#60a5fa;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;font-weight:700">📌 Subtarefas que precisam de atenção (' + subtarefas.length + ')</div>' +
+    itens + maisTxt +
+  '</div>';
+}
+
 function _enviarSolicitacaoGestor_(email, nome, projetos, msgExtra) {
   var hoje = new Date(); hoje.setHours(0,0,0,0);
 
@@ -319,7 +416,8 @@ function _enviarSolicitacaoGestor_(email, nome, projetos, msgExtra) {
         (p.dept ? esc_(p.dept) + ' · ' : '') +
         'Início: ' + _fmtDate_(p.start) + ' · Alvo: ' + _fmtDate_(p.alvo) +
       '</div>' +
-      '<a href="' + link + '" style="display:inline-block;background:#22d37a;color:#000;font-size:11px;font-weight:700;padding:5px 14px;border-radius:20px;text-decoration:none">Atualizar projeto →</a>' +
+      _renderSubtarefasHtml_(p.subtarefas, hoje) +
+      '<a href="' + link + '" style="display:inline-block;margin-top:8px;background:#22d37a;color:#000;font-size:11px;font-weight:700;padding:5px 14px;border-radius:20px;text-decoration:none">Atualizar projeto →</a>' +
     '</td></tr>';
   }).join('');
 
