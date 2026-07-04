@@ -359,7 +359,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
       <div class="card full" style="margin-bottom:14px"><div class="ct">Cumprimento de prazo ao longo do tempo</div><div class="cs">Concluídos no prazo vs. fora do prazo, por mês de conclusão</div><div class="leg" id="lgPzT"></div><div class="cw"><canvas id="chPzT" height="150"></canvas></div></div>
       <div class="sec">Duração &amp; Previsibilidade</div>
       <div class="gw">
-        <div class="card"><div class="ct">Duração das subtarefas por departamento</div><div class="cs">Distribuição da duração planejada (início → limite), em semanas · boxplot</div><div id="boxSub" style="margin-top:6px"></div></div>
+        <div class="card"><div class="ct">Duração típica por tipo de subtarefa</div><div class="cs">Mediana e dispersão da duração planejada (semanas) de cada subtarefa recorrente — referência para dimensionar novos projetos. Só tipos presentes em ≥3 projetos.</div><input id="boxSubBusca" placeholder="🔍 Filtrar tipo de subtarefa…" oninput="boxSub()" style="width:100%;margin:8px 0 4px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--rs);font-size:11px;outline:none;font-family:inherit;box-sizing:border-box"><div id="boxSub" style="margin-top:4px;max-height:340px;overflow-y:auto"></div></div>
         <div class="card" style="display:flex;flex-direction:column"><div class="ct">Previsibilidade do throughput</div><div class="cs">Coeficiente de variação das entregas mensais</div>
           <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:8px 0">
             <div id="cvValor" style="font-size:40px;font-weight:600;font-family:'IBM Plex Mono',monospace;letter-spacing:-1px;line-height:1">—</div>
@@ -1943,60 +1943,67 @@ function pzTempo(){
   ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{stacked:true,grid:{display:false},ticks:{...tk,autoSkip:true,maxTicksLimit:12,maxRotation:45}},y:{stacked:true,grid:grd,ticks:tk}}}});
 }
 
-// ── A: Boxplot da duração das subtarefas por departamento (SVG) ──
+// ── A: Boxplot da duração POR TIPO DE SUBTAREFA (referência p/ dimensionar) ──
+// Agrupa por nome da subtarefa (normalizado: sem acento, minúsculo) para juntar
+// subtarefas recorrentes de projetos diferentes ("Fabricação", "Montagens",
+// "Coleta de Dados"…). Mostra a distribuição da duração planejada em semanas.
+function _normNome(s){return String(s||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/^clone\s*[-\u2013]\s*/,'').replace(/[()\[\]\-\u2013_.,\/]/g,' ').replace(/\s+/g,' ').trim();}
 function boxSub(){
   const wk=(a,b)=>(b-a)/(7*864e5);
-  // Agrupa duração planejada (semanas) por departamento, mesclando variações de caixa
-  const grupos={}; // KEY maiúsculo -> {nome, vals[]}
+  const grupos={}; // chaveNorm -> {nomes:{orig:count}, projetos:Set, vals:[]}
   allSubs.forEach(s=>{
+    const raw=(s['Resumo']||'').trim();
+    if(!raw)return;
+    const key=_normNome(raw);
+    if(!key)return;
+    if(!grupos[key])grupos[key]={nomes:{},projetos:new Set(),vals:[]};
+    grupos[key].nomes[raw]=(grupos[key].nomes[raw]||0)+1;
+    grupos[key].projetos.add(s['Chave pai']);
     const ps=s._plannedStartDt, pe=s._plannedEndDt;
-    if(!ps||!pe||pe<=ps)return;
-    const raw=(s['Campo personalizado (Departamento)']||'').trim()||'Sem Depto';
-    const key=raw.toUpperCase();
-    if(!grupos[key])grupos[key]={nome:raw,vals:[]};
-    grupos[key].vals.push(wk(ps,pe));
+    if(ps&&pe&&pe>ps) grupos[key].vals.push(wk(ps,pe));
   });
   const q=(arr,p)=>{const s=[...arr].sort((a,b)=>a-b);const idx=(s.length-1)*p;const lo=Math.floor(idx),hi=Math.ceil(idx);return lo===hi?s[lo]:s[lo]+(s[hi]-s[lo])*(idx-lo);};
-  let deps=Object.values(grupos).filter(g=>g.vals.length>=3); // só depto com amostra mínima
-  deps=deps.map(g=>{const q1=q(g.vals,.25),med=q(g.vals,.5),q3=q(g.vals,.75),iqr=q3-q1;
+  const busca=_normNome((document.getElementById('boxSubBusca')||{}).value||'');
+  // Recorrentes: presentes em ≥3 projetos distintos e com ≥3 durações p/ o box
+  let tipos=Object.values(grupos).filter(g=>g.projetos.size>=3&&g.vals.length>=3);
+  tipos=tipos.map(g=>{
+    const nome=Object.entries(g.nomes).sort((a,b)=>b[1]-a[1])[0][0].replace(/^CLONE\s*[-–]\s*/i,''); // grafia mais comum, sem prefixo CLONE
+    const q1=q(g.vals,.25),med=q(g.vals,.5),q3=q(g.vals,.75),iqr=q3-q1;
     const lo=q1-1.5*iqr, hi=q3+1.5*iqr;
     const dentro=g.vals.filter(v=>v>=lo&&v<=hi);
-    const wmin=Math.min(...dentro), wmax=Math.max(...dentro);
-    const outliers=g.vals.filter(v=>v<lo||v>hi);
-    return{nome:g.nome,n:g.vals.length,q1,med,q3,wmin,wmax,outliers,medOrd:med};
-  }).sort((a,b)=>b.medOrd-a.medOrd);
+    return{nome,nProj:g.projetos.size,n:g.vals.length,q1,med,q3,
+      wmin:Math.min(...dentro),wmax:Math.max(...dentro),
+      outliers:g.vals.filter(v=>v<lo||v>hi),media:g.vals.reduce((a,b)=>a+b,0)/g.vals.length};
+  });
+  if(busca) tipos=tipos.filter(t=>_normNome(t.nome).includes(busca));
+  tipos.sort((a,b)=>b.med-a.med);
   const el=document.getElementById('boxSub');
-  if(!deps.length){el.innerHTML='<div style="color:var(--text2);font-size:12px;padding:20px;text-align:center">Sem dados de duração suficientes.</div>';return;}
-  const maxV=Math.max(...deps.map(d=>Math.max(d.wmax,...d.outliers,d.q3)));
+  if(!tipos.length){el.innerHTML='<div style="color:var(--text2);font-size:12px;padding:20px;text-align:center">'+(busca?'Nenhum tipo de subtarefa corresponde à busca.':'Sem dados de duração suficientes.')+'</div>';return;}
+  const maxV=Math.max(...tipos.map(d=>Math.max(d.wmax,d.q3,...d.outliers)));
   const escMax=Math.ceil(maxV/2)*2||2;
-  const W=100, rowH=34, padL=88, padR=14, plotW=W-0; // usaremos % para x dentro do plot
-  const H=deps.length*rowH+26;
+  const rowH=30, padL=150;
   const xPct=v=>Math.max(0,Math.min(100,(v/escMax)*100));
-  const cores=['#22d37a','#60a5fa','#f59e0b','#a78bfa','#34d399','#fb923c','#f05252','#e879f9'];
+  const cores=['#22d37a','#60a5fa','#f59e0b','#a78bfa','#34d399','#fb923c','#f472b6','#e879f9'];
   let rows='';
-  deps.forEach((d,i)=>{
+  tipos.forEach((d,i)=>{
     const c=cores[i%cores.length];
-    const y=i*rowH+6;
-    const cy=y+11;
     const x1=xPct(d.wmin), xq1=xPct(d.q1), xmed=xPct(d.med), xq3=xPct(d.q3), x2=xPct(d.wmax);
-    // whiskers, caixa, mediana, outliers — tudo em % dentro de um container flex (label + plot)
     rows+=`<div style="display:flex;align-items:center;height:${rowH}px">
-      <div style="width:${padL}px;flex-shrink:0;font-size:11px;color:var(--text);text-align:right;padding-right:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(d.nome)} (n=${d.n})">${esc(d.nome)} <span style="color:var(--text3)">·${d.n}</span></div>
+      <div style="width:${padL}px;flex-shrink:0;font-size:10.5px;color:var(--text);text-align:right;padding-right:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(d.nome)} — ${d.nProj} projetos · mediana ${d.med.toFixed(1)} sem · média ${d.media.toFixed(1)} sem">${esc(d.nome)} <span style="color:var(--text3)">·${d.nProj}</span></div>
       <div style="flex:1;position:relative;height:100%">
         <div style="position:absolute;left:${x1}%;right:${100-x2}%;top:50%;height:1.5px;background:${c};opacity:.5"></div>
         <div style="position:absolute;left:${x1}%;top:35%;height:30%;width:1.5px;background:${c};opacity:.6"></div>
         <div style="position:absolute;left:${x2}%;top:35%;height:30%;width:1.5px;background:${c};opacity:.6"></div>
-        <div style="position:absolute;left:${xq1}%;width:${xq3-xq1}%;top:26%;height:48%;background:${c}22;border:1.5px solid ${c};border-radius:3px"></div>
+        <div style="position:absolute;left:${xq1}%;width:${Math.max(xq3-xq1,0.6)}%;top:26%;height:48%;background:${c}22;border:1.5px solid ${c};border-radius:3px"></div>
         <div style="position:absolute;left:${xmed}%;top:26%;height:48%;width:2px;background:${c}"></div>
-        ${d.outliers.map(o=>`<div title="outlier: ${o.toFixed(1)} sem" style="position:absolute;left:${xPct(o)}%;top:50%;width:4px;height:4px;border-radius:50%;background:${c};transform:translate(-2px,-2px);opacity:.7"></div>`).join('')}
-        <div style="position:absolute;left:${xmed}%;top:-2px;transform:translateX(-50%);font-size:9px;color:${c};font-weight:600">${d.med.toFixed(1)}</div>
+        ${d.outliers.map(o=>`<div title="outlier: ${o.toFixed(1)} sem" style="position:absolute;left:${xPct(o)}%;top:50%;width:4px;height:4px;border-radius:50%;background:${c};transform:translate(-2px,-2px);opacity:.65"></div>`).join('')}
+        <div style="position:absolute;left:${xmed}%;top:-1px;transform:translateX(-50%);font-size:9px;color:${c};font-weight:600">${d.med.toFixed(1)}</div>
       </div>
     </div>`;
   });
-  // eixo X
-  const ticks=[0,.25,.5,.75,1].map(f=>{const v=escMax*f;return`<span style="position:absolute;left:${f*100}%;transform:translateX(-50%);font-size:9px;color:var(--text3)">${v.toFixed(0)}</span>`;}).join('');
+  const ticks=[0,.25,.5,.75,1].map(f=>`<span style="position:absolute;left:${f*100}%;transform:translateX(-50%);font-size:9px;color:var(--text3)">${(escMax*f).toFixed(0)}</span>`).join('');
   el.innerHTML=`<div>${rows}</div>
-    <div style="display:flex;align-items:center;height:16px;margin-top:2px">
+    <div style="display:flex;align-items:center;height:16px;margin-top:2px;position:sticky;bottom:0;background:var(--bg2)">
       <div style="width:${padL}px;flex-shrink:0;text-align:right;padding-right:10px;font-size:9px;color:var(--text3)">semanas →</div>
       <div style="flex:1;position:relative;height:100%">${ticks}</div>
     </div>`;
