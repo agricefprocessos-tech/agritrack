@@ -4453,6 +4453,45 @@ function renderHaulerSerial(data){
     </div>
   </div>`;
 
+  // ── Agregação de FALTANTES CRÍTICOS + cobertura BOM (visão do planejador) ──
+  // Junta os códigos "comprar" do BOM sem nenhuma compra (descoberto) entre todos
+  // os seriais em produção — permite ver de uma vez o que pode travar a montagem.
+  const bomCompRefG=bomComprarCodes?bomComprarCodes.size:(bomRef?bomRef.comprar:null);
+  const faltantesMap={}; let somaCob=0,nComCob=0;
+  sortedSeriais.forEach(s=>{
+    const cov=bomCoverageForSerial(s.serial,s.fases.compras.nPedidos,bomCompRefG);
+    if(!cov)return;
+    if(cov.exact&&cov.total>0){somaCob+=cov.count/cov.total;nComCob++;}
+    if(cov.items){cov.items.forEach(it=>{
+      if(it.estado==='descoberto'){
+        if(!faltantesMap[it.cod])faltantesMap[it.cod]={serials:new Set(),desc:(bomLookup[it.cod]||{}).desc||''};
+        faltantesMap[it.cod].serials.add(s.serial);
+      }
+    });}
+  });
+  const faltantes=Object.entries(faltantesMap).map(([cod,v])=>({cod,desc:v.desc,n:v.serials.size,serials:[...v.serials]})).sort((a,b)=>b.n-a.n||a.cod.localeCompare(b.cod));
+  const cobGlobalPct=nComCob?Math.round(somaCob/nComCob*100):null;
+  const faltantesHtml=nComCob===0?'':(faltantes.length?`
+    <div class="card" style="border-left:3px solid var(--red);margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <div><div class="ct" style="color:var(--red);margin:0">⚠ Faltantes críticos — ${faltantes.length} código(s) sem compra</div>
+        <div class="cs" style="margin:0">Códigos "comprar" do BOM sem nenhuma solicitação/pedido nos seriais em produção — podem travar a montagem.</div></div>
+        ${cobGlobalPct!==null?`<div style="text-align:center"><div style="font-size:22px;font-weight:700;color:${cobGlobalPct>=90?'var(--green)':cobGlobalPct>=70?'var(--amber)':'var(--red)'};font-family:'IBM Plex Mono',monospace">${cobGlobalPct}%</div><div style="font-size:9px;color:var(--text3)">cobertura BOM média</div></div>`:''}
+      </div>
+      <div style="max-height:220px;overflow-y:auto;margin-top:10px">
+        ${faltantes.slice(0,40).map(f=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);font-size:11px">
+          <span style="font-family:'IBM Plex Mono',monospace;color:var(--red);flex-shrink:0;min-width:60px">${esc(f.cod)}</span>
+          <span style="color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.desc||'—')}</span>
+          <span style="font-size:10px;color:var(--text2);flex-shrink:0" title="${f.serials.map(x=>'S'+x).join(', ')}">${f.n} serial${f.n!==1?'is':''}</span>
+        </div>`).join('')}
+        ${faltantes.length>40?`<div style="font-size:10px;color:var(--text3);margin-top:4px">+ ${faltantes.length-40} código(s)</div>`:''}
+      </div>
+    </div>`:`
+    <div class="card" style="border-left:3px solid var(--green);margin-bottom:16px">
+      <div class="ct" style="color:var(--green);margin:0">✅ Sem faltantes críticos${cobGlobalPct!==null?` · cobertura BOM ${cobGlobalPct}%`:''}</div>
+      <div class="cs" style="margin:0">Todos os códigos "comprar" do BOM têm ao menos uma compra registrada nos seriais em produção.</div>
+    </div>`);
+
   const geradoStr=geradoEm?new Date(geradoEm).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'';
   el.innerHTML=`
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -4463,6 +4502,7 @@ function renderHaulerSerial(data){
     <button class="btn-sec" onclick="_haulerAutoLoad(true)" style="font-size:11px">↺ Atualizar</button>
   </div>
   ${kpiHtml}
+  ${faltantesHtml}
   ${cardsHtml}
   ${tabelaHtml}`;
   // Event delegation: single persistent listener on the container.
