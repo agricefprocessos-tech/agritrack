@@ -3017,6 +3017,61 @@ function parsePvSeriais(text){
   return[...r];
 }
 
+// ── Extrai serial do TÍTULO de um projeto Jira (ex: "... (S22000073) ..." → "22000073") ─
+// Reusa parsePvSeriais após remover o prefixo "S" que aparece nos títulos do Jira.
+function _serialDoTitulo(title){
+  const limpo=String(title||'').replace(/\bS(22\d{6})\b/gi,'$1');
+  return parsePvSeriais(limpo);
+}
+
+// ── Sincronização: HTML dos suprimentos (compras) de um serial p/ o pop-up do Gantt ─
+// Liga o projeto (via serial no título) às compras daquele serial e sinaliza itens
+// cuja previsão de entrega chega DEPOIS da data limite do projeto (risco de atraso).
+function _ganttComprasSerialHtml(serial, dueStr){
+  if(!_haulerComprasIndex){ try{const l=_buildSerialIndexFromComprasTabs(); if(l)_haulerComprasIndex=l;}catch(e){} }
+  const idx=_haulerComprasIndex;
+  const head='<div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">🛒 Suprimentos do serial <strong style="color:var(--text)">S'+esc(serial)+'</strong></div>';
+  const wrap=(inner)=>'<div style="margin-top:12px;padding:12px;background:var(--bg4);border-radius:8px;border:1px solid var(--border)">'+head+inner+'</div>';
+  const entry=idx&&idx[serial];
+  if(!entry) return wrap('<div style="font-size:11px;color:var(--text2)">'+(idx?'Nenhuma compra vinculada a este serial ainda.':'Abra a aba Compras uma vez para carregar os suprimentos.')+'</div>');
+  const dueDt=dueStr?pd(dueStr):null;
+  let nEnt=0,nPed=0,nSol=0;
+  const itens=Object.entries(entry.items||{}).map(([cod,it])=>{
+    const est=it.qtdEntregue>0?'entregue':it.qtdPedida>0?'pedido':'solicitado';
+    if(est==='entregue')nEnt++; else if(est==='pedido')nPed++; else nSol++;
+    // datas de compras vêm em dd/mm/aaaa → usar parseDate (pd() só lê ISO)
+    const prevStr=it.previsao||it.dataAtu||''; const dt=prevStr?parseDate(prevStr):null;
+    const atrasado=est!=='entregue'&&dueDt&&dt&&dt>dueDt;
+    return {cod,est,dt,prevStr,atrasado,desc:it.desc||'',forn:it.fornecedor||''};
+  });
+  const rank=x=>x.atrasado?0:x.est==='solicitado'?1:x.est==='pedido'?2:3;
+  itens.sort((a,b)=>rank(a)-rank(b)||(a.dt&&b.dt?a.dt-b.dt:0));
+  const emRisco=itens.filter(x=>x.atrasado).length;
+  const total=itens.length;
+  // barra-resumo
+  const resumo='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">'+
+    '<span style="font-size:10px;font-weight:700;color:#22d37a;background:#22d37a1a;border-radius:8px;padding:2px 9px">✓ '+nEnt+' entregue(s)</span>'+
+    '<span style="font-size:10px;font-weight:700;color:#60a5fa;background:#60a5fa1a;border-radius:8px;padding:2px 9px">📦 '+nPed+' pedido(s)</span>'+
+    '<span style="font-size:10px;font-weight:700;color:#f59e0b;background:#f59e0b1a;border-radius:8px;padding:2px 9px">📝 '+nSol+' solicitado(s)</span>'+
+    (emRisco?'<span style="font-size:10px;font-weight:700;color:#f05252;background:#f052521a;border-radius:8px;padding:2px 9px">⚠ '+emRisco+' chega após o prazo</span>':'')+
+    '</div>';
+  const fmt=d=>d?d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'}):'—';
+  const linhas=itens.slice(0,8).map(x=>{
+    const c=x.est==='entregue'?'#22d37a':x.est==='pedido'?'#60a5fa':'#f59e0b';
+    const tag=x.est==='entregue'?'entregue':x.est==='pedido'?'pedido':'solicitado';
+    const prazoTxt=x.est==='entregue'?'':x.atrasado?('<span style="color:#f05252;font-weight:700">⚠ prev. '+fmt(x.dt)+'</span>'):(x.dt?('prev. '+fmt(x.dt)):'sem previsão');
+    return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);font-size:11px">'+
+      '<span style="width:7px;height:7px;border-radius:50%;background:'+c+';flex-shrink:0"></span>'+
+      '<span style="font-family:\'IBM Plex Mono\',monospace;color:var(--text2);flex-shrink:0">'+esc(x.cod)+'</span>'+
+      '<span style="color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(x.desc||'—')+'</span>'+
+      '<span style="color:'+c+';font-size:10px;flex-shrink:0">'+tag+'</span>'+
+      '<span style="font-size:10px;color:var(--text3);flex-shrink:0;min-width:82px;text-align:right">'+prazoTxt+'</span>'+
+    '</div>';
+  }).join('');
+  const mais=total>8?'<div style="font-size:10px;color:var(--text3);margin-top:4px">+ '+(total-8)+' código(s) — veja a aba Hauler BOM › Por Serial</div>':'';
+  return wrap(resumo+'<div>'+linhas+'</div>'+mais);
+}
+
 // ── Constrói índice de compras por serial a partir de dados locais ─
 function _buildSerialIndexFromComprasTabs(){
   let tabs=(_comprasTabs&&_comprasTabs.length>0)?_comprasTabs.filter(t=>!t.virtual):null;
@@ -3041,6 +3096,11 @@ function _buildSerialIndexFromComprasTabs(){
     const pedidoKey=findKey('pedido');
     const dataEntKey=findKey('entrega efet','data entrega efet','data da entrega');
     const dataAtuKey=findKey('entrega atualizada','atualizada');
+    // Campos extras p/ sincronização com prazos (aditivo — não altera lógica de cobertura)
+    const descKey=findKey('descri','descrição','item','produto');
+    const desejadaKey=findKey('desejada','data desejada');
+    const previsaoKey=findKey('previsão entrega','previsao entrega','prev entrega','previsão','previsao');
+    const fornKey=findKey('fornecedor');
     // Colunas alternativas para serial — pega TODAS que casam (FUP tem "Observação" E "Observações")
     const altSerialKeys=headers.filter(h=>['observa','conjunto','apelido','finalidade'].some(c=>h.toLowerCase().includes(c.toLowerCase())));
     if(!pvKey||!codKey)return;
@@ -3062,12 +3122,16 @@ function _buildSerialIndexFromComprasTabs(){
       const status=row[statusKey]||'';const pedido=row[pedidoKey]||'';
       const dataEnt=isConclu?(row[dataEntKey]||''):'';
       const dataAtu=!isConclu?(row[dataAtuKey]||''):'';
+      const desc=descKey?(row[descKey]||''):'';
+      const previsao=previsaoKey?(row[previsaoKey]||''):'';
+      const desejada=desejadaKey?(row[desejadaKey]||''):'';
+      const fornecedor=fornKey?(row[fornKey]||''):'';
       const estado=isConclu&&dataEnt?'entregue':pedido?'pedido':'solicitado';
       seriais.forEach(serial=>{
         if(!idx[serial])idx[serial]={codigos:new Set(),items:{},nLinhas:0};
         idx[serial].codigos.add(cod);
         if(!idx[serial].items[cod])
-          idx[serial].items[cod]={qtdSolicitada:0,qtdPedida:0,qtdEntregue:0,status:'',pedido:'',dataEnt:'',dataAtu:'',fontes:[]};
+          idx[serial].items[cod]={qtdSolicitada:0,qtdPedida:0,qtdEntregue:0,status:'',pedido:'',dataEnt:'',dataAtu:'',desc:'',previsao:'',desejada:'',fornecedor:'',fontes:[]};
         const item=idx[serial].items[cod];
         if(estado==='entregue')item.qtdEntregue+=qtd;
         else if(estado==='pedido')item.qtdPedida+=qtd;
@@ -3075,6 +3139,10 @@ function _buildSerialIndexFromComprasTabs(){
         if(pedido&&!item.pedido)item.pedido=pedido;
         if(dataEnt&&!item.dataEnt)item.dataEnt=dataEnt;
         if(dataAtu&&!item.dataAtu)item.dataAtu=dataAtu;
+        if(desc&&!item.desc)item.desc=desc;
+        if(previsao&&!item.previsao)item.previsao=previsao;
+        if(desejada&&!item.desejada)item.desejada=desejada;
+        if(fornecedor&&!item.fornecedor)item.fornecedor=fornecedor;
         if(status&&!item.status)item.status=status;
         if(!item.fontes.includes(tab.name))item.fontes.push(tab.name);
       });
@@ -6703,6 +6771,10 @@ function ganttClick(key){
   window._ganttClickData=window._ganttClickData||{};
   window._ganttClickData[key]={summary:t['Resumo']||'',duedate:due||'',alvodate:alvo||'',startdate:start||''};
   const jiraUrl='https://agricefprojetos.atlassian.net/browse/'+key;
+  // Sincronização por serial — projeto Hauler carrega o serial no título (ou no do pai, se subtarefa)
+  const _tituloProj=isSub?(paiTask?(paiTask['Resumo']||''):(t['Parent summary']||'')):(t['Resumo']||'');
+  const _seriaisProj=(typeof _serialDoTitulo==='function')?_serialDoTitulo(_tituloProj):[];
+  const comprasSerialHtml=_seriaisProj.length?_ganttComprasSerialHtml(_seriaisProj[0],due):'';
 
   document.getElementById('ganttDetailModal').style.display='flex';
   // Pills de status — cores e labels
@@ -6860,6 +6932,7 @@ function ganttClick(key){
         </div>
       </div>
       `}
+      ${comprasSerialHtml}
       <div style="display:flex;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border);flex-wrap:wrap;align-items:center">
         ${isBlk?`<button onclick="ganttResolverBloqueio('${key}')" style="padding:7px 14px;background:#22d37a11;border:1px solid var(--green);color:var(--green);border-radius:var(--rs);cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;transition:all .15s" onmouseover="this.style.background='#22d37a22'" onmouseout="this.style.background='#22d37a11'">✅ Já tenho solução — Desbloquear</button>`:''}
         <button onclick="ganttRegistrarBloqueio('${key}')" style="padding:7px 14px;background:#f0525211;border:1px solid #f05252;color:#f05252;border-radius:var(--rs);cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;transition:all .15s" onmouseover="this.style.background='#f0525222'" onmouseout="this.style.background='#f0525211'">🚧 Registrar Bloqueio</button>
