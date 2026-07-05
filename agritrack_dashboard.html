@@ -4456,43 +4456,51 @@ function renderHaulerSerial(data){
     </div>
   </div>`;
 
-  // ── Agregação de FALTANTES CRÍTICOS + cobertura BOM (visão do planejador) ──
-  // Junta os códigos "comprar" do BOM sem nenhuma compra (descoberto) entre todos
-  // os seriais em produção — permite ver de uma vez o que pode travar a montagem.
-  const bomCompRefG=bomComprarCodes?bomComprarCodes.size:(bomRef?bomRef.comprar:null);
-  const faltantesMap={}; let somaCob=0,nComCob=0;
+  // ── Agregação: COMPRAS PEDIDAS COM ENTREGA ATRASADA (visão do planejador) ──
+  // Junta os itens já pedidos (não entregues) cuja PREVISÃO de entrega já venceu —
+  // ordens em atraso que precisam de cobrança ao fornecedor. Considera só itens com
+  // registro por serial (o restante do BOM é comprado em lote, sem tag de serial —
+  // por isso não dá pra tratar "sem registro" como faltante real).
+  const hojeAgg=new Date();hojeAgg.setHours(0,0,0,0);
+  const atrasoMap={}; let totEnt=0,totPed=0;
   sortedSeriais.forEach(s=>{
-    const cov=bomCoverageForSerial(s.serial,s.fases.compras.nPedidos,bomCompRefG);
-    if(!cov)return;
-    if(cov.exact&&cov.total>0){somaCob+=cov.count/cov.total;nComCob++;}
-    if(cov.items){cov.items.forEach(it=>{
-      if(it.estado==='descoberto'){
-        if(!faltantesMap[it.cod])faltantesMap[it.cod]={serials:new Set(),desc:(bomLookup[it.cod]||{}).desc||''};
-        faltantesMap[it.cod].serials.add(s.serial);
+    const entry=_haulerComprasIndex&&_haulerComprasIndex[s.serial];
+    if(!entry||!entry.items)return;
+    Object.entries(entry.items).forEach(([cod,it])=>{
+      if((it.qtdEntregue||0)>0){totEnt++;return;}
+      if((it.qtdPedida||0)<=0&&(it.qtdSolicitada||0)<=0)return;
+      totPed++;
+      const dt=it.previsao?parseDate(it.previsao):(it.dataAtu?parseDate(it.dataAtu):null);
+      if(dt&&dt<hojeAgg){
+        if(!atrasoMap[cod])atrasoMap[cod]={serials:new Set(),desc:it.desc||(bomLookup[cod]||{}).desc||'',dt};
+        atrasoMap[cod].serials.add(s.serial);
+        if(dt<atrasoMap[cod].dt)atrasoMap[cod].dt=dt;
       }
-    });}
+    });
   });
-  const faltantes=Object.entries(faltantesMap).map(([cod,v])=>({cod,desc:v.desc,n:v.serials.size,serials:[...v.serials]})).sort((a,b)=>b.n-a.n||a.cod.localeCompare(b.cod));
-  const cobGlobalPct=nComCob?Math.round(somaCob/nComCob*100):null;
-  const faltantesHtml=nComCob===0?'':(faltantes.length?`
+  const atrasados=Object.entries(atrasoMap).map(([cod,v])=>({cod,desc:v.desc,n:v.serials.size,serials:[...v.serials],dt:v.dt})).sort((a,b)=>a.dt-b.dt);
+  const temDadosAgg=(totEnt+totPed)>0;
+  const fmtAgg=d=>d?d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'}):'—';
+  const faltantesHtml=!temDadosAgg?'':(atrasados.length?`
     <div class="card" style="border-left:3px solid var(--red);margin-bottom:16px">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
-        <div><div class="ct" style="color:var(--red);margin:0">⚠ Faltantes críticos — ${faltantes.length} código(s) sem compra</div>
-        <div class="cs" style="margin:0">Códigos "comprar" do BOM sem nenhuma solicitação/pedido nos seriais em produção — podem travar a montagem.</div></div>
-        ${cobGlobalPct!==null?`<div style="text-align:center"><div style="font-size:22px;font-weight:700;color:${cobGlobalPct>=90?'var(--green)':cobGlobalPct>=70?'var(--amber)':'var(--red)'};font-family:'IBM Plex Mono',monospace">${cobGlobalPct}%</div><div style="font-size:9px;color:var(--text3)">cobertura BOM média</div></div>`:''}
+        <div><div class="ct" style="color:var(--red);margin:0">⚠ Compras atrasadas na entrega — ${atrasados.length} código(s)</div>
+        <div class="cs" style="margin:0">Itens já pedidos (não entregues) com previsão de entrega já vencida — precisam de cobrança ao fornecedor.</div></div>
+        <div style="text-align:center"><div style="font-size:20px;font-weight:700;color:var(--green);font-family:'IBM Plex Mono',monospace">${totEnt}/${totEnt+totPed}</div><div style="font-size:9px;color:var(--text3)">entregues (rastreados p/ serial)</div></div>
       </div>
       <div style="max-height:220px;overflow-y:auto;margin-top:10px">
-        ${faltantes.slice(0,40).map(f=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);font-size:11px">
+        ${atrasados.slice(0,40).map(f=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);font-size:11px">
           <span style="font-family:'IBM Plex Mono',monospace;color:var(--red);flex-shrink:0;min-width:60px">${esc(f.cod)}</span>
           <span style="color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.desc||'—')}</span>
+          <span style="font-size:10px;color:#f05252;font-weight:700;flex-shrink:0;min-width:70px;text-align:right">prev. ${fmtAgg(f.dt)}</span>
           <span style="font-size:10px;color:var(--text2);flex-shrink:0" title="${f.serials.map(x=>'S'+x).join(', ')}">${f.n} serial${f.n!==1?'is':''}</span>
         </div>`).join('')}
-        ${faltantes.length>40?`<div style="font-size:10px;color:var(--text3);margin-top:4px">+ ${faltantes.length-40} código(s)</div>`:''}
+        ${atrasados.length>40?`<div style="font-size:10px;color:var(--text3);margin-top:4px">+ ${atrasados.length-40} código(s)</div>`:''}
       </div>
     </div>`:`
     <div class="card" style="border-left:3px solid var(--green);margin-bottom:16px">
-      <div class="ct" style="color:var(--green);margin:0">✅ Sem faltantes críticos${cobGlobalPct!==null?` · cobertura BOM ${cobGlobalPct}%`:''}</div>
-      <div class="cs" style="margin:0">Todos os códigos "comprar" do BOM têm ao menos uma compra registrada nos seriais em produção.</div>
+      <div class="ct" style="color:var(--green);margin:0">✅ Nenhuma compra atrasada na entrega · ${totEnt}/${totEnt+totPed} itens entregues (rastreados)</div>
+      <div class="cs" style="margin:0">Todos os itens pedidos (rastreados por serial) estão dentro da previsão de entrega.</div>
     </div>`);
 
   const geradoStr=geradoEm?new Date(geradoEm).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'';
