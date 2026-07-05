@@ -1214,6 +1214,9 @@ tr:hover td{background:rgba(255,255,255,0.02)}
         <div id="comprasSwimLanes" style="display:flex;gap:12px;overflow-x:auto;padding-bottom:8px;scrollbar-width:thin"></div>
       </div>
 
+      <!-- Insights: aging, fornecedores, gasto -->
+      <div id="comprasInsights" style="margin-bottom:16px"></div>
+
       <!-- Filters + Table -->
       <div class="card" style="padding:0;overflow:hidden">
         <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -5122,6 +5125,7 @@ function _renderTudo(){
   _sc('CCC',renderCCCPanel);
   _sc('TabKPIs',renderTabKPIs);
   _sc('KPIs',renderComprasKPIs);
+  _sc('Insights',renderComprasInsights);
   _sc('Charts',renderComprasCharts);
   _sc('SwimLanes',renderComprasSwimLanes);
   _sc('Table',renderComprasTable);
@@ -5482,6 +5486,64 @@ function renderComprasKPIs(){
 
   document.getElementById('kCmpSemData').textContent=semData;
   document.getElementById('kpi2SemData').className='kpi '+(semData>10?'a':'');
+}
+
+// ── Insights de Compras: aging (faixas de atraso), fornecedores críticos, gasto ──
+function renderComprasInsights(){
+  const el=document.getElementById('comprasInsights');
+  if(!el)return;
+  const hoje=new Date(); hoje.setHours(0,0,0,0);
+  const dtKey=cmpKey('desejada','entrega','prazo');
+  const frnKey=cmpKey('fornecedor','forn');
+  const precoKey=cmpKey('último preço','ultimo preço','preço unit','preço','preco','valor','custo');
+  const qtdKey=cmpKey('qtd','quantidade');
+  // parse de número no formato BR: "1.234,56" → 1234.56
+  const num=s=>{ if(s==null)return 0; let t=String(s).replace(/[^\d.,-]/g,'').trim(); if(!t)return 0;
+    if(t.includes(','))t=t.replace(/\./g,'').replace(',','.'); return parseFloat(t)||0; };
+
+  const buckets={'0-7':0,'8-15':0,'16-30':0,'31+':0};
+  const frnVenc={}, gastoCat={};
+  _comprasFilt.forEach(row=>{
+    if(_cmpEstaConcluido(row))return;
+    if(precoKey){ const v=num(row[precoKey])*(qtdKey?(num(row[qtdKey])||1):1); if(v>0){const c=_cmpCateg(row); gastoCat[c]=(gastoCat[c]||0)+v;} }
+    const dt=parseDate(row[dtKey]); if(!dt||dt>=hoje)return;
+    const dias=Math.floor((hoje-dt)/86400000);
+    if(dias<=7)buckets['0-7']++; else if(dias<=15)buckets['8-15']++; else if(dias<=30)buckets['16-30']++; else buckets['31+']++;
+    if(frnKey){const f=((row[frnKey]||'').trim())||'Sem fornecedor'; frnVenc[f]=(frnVenc[f]||0)+1;}
+  });
+  const totVenc=buckets['0-7']+buckets['8-15']+buckets['16-30']+buckets['31+'];
+  const bCor={'0-7':'#f59e0b','8-15':'#fb923c','16-30':'#f05252','31+':'#b91c1c'};
+  const bLbl={'0-7':'0–7 dias','8-15':'8–15 dias','16-30':'16–30 dias','31+':'31+ dias'};
+  const maxB=Math.max(1,...Object.values(buckets));
+  const agingCard=`<div class="card"><div class="ct">⏳ Aging dos atrasos</div><div class="cs">Itens vencidos por faixa de dias de atraso (${totVenc})</div>
+    ${totVenc===0?'<div style="font-size:12px;color:var(--green);padding:8px 0">✓ Nenhum item vencido no filtro atual.</div>':
+    Object.keys(buckets).map(k=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+      <span style="font-size:11px;color:var(--text2);width:64px;flex-shrink:0">${bLbl[k]}</span>
+      <div style="flex:1;background:var(--bg3);border-radius:4px;height:14px;overflow:hidden"><div style="width:${Math.round(buckets[k]/maxB*100)}%;height:100%;background:${bCor[k]};border-radius:4px;min-width:${buckets[k]>0?'3px':'0'}"></div></div>
+      <span style="font-size:12px;font-weight:700;color:${bCor[k]};width:28px;text-align:right;flex-shrink:0">${buckets[k]}</span>
+    </div>`).join('')}</div>`;
+
+  const frnTop=Object.entries(frnVenc).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  const maxF=frnTop.length?frnTop[0][1]:1;
+  const frnCard=`<div class="card"><div class="ct">🏭 Fornecedores com mais atrasos</div><div class="cs">Itens vencidos pendentes por fornecedor</div>
+    ${!frnTop.length?'<div style="font-size:12px;color:var(--text2);padding:8px 0">Sem atrasos ou sem coluna de fornecedor.</div>':
+    frnTop.map(([f,n])=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+      <span style="font-size:11px;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(f)}">${esc(f)}</span>
+      <div style="width:70px;background:var(--bg3);border-radius:4px;height:12px;overflow:hidden;flex-shrink:0"><div style="width:${Math.round(n/maxF*100)}%;height:100%;background:#f05252;border-radius:4px"></div></div>
+      <span style="font-size:12px;font-weight:700;color:#f05252;width:24px;text-align:right;flex-shrink:0">${n}</span>
+    </div>`).join('')}</div>`;
+
+  const gastoEntries=Object.entries(gastoCat).sort((a,b)=>b[1]-a[1]);
+  const gastoTot=gastoEntries.reduce((a,[,v])=>a+v,0);
+  const fmtR$=v=>v.toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0});
+  const gastoCard=gastoTot>0?`<div class="card"><div class="ct">💰 Gasto estimado por categoria</div><div class="cs">Baseado no último preço × qtd dos itens pendentes · total ${fmtR$(gastoTot)}</div>
+    ${gastoEntries.slice(0,7).map(([c,v])=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+      <span style="font-size:11px;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c)}</span>
+      <div style="width:60px;background:var(--bg3);border-radius:4px;height:12px;overflow:hidden;flex-shrink:0"><div style="width:${Math.round(v/gastoEntries[0][1]*100)}%;height:100%;background:#22d37a;border-radius:4px"></div></div>
+      <span style="font-size:11px;font-weight:700;color:var(--green);flex-shrink:0;min-width:72px;text-align:right">${fmtR$(v)}</span>
+    </div>`).join('')}</div>`:'';
+
+  el.innerHTML=`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px">${agingCard}${frnCard}${gastoCard}</div>`;
 }
 
 function renderComprasCharts(){
