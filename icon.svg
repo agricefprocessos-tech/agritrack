@@ -1,16 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- Background -->
-  <rect width="512" height="512" rx="112" fill="#0b0f17"/>
-  <!-- Subtle green glow -->
-  <ellipse cx="256" cy="256" rx="200" ry="160" fill="#22d37a" opacity="0.06"/>
-  <!-- Pulse / heartbeat line -->
-  <!-- baseline segments + spike + return -->
-  <polyline
-    points="56,256 160,256 196,180 216,320 236,220 256,300 276,256 316,256 356,140 396,256 456,256"
-    fill="none"
-    stroke="#22d37a"
-    stroke-width="22"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-  />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="113" fill="#0b0f17"/>
+  <!-- barras ascendentes (gestão → desenvolvimento) -->
+  <rect x="176" y="298" width="43" height="82" rx="9" fill="#1f6f4a"/>
+  <rect x="235" y="255" width="43" height="125" rx="9" fill="#22d37a"/>
+  <rect x="294" y="216" width="43" height="164" rx="9" fill="#34d399"/>
+  <!-- folha brotando da barra mais alta (agro) -->
+  <g transform="translate(315 216) rotate(20)">
+    <path d="M0 0 C -27.9 -34.4 -27.9 -70.8 0 -98.3 C 27.9 -70.8 27.9 -34.4 0 0 Z" fill="#22d37a"/>
+  </g>
 </svg>

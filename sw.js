@@ -1,5 +1,5 @@
 /* AgriTrack PWA — Service Worker */
-const CACHE = 'agritrack-v2';
+const CACHE = 'agritrack-v3';
 const PRECACHE = [
   '/agritrack/agritrack_dashboard.html',
   '/agritrack/manifest.json',
