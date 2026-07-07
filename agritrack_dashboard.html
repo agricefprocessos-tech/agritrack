@@ -76,6 +76,9 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--tex
 .dpage{display:none}
 .dpage.on{display:block;animation:dpFade .25s ease}
 @keyframes dpFade{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+/* Na página de detalhamento, as tabelas rolam internamente p/ a página caber na tela */
+.dpage[data-dp="5"] .tw{max-height:200px;overflow:auto}
+.dpage[data-dp="5"] .tw thead th{position:sticky;top:0;background:var(--bg2);z-index:1}
 
 /* ── SECTION HEADINGS ── */
 .sec{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--text2);margin:20px 0 12px;display:flex;align-items:center;gap:8px}
