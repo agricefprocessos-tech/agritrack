@@ -62,6 +62,21 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--tex
 .pg.on{display:block}
 .main{padding:0 28px}
 
+/* ── DASHBOARD PAGINADO (relatório em páginas) ── */
+.dpage-nav{display:flex;align-items:center;gap:8px;margin:14px 0 16px;flex-wrap:wrap}
+.dpn-tabs{display:flex;gap:5px;flex:1;flex-wrap:wrap;min-width:0}
+.dpn-tab{background:var(--bg2);border:1px solid var(--border);color:var(--text2);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .15s;white-space:nowrap}
+.dpn-tab:hover{border-color:var(--border2);color:var(--text)}
+.dpn-tab.on{background:var(--gdim);border-color:var(--green);color:var(--green)}
+.dpn-arrow{background:var(--bg2);border:1px solid var(--border2);color:var(--text);border-radius:8px;width:34px;height:34px;font-size:20px;line-height:1;cursor:pointer;flex-shrink:0;font-family:inherit}
+.dpn-arrow:hover{border-color:var(--green);color:var(--green)}
+.dpn-arrow:disabled{opacity:.35;cursor:default;border-color:var(--border)}
+.dpn-kiosk{background:transparent;border:1px solid var(--border2);color:var(--text2);border-radius:20px;padding:6px 13px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;flex-shrink:0;transition:all .15s}
+.dpn-kiosk.on{background:var(--gdim);border-color:var(--green);color:var(--green)}
+.dpage{display:none}
+.dpage.on{display:block;animation:dpFade .25s ease}
+@keyframes dpFade{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+
 /* ── SECTION HEADINGS ── */
 .sec{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--text2);margin:20px 0 12px;display:flex;align-items:center;gap:8px}
 .sec::after{content:'';flex:1;height:1px;background:var(--border)}
@@ -337,6 +352,20 @@ tr:hover td{background:rgba(255,255,255,0.02)}
       <span style="font-size:10px;color:var(--text3);margin-left:auto">rotação automática · 7s por departamento</span>
     </div>
     <div class="main">
+      <!-- Navegação do relatório paginado -->
+      <div class="dpage-nav">
+        <button class="dpn-arrow" id="dpPrev" onclick="dashPage(_dpCur-1)" title="Anterior (←)">‹</button>
+        <div class="dpn-tabs">
+          <button class="dpn-tab on" data-dpt="1" onclick="dashPage(1)">Visão Geral</button>
+          <button class="dpn-tab" data-dpt="2" onclick="dashPage(2)">Departamentos &amp; Prazo</button>
+          <button class="dpn-tab" data-dpt="3" onclick="dashPage(3)">Fluxo &amp; Entregas</button>
+          <button class="dpn-tab" data-dpt="4" onclick="dashPage(4)">Previsibilidade</button>
+          <button class="dpn-tab" data-dpt="5" onclick="dashPage(5)">Detalhamento</button>
+        </div>
+        <button class="dpn-arrow" id="dpNext" onclick="dashPage(_dpCur+1)" title="Próxima (→)">›</button>
+        <button class="dpn-kiosk" id="dpnKiosk" onclick="toggleKiosk()" title="Auto-avançar as páginas">▶ Kiosk</button>
+      </div>
+      <div class="dpage on" data-dp="1">
       <div class="sec">Visão Geral</div>
       <div class="krow">
         <div class="kpi g"><div class="kl">Concluídos</div><div class="kv" id="K1">—</div><div class="kn" id="K1s"></div><div class="kb" id="KL1"></div></div>
@@ -354,11 +383,16 @@ tr:hover td{background:rgba(255,255,255,0.02)}
         <div class="card"><div class="ct">Em andamento: dentro e fora do prazo</div><div class="cs">Tarefas com status "Fazendo"</div><div class="leg" id="lgPrA"></div><div class="cw"><canvas id="chPrA" height="175"></canvas></div></div>
         <div class="card"><div class="ct">Distribuição por departamento</div><div class="cs">Total de itens por área</div><div class="db" id="dbT"></div></div>
       </div>
+      </div>
+      <div class="dpage" data-dp="2">
+      <div class="sec">Departamentos &amp; Prazo</div>
       <div class="gw">
         <div class="card"><div class="ct">Tarefas por departamento e status</div><div class="cs">Agrupado por status</div><div class="leg" id="lgDS"></div><div class="cw" id="wDS"><canvas id="chDS"></canvas></div></div>
         <div class="card"><div class="ct">Prazo por departamento</div><div class="cs">No prazo vs. fora do prazo</div><div class="cw" id="wPD"><canvas id="chPD"></canvas></div></div>
       </div>
       <div class="card full" style="margin-bottom:14px"><div class="ct">Cumprimento de prazo ao longo do tempo</div><div class="cs">Concluídos no prazo vs. fora do prazo, por mês de conclusão</div><div class="leg" id="lgPzT"></div><div class="cw"><canvas id="chPzT" height="150"></canvas></div></div>
+      </div>
+      <div class="dpage" data-dp="4">
       <div class="sec">Duração &amp; Previsibilidade</div>
       <div class="gw">
         <div class="card"><div class="ct">Duração típica por tipo de subtarefa</div><div class="cs">Mediana e dispersão da duração planejada (semanas) de cada subtarefa recorrente — referência para dimensionar novos projetos. Só tipos presentes em ≥3 projetos.</div><input id="boxSubBusca" placeholder="🔍 Filtrar tipo de subtarefa…" oninput="boxSub()" style="width:100%;margin:8px 0 4px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--rs);font-size:11px;outline:none;font-family:inherit;box-sizing:border-box"><div id="boxSub" style="margin-top:4px;max-height:340px;overflow-y:auto"></div></div>
@@ -370,7 +404,9 @@ tr:hover td{background:rgba(255,255,255,0.02)}
           </div>
         </div>
       </div>
-      <div class="sec">Panorama Temporal</div>
+      </div>
+      <div class="dpage" data-dp="3">
+      <div class="sec">Fluxo &amp; Entregas</div>
       <div class="card full" style="margin-bottom:14px"><div class="ct">Entregas ao longo do tempo</div><div class="cs">Real (data resolução) vs. Planejado (data limite)</div><div class="cw"><canvas id="chPan" height="185"></canvas></div></div>
       <div class="card full" style="margin-bottom:14px"><div class="ct">Entregas de subtarefas ao longo do ano</div><div class="cs">Subtarefas concluídas por mês (para comparação com o ritmo das tarefas acima)</div><div class="cw"><canvas id="chPanSub" height="150"></canvas></div></div>
       <div class="g2">
@@ -378,7 +414,9 @@ tr:hover td{background:rgba(255,255,255,0.02)}
         <div class="card"><div class="ct">Entradas mensais</div><div class="cs">Novas tarefas criadas por mês</div><div class="cw"><canvas id="chEnt" height="175"></canvas></div></div>
       </div>
       <div class="card full" style="margin-bottom:14px"><div class="ct">CFD — Cumulative Flow Diagram</div><div class="cs">Evolução acumulada por status</div><div class="leg" id="lgCFD"></div><div class="cw"><canvas id="chCFD" height="195"></canvas></div></div>
-      <div class="sec">Projetos Detalhados</div>
+      </div>
+      <div class="dpage" data-dp="5">
+      <div class="sec">Detalhamento</div>
       <div class="card full" style="margin-bottom:14px">
         <div class="ct">Projetos com data replanejada</div>
         <div class="cs">Projetos cuja data limite atual difere da baseline/alvo original — indica que o prazo foi remarcado. O motivo textual da mudança fica registrado no Jira ao registrar o bloqueio.</div>
@@ -392,6 +430,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
         </div>
         <div class="tw"><table><thead><tr><th>Chave</th><th>Projeto</th><th>Depto</th><th>Status</th><th>Início</th><th>Data Limite</th><th>Max DL Sub</th><th>Prazo</th><th>Sem.</th></tr></thead><tbody id="tBdy"></tbody></table></div>
         <div style="margin-top:8px;font-size:11px;color:var(--text2)">Exibindo <span id="tCnt">0</span> projetos</div>
+      </div>
       </div>
     </div>
   </div>
@@ -1688,6 +1727,7 @@ function processData(data){
   document.getElementById('dashLoad').style.display='none';
   document.getElementById('dash').style.display='block';
   buildFilters();go();
+  if(typeof dashPage==='function')dashPage(_dpCur); // inicializa o relatório paginado (setas + resize)
   // Inicia rotação automática por departamento após dados carregados
   setTimeout(initDashRot,800);
 }
@@ -7388,6 +7428,33 @@ function toggleDashRot(){
     else{_dashRotTimer=setInterval(_rotarDashDept,7000);document.getElementById('dashRotBtn').innerHTML='⏸ Pausar';}
   }
 }
+
+// ── Dashboard paginado (relatório em páginas) ──
+let _dpCur=1; const _dpTotal=5; let _dpKioskTimer=null;
+function dashPage(n){
+  n=Math.max(1,Math.min(_dpTotal,n));
+  _dpCur=n;
+  document.querySelectorAll('#pg-dash .dpage').forEach(p=>p.classList.toggle('on',(+p.dataset.dp)===n));
+  document.querySelectorAll('#pg-dash .dpn-tab').forEach(t=>t.classList.toggle('on',(+t.dataset.dpt)===n));
+  const prev=document.getElementById('dpPrev'),next=document.getElementById('dpNext');
+  if(prev)prev.disabled=(n<=1); if(next)next.disabled=(n>=_dpTotal);
+  // Chart.js zera dimensões em display:none — redimensiona os gráficos ao exibir a página
+  setTimeout(()=>{try{Object.values(charts).forEach(c=>{try{c.resize();}catch(_){}});}catch(_){}},40);
+  const main=document.querySelector('#pg-dash .main'); if(main)main.scrollTop=0;
+}
+function toggleKiosk(){
+  const btn=document.getElementById('dpnKiosk'); if(!btn)return;
+  if(_dpKioskTimer){clearInterval(_dpKioskTimer);_dpKioskTimer=null;btn.classList.remove('on');btn.innerHTML='▶ Kiosk';}
+  else{_dpKioskTimer=setInterval(()=>dashPage(_dpCur>=_dpTotal?1:_dpCur+1),12000);btn.classList.add('on');btn.innerHTML='⏸ Kiosk';}
+}
+document.addEventListener('keydown',function(e){
+  const dash=document.getElementById('pg-dash');
+  if(!dash||!dash.classList.contains('on'))return;
+  const tag=(e.target&&e.target.tagName)||'';
+  if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT')return;
+  if(e.key==='ArrowRight'){dashPage(_dpCur+1);e.preventDefault();}
+  else if(e.key==='ArrowLeft'){dashPage(_dpCur-1);e.preventDefault();}
+});
 
 function _rotarDashDept(){
   if(!_dashRotDepts.length)return;
