@@ -2037,8 +2037,10 @@ function boxSub(){
   });
   const q=(arr,p)=>{const s=[...arr].sort((a,b)=>a-b);const idx=(s.length-1)*p;const lo=Math.floor(idx),hi=Math.ceil(idx);return lo===hi?s[lo]:s[lo]+(s[hi]-s[lo])*(idx-lo);};
   const busca=_normNome((document.getElementById('boxSubBusca')||{}).value||'');
-  // Recorrentes: presentes em ≥3 projetos distintos e com ≥3 durações p/ o box
-  let tipos=Object.values(grupos).filter(g=>g.projetos.size>=3&&g.vals.length>=3);
+  // Recorrentes: presentes em ≥3 projetos distintos e com ≥2 durações p/ o box.
+  // (≥2 e não ≥3 para não punir depts como Engenharia, cujas fases recorrem em 3
+  // projetos mas às vezes têm 1 subtarefa sem data planejada preenchida.)
+  let tipos=Object.values(grupos).filter(g=>g.projetos.size>=3&&g.vals.length>=2);
   tipos=tipos.map(g=>{
     const nome=Object.entries(g.nomes).sort((a,b)=>b[1]-a[1])[0][0].replace(/^(CLONE\s*[-–]\s*)+/i,''); // grafia mais comum, sem prefixo(s) CLONE
     const q1=q(g.vals,.25),med=q(g.vals,.5),q3=q(g.vals,.75),iqr=q3-q1;
