@@ -63,7 +63,7 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--tex
 .main{padding:0 28px}
 
 /* ── DASHBOARD PAGINADO (relatório em páginas) ── */
-.dpage-nav{display:flex;align-items:center;gap:8px;margin:14px 0 16px;flex-wrap:wrap}
+.dpage-nav{display:flex;align-items:center;gap:8px;margin:10px 0 12px;flex-wrap:wrap}
 .dpn-tabs{display:flex;gap:5px;flex:1;flex-wrap:wrap;min-width:0}
 .dpn-tab{background:var(--bg2);border:1px solid var(--border);color:var(--text2);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .15s;white-space:nowrap}
 .dpn-tab:hover{border-color:var(--border2);color:var(--text)}
@@ -82,6 +82,9 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--tex
 
 /* ── SECTION HEADINGS ── */
 .sec{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--text2);margin:20px 0 12px;display:flex;align-items:center;gap:8px}
+/* No dashboard paginado as seções são mais compactas p/ caber na tela */
+#pg-dash .dpage .sec{margin:4px 0 8px}
+#pg-dash .card{padding:12px 16px}
 .sec::after{content:'';flex:1;height:1px;background:var(--border)}
 .ph{padding:22px 28px 0;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
 .ptitle{font-size:16px;font-weight:600;color:var(--text)}
@@ -398,7 +401,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
       <div class="dpage" data-dp="4">
       <div class="sec">Duração &amp; Previsibilidade</div>
       <div class="gw">
-        <div class="card"><div class="ct">Duração típica por tipo de subtarefa</div><div class="cs">Mediana e dispersão da duração planejada (semanas) de cada subtarefa recorrente — referência para dimensionar novos projetos. Só tipos presentes em ≥3 projetos.</div><input id="boxSubBusca" placeholder="🔍 Filtrar tipo de subtarefa…" oninput="boxSub()" style="width:100%;margin:8px 0 4px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--rs);font-size:11px;outline:none;font-family:inherit;box-sizing:border-box"><div id="boxSub" style="margin-top:4px;max-height:340px;overflow-y:auto"></div></div>
+        <div class="card"><div class="ct">Duração típica por tipo de subtarefa</div><div class="cs">Mediana e dispersão da duração planejada (semanas) de cada subtarefa recorrente — referência para dimensionar novos projetos. Só tipos presentes em ≥3 projetos.</div><input id="boxSubBusca" placeholder="🔍 Filtrar tipo de subtarefa…" oninput="boxSub()" style="width:100%;margin:8px 0 4px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--rs);font-size:11px;outline:none;font-family:inherit;box-sizing:border-box"><div id="boxSub" style="margin-top:4px;max-height:220px;overflow-y:auto"></div></div>
         <div class="card" style="display:flex;flex-direction:column"><div class="ct">Previsibilidade do throughput</div><div class="cs">Coeficiente de variação das entregas mensais</div>
           <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:8px 0">
             <div id="cvValor" style="font-size:40px;font-weight:600;font-family:'IBM Plex Mono',monospace;letter-spacing:-1px;line-height:1">—</div>
@@ -2017,7 +2020,9 @@ const SUBTASK_EXCLUIR=new Set(['total']); // ru\u00eddo \u2014 n\u00e3o \u00e9 s
 function boxSub(){
   const wk=(a,b)=>(b-a)/(7*864e5);
   const grupos={}; // chave can\u00f4nica -> {nomes:{disp:count}, projetos:Set, vals:[]}
-  allSubs.forEach(s=>{
+  // Respeita o filtro de departamento (subtarefas herdam o depto do projeto/tarefa)
+  const _subs=(typeof flt!=='undefined'&&flt.dept&&flt.dept!=='all')?allSubs.filter(s=>(s['Campo personalizado (Departamento)']||'')===flt.dept):allSubs;
+  _subs.forEach(s=>{
     const raw=(s['Resumo']||'').trim();
     if(!raw)return;
     const n=_normNome(raw);
