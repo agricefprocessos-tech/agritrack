@@ -1423,7 +1423,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
           <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:5px">Nova Data Limite</label>
           <input type="date" id="blkMDue" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--rs);padding:7px 8px;color:var(--text);font-size:11px;font-family:inherit;box-sizing:border-box">
         </div>
-        <div>
+        <div id="blkMAlvoWrap">
           <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:5px">Nova Data Alvo</label>
           <input type="date" id="blkMAlvo" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--rs);padding:7px 8px;color:var(--text);font-size:11px;font-family:inherit;box-sizing:border-box">
         </div>
@@ -2417,14 +2417,17 @@ async function submitBloqueio(){
       novaDataStart:document.getElementById('bNewStart').value||null,
     });
     if(r.success){
-      showBMsg('✓ Bloqueio registrado em '+key+'. Atualizando lista…','ok');
+      const ignorados=r.camposIgnorados&&r.camposIgnorados.length?' (ignorado: '+r.camposIgnorados.join('; ')+')':'';
+      showBMsg('✓ Bloqueio registrado em '+key+'. Atualizando lista…'+ignorados,'ok');
       if(r.drive&&r.drive.url){const el=document.getElementById('bMsg');el.innerHTML=el.textContent+` <a href="${r.drive.url}" target="_blank" style="color:inherit;text-decoration:underline">📄 ${r.drive.nome||'Relatório PDF'}</a>`;}
       // Aplica localmente (label + datas) — sem isso o Gantt/pop-up de detalhe
       // continuavam mostrando o item como não-bloqueado até um refresh completo.
+      // Não propaga alvoDate se o backend o descartou (ex: subtarefa sem o campo).
+      const alvoFoiIgnorado=r.camposIgnorados&&r.camposIgnorados.some(c=>c.startsWith('Data alvo'));
       _patchTaskDatas_(key,{
         startDate:document.getElementById('bNewStart').value||null,
         dueDate:document.getElementById('bNewDue').value||null,
-        alvoDate:document.getElementById('bNewAlvo').value||null,
+        alvoDate:alvoFoiIgnorado?null:(document.getElementById('bNewAlvo').value||null),
       },true);
       _jiraCacheSync();
       renderGantt();
@@ -2448,11 +2451,13 @@ async function submitApenasData(){
       startDate:document.getElementById('bNewStart').value||null,
     });
     if(r.success){
-      showBMsg('✓ Datas atualizadas em '+key,'ok');
+      const ignorados=r.camposIgnorados&&r.camposIgnorados.length?' (ignorado: '+r.camposIgnorados.join('; ')+')':'';
+      showBMsg('✓ Datas atualizadas em '+key+ignorados,'ok');
+      const alvoFoiIgnorado=r.camposIgnorados&&r.camposIgnorados.some(c=>c.startsWith('Data alvo'));
       _patchTaskDatas_(key,{
         startDate:document.getElementById('bNewStart').value||null,
         dueDate:document.getElementById('bNewDue').value||null,
-        alvoDate:document.getElementById('bNewAlvo').value||null,
+        alvoDate:alvoFoiIgnorado?null:(document.getElementById('bNewAlvo').value||null),
       });
       _jiraCacheSync();
       renderGantt();
@@ -6937,7 +6942,7 @@ function ganttClick(key){
   // Armazena dados no mapa global em vez de embutir strings no onclick
   // (evita quebra quando o Resumo contém aspas duplas ou outros chars especiais)
   window._ganttClickData=window._ganttClickData||{};
-  window._ganttClickData[key]={summary:t['Resumo']||'',duedate:due||'',alvodate:alvo||'',startdate:start||''};
+  window._ganttClickData[key]={summary:t['Resumo']||'',duedate:due||'',alvodate:alvo||'',startdate:start||'',isSub:isSub};
   const jiraUrl='https://agricefprojetos.atlassian.net/browse/'+key;
   // Sincronização por serial — projeto Hauler carrega o serial no título (ou no do pai, se subtarefa)
   const _tituloProj=isSub?(paiTask?(paiTask['Resumo']||''):(t['Parent summary']||'')):(t['Resumo']||'');
@@ -7134,9 +7139,13 @@ function ganttRegistrarBloqueio(key){
   document.getElementById('blkMResp').value='';
   document.getElementById('blkMPrazo').value='';
   document.getElementById('blkMDue').value=duedate||'';
-  document.getElementById('blkMAlvo').value=alvodate||'';
   document.getElementById('blkMStart').value=startdate||'';
   document.getElementById('blkMMsg').style.display='none';
+  // "Data alvo" não existe na tela de Subtarefa no Jira — mostrar o campo levaria
+  // o usuário a preencher algo que o backend vai descartar (ver registrarBloqueio()).
+  const alvoWrap=document.getElementById('blkMAlvoWrap');
+  if(d.isSub){alvoWrap.style.display='none';document.getElementById('blkMAlvo').value='';}
+  else{alvoWrap.style.display='';document.getElementById('blkMAlvo').value=alvodate||'';}
   // Guarda a chave no data-attribute do modal para o submit
   document.getElementById('blkModal').dataset.key=key;
   // Abre o modal
@@ -7387,14 +7396,17 @@ async function submitBlkModal(apenasData){
     };
     const r=await api(payload);
     if(r.success){
-      msg.textContent=apenasData?'✓ Datas atualizadas!':'✓ Bloqueio registrado em '+key+'!';
+      const ignorados=r.camposIgnorados&&r.camposIgnorados.length?' (ignorado: '+r.camposIgnorados.join('; ')+')':'';
+      msg.textContent=(apenasData?'✓ Datas atualizadas!':'✓ Bloqueio registrado em '+key+'!')+ignorados;
       msg.className='form-msg ok';
       // Aplica localmente o que foi salvo — sem isso a tela só refletia a mudança
       // depois de um refresh completo (F5), mesmo com o Jira já atualizado.
+      // Não propaga alvoDate se o backend o descartou (ex: subtarefa sem o campo).
+      const alvoFoiIgnorado=r.camposIgnorados&&r.camposIgnorados.some(c=>c.startsWith('Data alvo'));
       _patchTaskDatas_(key,{
         startDate:document.getElementById('blkMStart').value||null,
         dueDate:document.getElementById('blkMDue').value||null,
-        alvoDate:document.getElementById('blkMAlvo').value||null,
+        alvoDate:alvoFoiIgnorado?null:(document.getElementById('blkMAlvo').value||null),
       },!apenasData); // registrarBloqueio sempre adiciona a label 'bloqueado'
       _jiraCacheSync();
       renderGantt();

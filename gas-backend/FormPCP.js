@@ -774,15 +774,19 @@ function registrarBloqueio(dados) {
 
     if (!issueKey) throw new Error('Chave da tarefa não informada.');
 
-    // 1. Busca labels + departamento da tarefa original
+    // 1. Busca labels + departamento + tipo da tarefa original
     const issInfo = jiraRequest_('GET',
-      '/rest/api/3/issue/' + issueKey + '?fields=labels,summary,customfield_10073');
+      '/rest/api/3/issue/' + issueKey + '?fields=labels,summary,customfield_10073,issuetype');
     const labels  = (issInfo.fields && issInfo.fields.labels)
       ? issInfo.fields.labels.slice() : [];
     const resumoOriginal = (issInfo.fields && issInfo.fields.summary) || issueKey;
     const depto = issInfo.fields && issInfo.fields.customfield_10073
       ? (issInfo.fields.customfield_10073.value || issInfo.fields.customfield_10073)
       : 'Geral';
+    const tipoIssue = issInfo.fields && issInfo.fields.issuetype ? issInfo.fields.issuetype.name : '';
+    // "Data alvo" (customfield_10470) só existe na tela de Tarefa — em Subtarefa o Jira
+    // rejeita o PUT inteiro com HTTP 400, derrubando junto o registro do bloqueio.
+    const isSubtask = tipoIssue.toLowerCase()==='subtarefa' || tipoIssue.toLowerCase()==='subtask';
 
     if (labels.indexOf('bloqueado') === -1) labels.push('bloqueado');
     jiraRequest_('PUT', '/rest/api/3/issue/' + issueKey, { fields: { labels: labels } });
@@ -808,9 +812,13 @@ function registrarBloqueio(dados) {
 
     // 3. Atualiza datas se fornecidas
     const updates = {};
-    if (novaDueDate)   updates.duedate            = novaDueDate;
-    if (novaDataAlvo)  updates.customfield_10470  = novaDataAlvo;
-    if (novaDataStart) updates.customfield_10015  = novaDataStart;
+    const camposIgnorados = [];
+    if (novaDueDate) updates.duedate = novaDueDate;
+    if (novaDataAlvo) {
+      if (isSubtask) camposIgnorados.push('Data alvo (campo não existe em subtarefas)');
+      else updates.customfield_10470 = novaDataAlvo;
+    }
+    if (novaDataStart) updates.customfield_10015 = novaDataStart;
     if (Object.keys(updates).length > 0) {
       jiraRequest_('PUT', '/rest/api/3/issue/' + issueKey, { fields: updates });
     }
@@ -874,7 +882,7 @@ function registrarBloqueio(dados) {
       driveResult = { erro: eDrive.message };
     }
 
-    return { success: true, key: issueKey, blkqKey: blkqKey, blkqErro: blkqErro, drive: driveResult };
+    return { success: true, key: issueKey, blkqKey: blkqKey, blkqErro: blkqErro, drive: driveResult, camposIgnorados: camposIgnorados };
   } catch (err) {
     return { success: false, erro: err.message };
   }
@@ -887,16 +895,35 @@ function atualizarDatas(dados) {
     const issueKey = dados.issueKey;
     if (!issueKey) throw new Error('Chave não informada.');
 
-    const updates = {};
-    if (dados.startDate)    updates.customfield_10015 = dados.startDate;
-    if (dados.dueDate)      updates.duedate            = dados.dueDate;
-    if (dados.alvoDate)     updates.customfield_10470  = dados.alvoDate;
-    if (dados.baselineDate) updates.customfield_10469  = dados.baselineDate;
+    // "Data alvo"/"Data Baseline" só existem na tela de Tarefa — em Subtarefa o Jira
+    // rejeita o PUT com HTTP 400 se tentarmos setá-los (mesmo problema de registrarBloqueio()).
+    let isSubtask = false;
+    if (dados.alvoDate || dados.baselineDate) {
+      const issInfo = jiraRequest_('GET', '/rest/api/3/issue/' + issueKey + '?fields=issuetype');
+      const tipoIssue = issInfo.fields && issInfo.fields.issuetype ? issInfo.fields.issuetype.name : '';
+      isSubtask = tipoIssue.toLowerCase()==='subtarefa' || tipoIssue.toLowerCase()==='subtask';
+    }
 
-    if (Object.keys(updates).length === 0) throw new Error('Nenhuma data informada.');
+    const updates = {};
+    const camposIgnorados = [];
+    if (dados.startDate) updates.customfield_10015 = dados.startDate;
+    if (dados.dueDate)   updates.duedate            = dados.dueDate;
+    if (dados.alvoDate) {
+      if (isSubtask) camposIgnorados.push('Data alvo (campo não existe em subtarefas)');
+      else updates.customfield_10470 = dados.alvoDate;
+    }
+    if (dados.baselineDate) {
+      if (isSubtask) camposIgnorados.push('Data Baseline (campo não existe em subtarefas)');
+      else updates.customfield_10469 = dados.baselineDate;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      if (camposIgnorados.length > 0) return { success: true, key: issueKey, updated: [], camposIgnorados: camposIgnorados };
+      throw new Error('Nenhuma data informada.');
+    }
 
     jiraRequest_('PUT', '/rest/api/3/issue/' + issueKey, { fields: updates });
-    return { success: true, key: issueKey, updated: Object.keys(updates) };
+    return { success: true, key: issueKey, updated: Object.keys(updates), camposIgnorados: camposIgnorados };
   } catch (err) {
     return { success: false, erro: err.message };
   }
