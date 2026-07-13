@@ -1837,7 +1837,10 @@ function _safeRender(name,fn){try{fn();}catch(e){console.error('[AgriTrack] erro
 function render(){
   if(!Array.isArray(filtTasks))return;
   const m=mtx(filtTasks);
-  _safeRender('kpis',()=>kpis(m));
+  // Portfólio ativo real (ignora filtro de ano) — mesma fonte que o gráfico "Em andamento" já usa,
+  // pra K2/K3/K6 não zerarem quando um ano é selecionado (WIP não tem "ano de entrega").
+  const mA=mtx(_filtDept());
+  _safeRender('kpis',()=>kpis(m,mA));
   _safeRender('pies',()=>pies(m));
   _safeRender('dBars',dBars);
   _safeRender('deptSt',deptSt);
@@ -1854,13 +1857,14 @@ function render(){
   _safeRender('tblReplan',tblReplan);
 }
 
-function kpis(m){
+function kpis(m,mA){
   const p=v=>m.tot>0?Math.round(v/m.tot*100):0;const pp=v=>(m.np+m.fp)>0?Math.round(v/(m.np+m.fp)*100):0;
+  const pA=v=>mA.tot>0?Math.round(v/mA.tot*100):0;
   const S=(id,v,n,w)=>{document.getElementById(id).textContent=v;if(n)document.getElementById(id+'s').textContent=n;if(w!==undefined)document.getElementById('KL'+id.slice(-1)).style.width=w+'%';};
-  S('K1',m.concl,p(m.concl)+'% do total',p(m.concl));S('K2',m.faz,p(m.faz)+'% do total',p(m.faz));
-  S('K3',m.af,p(m.af)+'% do total',p(m.af));S('K4',m.np,pp(m.np)+'% das avaliadas',pp(m.np));
+  S('K1',m.concl,p(m.concl)+'% do total',p(m.concl));S('K2',mA.faz,pA(mA.faz)+'% do total',pA(mA.faz));
+  S('K3',mA.af,pA(mA.af)+'% do total',pA(mA.af));S('K4',m.np,pp(m.np)+'% das avaliadas',pp(m.np));
   S('K5',m.fp,pp(m.fp)+'% das avaliadas',pp(m.fp));
-  document.getElementById('K6').textContent=m.wip;document.getElementById('K7').textContent=m.avgTp.toFixed(1);document.getElementById('K8').textContent=m.avgD.toFixed(1);
+  document.getElementById('K6').textContent=mA.wip;document.getElementById('K7').textContent=m.avgTp.toFixed(1);document.getElementById('K8').textContent=m.avgD.toFixed(1);
 }
 const grd={color:'rgba(255,255,255,0.05)'};const tk={color:'#8896b0',font:{size:11}};
 function ch(id){if(charts[id])charts[id].destroy();return document.getElementById(id).getContext('2d');}
