@@ -377,8 +377,8 @@ tr:hover td{background:rgba(255,255,255,0.02)}
         <div class="kpi g"><div class="kl">Concluídos</div><div class="kv" id="K1">—</div><div class="kn" id="K1s"></div><div class="kb" id="KL1"></div></div>
         <div class="kpi a"><div class="kl">Em Andamento</div><div class="kv" id="K2">—</div><div class="kn" id="K2s"></div><div class="kb" id="KL2"></div></div>
         <div class="kpi b"><div class="kl">A Fazer</div><div class="kv" id="K3">—</div><div class="kn" id="K3s"></div><div class="kb" id="KL3"></div></div>
-        <div class="kpi g"><div class="kl">No Prazo</div><div class="kv" id="K4">—</div><div class="kn" id="K4s" title="Percentual sobre os itens com prazo avaliável (exclui itens sem data definida)"></div><div class="kb" id="KL4"></div></div>
-        <div class="kpi r"><div class="kl">Fora do Prazo</div><div class="kv" id="K5">—</div><div class="kn" id="K5s" title="Percentual sobre os itens com prazo avaliável (exclui itens sem data definida)"></div><div class="kb" id="KL5"></div></div>
+        <div class="kpi g"><div class="kl">No Prazo</div><div class="kv" id="K4">—</div><div class="kn" id="K4s" title="Percentual sobre os itens concluídos com prazo avaliável (exclui itens sem data definida ou em andamento/a fazer)"></div><div class="kb" id="KL4"></div></div>
+        <div class="kpi r"><div class="kl">Fora do Prazo</div><div class="kv" id="K5">—</div><div class="kn" id="K5s" title="Percentual sobre os itens concluídos com prazo avaliável (exclui itens sem data definida ou em andamento/a fazer)"></div><div class="kb" id="KL5"></div></div>
         <div class="kpi n"><div class="kl">WIP em Aberto</div><div class="kv" id="K6">—</div><div class="kn">fazendo + a fazer</div><div class="kb" style="width:40%"></div></div>
         <div class="kpi n"><div class="kl">Throughput Médio</div><div class="kv" id="K7">—</div><div class="kn" title="Média de itens concluídos, considerando apenas os meses em que houve pelo menos 1 conclusão">concluídos/mês ativo</div><div class="kb" style="width:55%"></div></div>
         <div class="kpi n"><div class="kl">Duração Média</div><div class="kv" id="K8">—</div><div class="kn">semanas por tarefa</div><div class="kb" style="width:35%"></div></div>
@@ -1822,7 +1822,9 @@ function go(){
 // ════════════════════════════════════════════════════════════════
 function mtx(data){
   const tot=data.length,concl=data.filter(t=>t['Status']==='Feito').length,faz=data.filter(t=>t['Status']==='Fazendo').length,af=data.filter(t=>t['Status']==='A Fazer').length;
-  let np=0,fp=0;data.forEach(t=>{const p=t._prazo||calcPrazo(t);if(p==='NO PRAZO')np++;else if(p==='FORA DO PRAZO')fp++;});
+  // No Prazo/Fora do Prazo avalia só concluídos — Em Andamento/A Fazer já têm o gráfico próprio (chPrA),
+  // misturar os dois aqui fazia K4/K5 discordar da pizza "Concluídos" sempre que o filtro de ano era "Todos".
+  let np=0,fp=0;data.filter(t=>t['Status']==='Feito').forEach(t=>{const p=t._prazo||calcPrazo(t);if(p==='NO PRAZO')np++;else if(p==='FORA DO PRAZO')fp++;});
   const durs=data.map(t=>{const s=pd(t['Campo personalizado (Start date)']);const dl=pd(t['Data limite']);if(s&&dl){const d=isoW(dl)-isoW(s);return d>0?d:null;}return null;}).filter(Boolean);
   const avgD=durs.length?durs.reduce((a,b)=>a+b,0)/durs.length:0;
   const tpMap={};data.filter(t=>t['Status']==='Feito'&&t._maxSubDL).forEach(t=>{const d=t._maxSubDL;const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;tpMap[k]=(tpMap[k]||0)+1;});
