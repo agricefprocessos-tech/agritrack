@@ -646,7 +646,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
         <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Atualizar Datas (opcional)</div>
         <div class="form-grid g3c">
           <div class="fg"><label>Nova Data Limite</label><input type="date" id="bNewDue"></div>
-          <div class="fg"><label>Nova Data Alvo</label><input type="date" id="bNewAlvo"></div>
+          <div class="fg" id="bNewAlvoWrap"><label>Nova Data Alvo</label><input type="date" id="bNewAlvo"></div>
           <div class="fg"><label>Nova Data de Início</label><input type="date" id="bNewStart"></div>
         </div>
       </div>
@@ -2353,7 +2353,7 @@ async function loadBloqueados(){
     document.getElementById('blkBadge').className='nbadge show';
     window._blkData={};
     list.innerHTML=r.issues.map(i=>{
-      window._blkData[i.key]={summary:i.summary||'',duedate:i.duedate||'',dept:i.departamento||''};
+      window._blkData[i.key]={summary:i.summary||'',duedate:i.duedate||'',dept:i.departamento||'',tipo:i.tipo||''};
       return `<div class="blk-item" id="bi-${esc(i.key)}" onclick="selectBlk('${esc(i.key)}')">
         <span class="blk-key">${esc(i.key)}</span>
         <span class="blk-sum">${esc(i.summary)}</span>
@@ -2364,6 +2364,15 @@ async function loadBloqueados(){
   }catch(e){document.getElementById('blkList').innerHTML='<div class="blk-empty" style="color:var(--red)">Erro: '+e.message+'</div>';}
 }
 
+// "Data alvo" não existe na tela de Subtarefa no Jira — some com o campo (e limpa o
+// valor) pra não deixar o usuário preencher algo que o backend vai descartar.
+function _toggleAlvoField(tipo){
+  const isSub=(tipo||'').toLowerCase()==='subtarefa'||(tipo||'').toLowerCase()==='subtask';
+  const wrap=document.getElementById('bNewAlvoWrap');
+  if(!wrap)return;
+  if(isSub){wrap.style.display='none';document.getElementById('bNewAlvo').value='';}
+  else wrap.style.display='';
+}
 function selectBlk(key,_legacy_summary,_legacy_duedate,_legacy_dept){
   // Dados lidos do mapa global (evita injeção via onclick inline)
   const d=(window._blkData&&window._blkData[key])||{};
@@ -2375,6 +2384,7 @@ function selectBlk(key,_legacy_summary,_legacy_duedate,_legacy_dept){
   document.getElementById('bKey').value=key;
   document.getElementById('bSummary').value=summary;
   if(duedate)document.getElementById('bNewDue').value=duedate;
+  _toggleAlvoField(d.tipo);
   document.getElementById('bIssueInfo').style.display='none';
   document.getElementById('bMsg').style.display='none';
   window.scrollTo({top:document.getElementById('bKey').getBoundingClientRect().top+window.scrollY-100,behavior:'smooth'});
@@ -2392,6 +2402,7 @@ async function lookupIssue(){
     document.getElementById('bIssueInfo').style.display='block';
     document.getElementById('bIssueInfo').innerHTML=`<strong>${esc(i.key)}</strong> · ${esc(i.tipo)} · <strong>${esc(i.status)}</strong> · Depto: ${esc(i.departamento||'—')} · Limite: ${esc(i.duedate||'—')} · Responsável: ${esc(i.assignee||'—')}${i.labels.includes('bloqueado')?'&nbsp;<span class="badge bblk">bloqueado</span>':''}`;
     if(i.duedate)document.getElementById('bNewDue').value=i.duedate;
+    _toggleAlvoField(i.tipo);
   }catch(e){document.getElementById('bSummary').value='';showBMsg('Erro: '+e.message,'err');}
 }
 
@@ -2476,6 +2487,7 @@ function clearBloqueioForm(){
   document.getElementById('bIssueInfo').style.display='none';
   document.getElementById('bMsg').style.display='none';
   document.getElementById('bMsgRes').style.display='none';
+  document.getElementById('bNewAlvoWrap').style.display=''; // reexibe até a próxima issue ser identificada
   document.querySelectorAll('.blk-item').forEach(el=>el.classList.remove('sel'));
   selectedBlkKey=null;
 }
