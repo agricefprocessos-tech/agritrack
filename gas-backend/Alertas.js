@@ -1,14 +1,20 @@
 // ================================================================
 // AGRICEF — Alertas.gs
-// Alertas de vencimento (diário) + Relatório semanal por gestor
+// Alertas de vencimento (diário) + Relatório semanal por gestor +
+// Solicitação de atualização automática (diário, só prazos próximos)
 //
 // Depende de: JIRA_BASE, JIRA_PROJECT, jiraRequest_() (FormPCP.js)
 //             buscarTarefasJira() (FormPCP.js)
 //
 // Para ativar os triggers, execute UMA VEZ no editor GAS:
-//   setupAlertaVencimentosTrigger()        → todo dia às 7h
-//   setupRelatorioSemanalGestoresTrigger() → toda segunda às 7h
+//   setupAlertaVencimentosTrigger()          → todo dia às 7h
+//   setupRelatorioSemanalGestoresTrigger()    → toda segunda às 7h
+//   setupSolicitacaoAtualizacaoTrigger()      → todo dia às 7h (só projetos c/ prazo próximo/vencido)
 // Para remover: deleteAlertaVencimentosTrigger() / deleteRelatorioSemanalGestoresTrigger()
+//               / deleteSolicitacaoAtualizacaoTrigger()
+//
+// ⚠️ TEST_MODE (abaixo) está true — todo e-mail vai para TEST_EMAIL em vez do
+// gestor real. Validar o conteúdo por alguns dias antes de mudar para false.
 // ================================================================
 
 const DASHBOARD_URL = 'https://agricefprocessos-tech.github.io/agritrack/agritrack_dashboard.html';
@@ -225,8 +231,13 @@ function statusAlertaVencimentosTrigger() {
 function enviarSolicitacaoAtualizacao(dados) {
   try {
     dados = dados || {};
-    var deptFiltro = dados.departamento ? dados.departamento.trim() : '';
-    var msgExtra   = dados.mensagemExtra ? dados.mensagemExtra.trim() : '';
+    var deptFiltro     = dados.departamento ? dados.departamento.trim() : '';
+    var msgExtra       = dados.mensagemExtra ? dados.mensagemExtra.trim() : '';
+    // true = só entra no e-mail quem tem alguma data (da própria tarefa OU de alguma
+    // subtarefa aberta) vencendo em breve/vencida — usado pelo trigger diário automático.
+    // false (chamada manual do botão no painel) mantém o comportamento atual: todo
+    // projeto "Fazendo" entra, independente de prazo — não muda o que o PMO já usa hoje.
+    var apenasProximos = !!dados.apenasProximos;
 
     // Busca projetos em andamento via Jira JQL
     var jql = encodeURIComponent(
@@ -294,10 +305,29 @@ function enviarSolicitacaoAtualizacao(dados) {
       });
     }
 
+    // Filtro por proximidade de data (trigger automático) — reaproveita os mesmos
+    // marcos de alertaVencimentos() (3/1/0/-1 dias, depois escala semanalmente).
+    var candidatos = relevantes;
+    if (apenasProximos) {
+      var hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+      var diasAte = function(dataStr) {
+        if (!dataStr) return null;
+        var d = new Date(dataStr + 'T12:00:00');
+        return Math.round((d - hoje) / 86400000);
+      };
+      candidatos = relevantes.filter(function(i) {
+        var f = i.fields || {};
+        var diasProprio = diasAte(f.duedate);
+        if (diasProprio !== null && _alertaDeveDisparar(diasProprio)) return true;
+        var subs = subsPorPai[i.key] || [];
+        return subs.some(function(s) { var d = diasAte(s.duedate); return d !== null && _alertaDeveDisparar(d); });
+      });
+    }
+
     var porGestor = {}; // email → { nome, projetos[] }
     var semEmail  = {};
 
-    relevantes.forEach(function(i) {
+    candidatos.forEach(function(i) {
       var f = i.fields || {};
       var dept = f.customfield_10073 ? (f.customfield_10073.value || String(f.customfield_10073)) : '';
 
@@ -452,6 +482,43 @@ function _enviarSolicitacaoGestor_(email, nome, projetos, msgExtra) {
     'Você tem ' + projetos.length + ' projeto(s) em andamento que precisam de atualização. Acesse: ' + DASHBOARD_URL,
     { htmlBody: html, name: 'AgriTrack — Agricef PMO' }
   );
+}
+
+// Alvo do trigger diário — triggers não passam argumentos customizados, então
+// esse wrapper fixa apenasProximos:true (o botão manual do painel continua
+// chamando enviarSolicitacaoAtualizacao() direto, sem essa flag).
+function _solicitacaoAtualizacaoAgendada() {
+  return enviarSolicitacaoAtualizacao({ apenasProximos: true });
+}
+
+function setupSolicitacaoAtualizacaoTrigger() {
+  var existing = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < existing.length; i++) {
+    if (existing[i].getHandlerFunction() === '_solicitacaoAtualizacaoAgendada') ScriptApp.deleteTrigger(existing[i]);
+  }
+  ScriptApp.newTrigger('_solicitacaoAtualizacaoAgendada')
+    .timeBased().atHour(7).everyDays(1).inTimezone('America/Sao_Paulo').create();
+  var msg = 'Trigger diário ativado: solicitação de atualização roda todo dia ~7h (America/Sao_Paulo), só para projetos com tarefa/subtarefa vencendo em breve ou atrasada.';
+  Logger.log(msg);
+  return { success: true, msg: msg };
+}
+
+function deleteSolicitacaoAtualizacaoTrigger() {
+  var removed = 0;
+  var existing = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < existing.length; i++) {
+    if (existing[i].getHandlerFunction() === '_solicitacaoAtualizacaoAgendada') { ScriptApp.deleteTrigger(existing[i]); removed++; }
+  }
+  return { success: true, removidos: removed };
+}
+
+function statusSolicitacaoAtualizacaoTrigger() {
+  var triggers = ScriptApp.getProjectTriggers();
+  var ativos = [];
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === '_solicitacaoAtualizacaoAgendada') ativos.push({ id: triggers[i].getUniqueId() });
+  }
+  return { ativo: ativos.length > 0, triggers: ativos };
 }
 
 // ─── RELATÓRIO SEMANAL POR GESTOR ──────────────────────────────

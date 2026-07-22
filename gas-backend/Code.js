@@ -49,6 +49,7 @@ function doGet(e) {
       // ── Alertas de vencimento + Relatório semanal por gestor ──────────
       case 'statusAlertaVencimentosTrigger':        return jsonResp_(statusAlertaVencimentosTrigger());
       case 'statusRelatorioSemanalGestoresTrigger': return jsonResp_(statusRelatorioSemanalGestoresTrigger());
+      case 'statusSolicitacaoAtualizacaoTrigger':   return jsonResp_(statusSolicitacaoAtualizacaoTrigger());
       case 'enviarSolicitacaoAtualizacao':          return jsonResp_(enviarSolicitacaoAtualizacao(data));
       // ── Votação de prioridade (comitê) ─────────────────────────────────
       case 'registrarVoto':  return jsonResp_(registrarVoto(data));
