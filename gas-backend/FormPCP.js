@@ -2983,15 +2983,30 @@ function buscarComprasHaulerLeadTime() {
 }
 
 // === DRIVE: REPOSITÓRIO DE BLOQUEIOS ===
+// Mesma estrutura da pasta de Atividade Semanal: raiz + subpasta por ano
+// (ver _getOrCreateAtividadeFolder_() em Alertas.js).
 function getOrCreateBloqueiosFolder_() {
   var props = PropertiesService.getScriptProperties();
-  var folderId = props.getProperty('BLOQUEIOS_FOLDER_ID');
-  if (folderId) {
-    try { return DriveApp.getFolderById(folderId); } catch (_) {}
+  var rootId = props.getProperty('BLOQUEIOS_FOLDER_ID');
+  var root;
+  if (rootId) { try { root = DriveApp.getFolderById(rootId); } catch (_) { rootId = null; } }
+  if (!rootId) {
+    root = DriveApp.createFolder('AgriTrack — Relatórios de Bloqueios');
+    props.setProperty('BLOQUEIOS_FOLDER_ID', root.getId());
   }
-  var folder = DriveApp.createFolder('AgriTrack — Relatórios de Bloqueios');
-  props.setProperty('BLOQUEIOS_FOLDER_ID', folder.getId());
-  return folder;
+  var ano = String(new Date().getFullYear());
+  var existentes = root.getFoldersByName(ano);
+  return existentes.hasNext() ? existentes.next() : root.createFolder(ano);
+}
+
+// Link da pasta raiz dos relatórios de bloqueio/resolução — leitura, sem
+// token, mesmo padrão de buscarLinkPastaAtividade() (Alertas.js).
+function buscarLinkPastaBloqueios() {
+  var id = PropertiesService.getScriptProperties().getProperty('BLOQUEIOS_FOLDER_ID');
+  if (!id) return { success: false, erro: 'Ainda não foi gerado nenhum PDF — a pasta só é criada na primeira execução.' };
+  try {
+    return { success: true, url: DriveApp.getFolderById(id).getUrl() };
+  } catch (e) { return { success: false, erro: e.message }; }
 }
 
 // ─── DESIGN SLIDES COMPARTILHADO (PDFs de bloqueio/resolução) ─
@@ -3141,6 +3156,10 @@ function salvarRelatorioDrive_(pdfResult) {
   return { fileId: file.getId(), url: file.getUrl(), nome: pdfResult.nome };
 }
 
+// TEMP — testa o fluxo real (não com dados fictícios): cria uma issue de
+// teste, chama registrarBloqueio() e resolverBloqueio() de verdade (mesmo
+// caminho que o painel usa), depois apaga a issue. Confirma que os PDFs
+// novos (Slides) e a pasta por ano funcionam ponta a ponta.
 // ─── buscarComprasPorSerial ───────────────────────────────────────────────
 function buscarComprasPorSerial() {
   var CACHE_KEY = 'compras_por_serial_v1';

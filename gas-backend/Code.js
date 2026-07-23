@@ -53,6 +53,7 @@ function doGet(e) {
       case 'statusSolicitacaoAtualizacaoTrigger':   return jsonResp_(statusSolicitacaoAtualizacaoTrigger());
       case 'statusRelatorioAtividadeSemanalTrigger': return jsonResp_(statusRelatorioAtividadeSemanalTrigger());
       case 'buscarLinkHistoricoAtividade':           return jsonResp_(buscarLinkHistoricoAtividade());
+      case 'buscarLinkPastaBloqueios':               return jsonResp_(buscarLinkPastaBloqueios());
       case 'buscarLinkPastaAtividade':               return jsonResp_(buscarLinkPastaAtividade());
       case 'relatorioAtividadeSemanal':             return jsonResp_(relatorioAtividadeSemanal(data));
       case 'enviarSolicitacaoAtualizacao':          return jsonResp_(enviarSolicitacaoAtualizacao(data));
