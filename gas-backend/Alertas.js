@@ -13,15 +13,14 @@
 // Para remover: deleteAlertaVencimentosTrigger() / deleteRelatorioSemanalGestoresTrigger()
 //               / deleteSolicitacaoAtualizacaoTrigger()
 //
-// ⚠️ TEST_MODE (abaixo) está true — todo e-mail vai para TEST_EMAIL em vez do
-// gestor real. Validar o conteúdo por alguns dias antes de mudar para false.
+// TEST_MODE (abaixo) desativado em 2026-07-23 — e-mails vão para o gestor real.
 // ================================================================
 
 const DASHBOARD_URL = 'https://agricefprocessos-tech.github.io/agritrack/agritrack_dashboard.html';
 
 // Modo de teste: true = todos os e-mails vão para TEST_EMAIL em vez do gestor real.
-// Deixe true até validar o conteúdo dos e-mails; mude para false para ativar de vez.
-const TEST_MODE  = true;
+// Desativado em 2026-07-23 — e-mails passam a ir para o gestor real de cada item.
+const TEST_MODE  = false;
 const TEST_EMAIL = 'guilherme.souza@agricef.com.br';
 // Resolve o destinatário final do e-mail, respeitando o TEST_MODE.
 function _destinoEmail(email) { return TEST_MODE ? TEST_EMAIL : email; }
