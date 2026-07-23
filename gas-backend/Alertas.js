@@ -987,51 +987,85 @@ function _getOrCreateAtividadeFolder_(ano) {
 }
 
 function _textoEventoTexto_(ev) {
-  if (ev.tipo === 'data') return 'Data alterada — ' + ev.campo + ': ' + ev.de + ' → ' + ev.para;
-  if (ev.tipo === 'status') return 'Status alterado: ' + ev.de + ' → ' + ev.para;
-  if (ev.tipo === 'bloqueio') return 'Bloqueio registrado';
-  if (ev.tipo === 'desbloqueio') return 'Desbloqueado';
-  return ev.texto || '';
+  if (ev.tipo === 'data') return '📅 ' + ev.campo + ': ' + ev.de + ' → ' + ev.para;
+  if (ev.tipo === 'status') return '🔄 Status: ' + ev.de + ' → ' + ev.para;
+  if (ev.tipo === 'bloqueio') return '🚧 Bloqueio registrado';
+  if (ev.tipo === 'desbloqueio') return '✅ Desbloqueado';
+  return '💬 ' + (ev.texto || '').split('\n')[0]; // só a 1ª linha — comentário pode ser longo
 }
 
+// Nova página (slide) do relatório: card escuro + cabeçalho, mesmo padrão visual
+// dos PDFs de bloqueio/resolução (ver FormPCP.js: _slideBase_/SLD_*).
+function _slideAtividadeNovaPagina_(pres, tituloTopo, ehPrimeira) {
+  var slide = ehPrimeira ? pres.getSlides()[0] : pres.appendSlide(SlidesApp.PredefinedLayout.BLANK);
+  var continuando = !ehPrimeira;
+  slide.getShapes().forEach(function (s) { try { s.remove(); } catch (e) {} });
+  slide.getBackground().setSolidFill(SLD_BG);
+  var pageW = pres.getPageWidth(), pageH = pres.getPageHeight();
+  var m = 24;
+  var cardX = m, cardY = m, cardW = pageW - m * 2, cardH = pageH - m * 2;
+  var card = slide.insertShape(SlidesApp.ShapeType.ROUND_RECTANGLE, cardX, cardY, cardW, cardH);
+  card.getFill().setSolidFill(SLD_CARD);
+  card.getBorder().setTransparent();
+  var innerX = cardX + 24, innerW = cardW - 48, cy = cardY + 18;
+  _slideTexto_(slide, '📋 ' + tituloTopo + (continuando ? ' (continuação)' : ''), innerX, cy, innerW, 22, SLD_VERDE, 13, true);
+  cy += 30;
+  return { slide: slide, innerX: innerX, innerW: innerW, cy: cy, cardBottom: cardY + cardH - 26 };
+}
+
+/**
+ * Relatório em Slides, paginando automaticamente quando o conteúdo não cabe
+ * no cartão da página atual (bloqueios/mudanças de data são de tamanho
+ * variável — diferente do PDF de bloqueio/resolução, que é sempre curto).
+ */
 function _gerarPdfAtividade_(porGestor, quando) {
   var dataStr = Utilities.formatDate(quando, 'America/Sao_Paulo', 'yyyy-MM-dd');
-  var doc = DocumentApp.create('_tmp_atividade_' + dataStr + '_' + Date.now());
+  var tituloTopo = 'Atividade da Semana — ' + Utilities.formatDate(quando, 'America/Sao_Paulo', 'dd/MM/yyyy');
+  var pres = SlidesApp.create('_tmp_atividade_' + dataStr + '_' + Date.now());
   try {
-    var body = doc.getBody();
-    var t = body.appendParagraph('ATIVIDADE DA SEMANA — ' + Utilities.formatDate(quando, 'America/Sao_Paulo', 'dd/MM/yyyy'));
-    t.setHeading(DocumentApp.ParagraphHeading.HEADING1);
-    t.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
-    body.appendHorizontalRule();
+    var ctx = _slideAtividadeNovaPagina_(pres, tituloTopo, true);
 
     var nomes = Object.keys(porGestor);
     if (nomes.length === 0) {
-      body.appendParagraph('Nenhuma atividade relevante (data/status/bloqueio) registrada nos últimos 7 dias.');
+      _slideTexto_(ctx.slide, 'Nenhuma atividade relevante (data/status/bloqueio) registrada nos últimos 7 dias.', ctx.innerX, ctx.cy, ctx.innerW, 20, SLD_TXT2, 10, false);
     }
+
     nomes.forEach(function (email) {
       var g = porGestor[email];
-      var h = body.appendParagraph(g.nome + ' (' + g.itens.length + ' projeto(s))');
-      h.setHeading(DocumentApp.ParagraphHeading.HEADING2);
+      if (ctx.cy + 26 > ctx.cardBottom) ctx = _slideAtividadeNovaPagina_(pres, tituloTopo, false);
+      _slideTexto_(ctx.slide, '👤 ' + g.nome + ' (' + g.itens.length + ' projeto(s))', ctx.innerX, ctx.cy, ctx.innerW, 20, '#f59e0b', 12, true);
+      ctx.cy += 28;
+
       g.itens.forEach(function (item) {
-        body.appendParagraph(item.key + ' — ' + item.summary).setBold(true);
-        body.appendParagraph(item.tipo + (item.dept ? ' · ' + item.dept : '')).setItalic(true);
+        var alturaItem = 34 + item.eventos.length * 13;
+        if (ctx.cy + alturaItem > ctx.cardBottom) {
+          ctx = _slideAtividadeNovaPagina_(pres, tituloTopo, false);
+          _slideTexto_(ctx.slide, '👤 ' + g.nome + ' (continuação)', ctx.innerX, ctx.cy, ctx.innerW, 18, '#f59e0b', 11, true);
+          ctx.cy += 26;
+        }
+        _slideTexto_(ctx.slide, item.key + ' — ' + item.summary, ctx.innerX, ctx.cy, ctx.innerW, 16, SLD_TXT, 10, true);
+        ctx.cy += 16;
+        _slideTexto_(ctx.slide, item.tipo + (item.dept ? ' · ' + item.dept : ''), ctx.innerX, ctx.cy, ctx.innerW, 12, SLD_TXT3, 8, false);
+        ctx.cy += 15;
         item.eventos.forEach(function (ev) {
           var hora = Utilities.formatDate(ev.quando, 'America/Sao_Paulo', 'dd/MM HH:mm');
-          body.appendListItem(_textoEventoTexto_(ev) + ' (' + hora + ')').setGlyphType(DocumentApp.GlyphType.BULLET);
+          _slideTexto_(ctx.slide, _textoEventoTexto_(ev) + '  (' + hora + ')', ctx.innerX + 8, ctx.cy, ctx.innerW - 8, 13, SLD_TXT2, 9, false);
+          ctx.cy += 13;
         });
-        body.appendParagraph('');
+        ctx.cy += 10;
       });
     });
 
-    doc.saveAndClose();
+    _slideRodape_(ctx.slide, ctx.innerX, ctx.cardBottom + 4, ctx.innerW);
+
     var nome = 'Atividade_Semanal_' + dataStr + '.pdf';
-    var pdf = DriveApp.getFileById(doc.getId()).getAs(MimeType.PDF);
-    pdf.setName(nome);
-    return { blob: pdf, nome: nome, ano: String(quando.getFullYear()) };
-  } finally {
-    try { DriveApp.getFileById(doc.getId()).setTrashed(true); } catch (_) {}
+    return { blob: _slideParaPdf_(pres, nome), nome: nome, ano: String(quando.getFullYear()) };
+  } catch (e) {
+    try { DriveApp.getFileById(pres.getId()).setTrashed(true); } catch (_e2) {}
+    throw e;
   }
 }
+
 
 function _salvarAtividadePdfDrive_(pdfResult) {
   var folder = _getOrCreateAtividadeFolder_(pdfResult.ano);
