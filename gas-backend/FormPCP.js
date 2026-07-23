@@ -2994,16 +2994,62 @@ function getOrCreateBloqueiosFolder_() {
   return folder;
 }
 
+// ─── DESIGN COMPARTILHADO DOS PDFs (bloqueio/resolução) ───────
+// Mesma paleta do painel (verde=resolvido, vermelho=bloqueado, navy=cabeçalho).
+var PDF_COR_PRIMARIA   = '#0b0f17';
+var PDF_COR_VERDE      = '#1f8f5c';
+var PDF_COR_VERMELHO   = '#c23b3b';
+var PDF_COR_CINZA_TXT  = '#5b6b85';
+var PDF_COR_ROTULO_BG  = '#f4f6f9';
+var PDF_COR_TXT        = '#1a1f2b';
+
+function _pdfCabecalho_(body, titulo, cor) {
+  var tabela = body.appendTable([[titulo]]);
+  tabela.setBorderWidth(0);
+  var cell = tabela.getCell(0, 0);
+  cell.setBackgroundColor(PDF_COR_PRIMARIA);
+  cell.setPaddingTop(14).setPaddingBottom(14).setPaddingLeft(18).setPaddingRight(18);
+  cell.getChild(0).asParagraph().editAsText().setForegroundColor(cor).setBold(true).setFontSize(15);
+  return tabela;
+}
+
+function _pdfBadge_(body, texto, cor) {
+  var p = body.appendParagraph('');
+  p.appendText('  ' + texto + '  ').setBold(true).setForegroundColor('#ffffff').setBackgroundColor(cor).setFontSize(10);
+}
+
+function _pdfTabelaDados_(body, linhas) {
+  var tabela = body.appendTable(linhas);
+  tabela.setBorderColor('#e2e6ec').setBorderWidth(1);
+  for (var i = 0; i < tabela.getNumRows(); i++) {
+    var row = tabela.getRow(i);
+    var rotulo = row.getCell(0);
+    rotulo.setBackgroundColor(PDF_COR_ROTULO_BG).setWidth(150);
+    rotulo.getChild(0).asParagraph().editAsText().setBold(true).setFontSize(10).setForegroundColor(PDF_COR_CINZA_TXT);
+    var valor = row.getCell(1);
+    valor.getChild(0).asParagraph().editAsText().setFontSize(11).setForegroundColor(PDF_COR_TXT);
+  }
+  return tabela;
+}
+
+function _pdfRodape_(body) {
+  body.appendParagraph('');
+  var p = body.appendParagraph('Gerado automaticamente pelo AgriTrack — Agricef PMO · ' +
+    Utilities.formatDate(new Date(), 'America/Sao_Paulo', "dd/MM/yyyy 'às' HH:mm"));
+  p.editAsText().setFontSize(8).setForegroundColor(PDF_COR_CINZA_TXT).setItalic(true);
+}
+
 function gerarPdfBloqueio_(dados) {
   var doc = DocumentApp.create('_tmp_blq_' + dados.issueKey + '_' + Date.now());
   try {
     var body = doc.getBody();
-    var t = body.appendParagraph('RELATÓRIO DE BLOQUEIO — ' + dados.issueKey);
-    t.setHeading(DocumentApp.ParagraphHeading.HEADING1);
-    t.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
-    body.appendParagraph('Projeto: ' + dados.issueKey + (dados.resumo ? ' — ' + dados.resumo : '')).setBold(true);
-    body.appendHorizontalRule();
-    var linhas = [
+    body.setMarginTop(28).setMarginBottom(28).setMarginLeft(40).setMarginRight(40);
+    _pdfCabecalho_(body, '🚧  RELATÓRIO DE BLOQUEIO', '#f28b8b');
+    body.appendParagraph('');
+    body.appendParagraph(dados.issueKey + (dados.resumo ? ' — ' + dados.resumo : '')).setBold(true).setFontSize(13);
+    _pdfBadge_(body, 'BLOQUEADO', PDF_COR_VERMELHO);
+    body.appendParagraph('');
+    _pdfTabelaDados_(body, [
       ['Departamento', dados.depto || '—'],
       ['Tipo de Bloqueio', dados.tipoBloqueio || '—'],
       ['Impacto', dados.impacto || '—'],
@@ -3012,12 +3058,8 @@ function gerarPdfBloqueio_(dados) {
       ['Prazo para resolução', dados.prazoResolucao || '—'],
       ['Registrado em', dados.dataRegistro || new Date().toLocaleDateString('pt-BR')],
       ['Card BLKQ criado', dados.blkqKey || '—'],
-    ];
-    linhas.forEach(function(par) {
-      var p = body.appendParagraph('');
-      p.appendText(par[0] + ': ').setBold(true);
-      p.appendText(par[1]).setBold(false);
-    });
+    ]);
+    _pdfRodape_(body);
     doc.saveAndClose();
     var nome = dados.issueKey + '_BLOQUEIO_' + Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyyMMdd') + '.pdf';
     var pdf = DriveApp.getFileById(doc.getId()).getAs(MimeType.PDF);
@@ -3032,24 +3074,20 @@ function gerarPdfResolucao_(dados) {
   var doc = DocumentApp.create('_tmp_res_' + dados.issueKey + '_' + Date.now());
   try {
     var body = doc.getBody();
-    var t = body.appendParagraph('RELATÓRIO DE RESOLUÇÃO — ' + dados.issueKey);
-    t.setHeading(DocumentApp.ParagraphHeading.HEADING1);
-    t.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
-    body.appendParagraph('Projeto: ' + dados.issueKey).setBold(true);
-    body.appendHorizontalRule();
-    var linhas = [
+    body.setMarginTop(28).setMarginBottom(28).setMarginLeft(40).setMarginRight(40);
+    _pdfCabecalho_(body, '✅  RELATÓRIO DE RESOLUÇÃO', '#8fe0b8');
+    body.appendParagraph('');
+    body.appendParagraph(dados.issueKey + (dados.resumo ? ' — ' + dados.resumo : '')).setBold(true).setFontSize(13);
+    _pdfBadge_(body, 'RESOLVIDO', PDF_COR_VERDE);
+    body.appendParagraph('');
+    _pdfTabelaDados_(body, [
       ['Data de resolução', dados.dataResolucao || new Date().toLocaleDateString('pt-BR')],
       ['Responsável', dados.responsavel || '—'],
       ['Descrição da resolução', dados.descricao || '—'],
       ['Label bloqueado removida', dados.labelRemovido ? 'Sim' : 'Não'],
       ['Card BLKQ fechado', dados.blkqKey || '—'],
-      ['Gerado em', new Date().toLocaleDateString('pt-BR')],
-    ];
-    linhas.forEach(function(par) {
-      var p = body.appendParagraph('');
-      p.appendText(par[0] + ': ').setBold(true);
-      p.appendText(par[1]).setBold(false);
-    });
+    ]);
+    _pdfRodape_(body);
     doc.saveAndClose();
     var nome = dados.issueKey + '_RESOLUCAO_' + Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyyMMdd') + '.pdf';
     var pdf = DriveApp.getFileById(doc.getId()).getAs(MimeType.PDF);
