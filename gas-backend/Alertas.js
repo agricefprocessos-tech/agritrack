@@ -883,18 +883,28 @@ function relatorioAtividadeSemanal(dados) {
     _checarCotaEmail_(emails.length + 1);
 
     var previa = !!dados.somentePreviaParaMim;
-    // Não arquiva execuções de prévia — evita linha fantasma na base de consultas.
+    // Não arquiva execuções de prévia — evita registro fantasma no histórico.
     var linhasSalvas = previa ? 0 : _registrarAtividadeHistorico_(porGestor, hoje);
+    var driveResult = {};
+    if (!previa) {
+      try {
+        var pdf = _gerarPdfAtividade_(porGestor, hoje);
+        driveResult = _salvarAtividadePdfDrive_(pdf);
+      } catch (ePdf) {
+        console.warn('relatorioAtividadeSemanal PDF: ' + ePdf.message);
+        driveResult = { erro: ePdf.message };
+      }
+    }
 
     emails.forEach(function (email) {
       var destino = previa ? TEST_EMAIL : email;
       _enviarAtividadeGestor_(destino, porGestor[email].nome, porGestor[email].itens, previa ? email : null);
     });
-    _enviarAtividadeConsolidada_(TEST_EMAIL, porGestor);
+    _enviarAtividadeConsolidada_(TEST_EMAIL, porGestor, driveResult);
 
     if (Object.keys(semEmail).length > 0) console.warn('relatorioAtividadeSemanal: sem e-mail mapeado: ' + JSON.stringify(semEmail));
 
-    return { success: true, gestoresNotificados: emails.length, semEmailMapeado: semEmail, linhasArquivadas: linhasSalvas };
+    return { success: true, gestoresNotificados: emails.length, semEmailMapeado: semEmail, linhasArquivadas: linhasSalvas, drive: driveResult };
   } catch (err) {
     console.error('relatorioAtividadeSemanal ERRO: ' + err.message);
     return { success: false, erro: err.message };
@@ -952,6 +962,74 @@ function _registrarAtividadeHistorico_(porGestor, quandoRelatorio) {
   }
 }
 
+// Arquivo PDF por semana — pasta própria no Drive, ano como subpasta, mesmo
+// padrão de getOrCreateBloqueiosFolder_()/gerarPdfBloqueio_() (FormPCP.js).
+function _getOrCreateAtividadeFolder_(ano) {
+  var props = PropertiesService.getScriptProperties();
+  var rootId = props.getProperty('ATIVIDADE_FOLDER_ID');
+  var root;
+  if (rootId) { try { root = DriveApp.getFolderById(rootId); } catch (e) { rootId = null; } }
+  if (!rootId) {
+    root = DriveApp.createFolder('AgriTrack — Relatórios de Atividade Semanal');
+    props.setProperty('ATIVIDADE_FOLDER_ID', root.getId());
+  }
+  var existentes = root.getFoldersByName(ano);
+  return existentes.hasNext() ? existentes.next() : root.createFolder(ano);
+}
+
+function _textoEventoTexto_(ev) {
+  if (ev.tipo === 'data') return 'Data alterada — ' + ev.campo + ': ' + ev.de + ' → ' + ev.para;
+  if (ev.tipo === 'status') return 'Status alterado: ' + ev.de + ' → ' + ev.para;
+  if (ev.tipo === 'bloqueio') return 'Bloqueio registrado';
+  if (ev.tipo === 'desbloqueio') return 'Desbloqueado';
+  return ev.texto || '';
+}
+
+function _gerarPdfAtividade_(porGestor, quando) {
+  var dataStr = Utilities.formatDate(quando, 'America/Sao_Paulo', 'yyyy-MM-dd');
+  var doc = DocumentApp.create('_tmp_atividade_' + dataStr + '_' + Date.now());
+  try {
+    var body = doc.getBody();
+    var t = body.appendParagraph('ATIVIDADE DA SEMANA — ' + Utilities.formatDate(quando, 'America/Sao_Paulo', 'dd/MM/yyyy'));
+    t.setHeading(DocumentApp.ParagraphHeading.HEADING1);
+    t.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+    body.appendHorizontalRule();
+
+    var nomes = Object.keys(porGestor);
+    if (nomes.length === 0) {
+      body.appendParagraph('Nenhuma atividade relevante (data/status/bloqueio) registrada nos últimos 7 dias.');
+    }
+    nomes.forEach(function (email) {
+      var g = porGestor[email];
+      var h = body.appendParagraph(g.nome + ' (' + g.itens.length + ' projeto(s))');
+      h.setHeading(DocumentApp.ParagraphHeading.HEADING2);
+      g.itens.forEach(function (item) {
+        body.appendParagraph(item.key + ' — ' + item.summary).setBold(true);
+        body.appendParagraph(item.tipo + (item.dept ? ' · ' + item.dept : '')).setItalic(true);
+        item.eventos.forEach(function (ev) {
+          var hora = Utilities.formatDate(ev.quando, 'America/Sao_Paulo', 'dd/MM HH:mm');
+          body.appendListItem(_textoEventoTexto_(ev) + ' (' + hora + ')').setGlyphType(DocumentApp.GlyphType.BULLET);
+        });
+        body.appendParagraph('');
+      });
+    });
+
+    doc.saveAndClose();
+    var nome = 'Atividade_Semanal_' + dataStr + '.pdf';
+    var pdf = DriveApp.getFileById(doc.getId()).getAs(MimeType.PDF);
+    pdf.setName(nome);
+    return { blob: pdf, nome: nome, ano: String(quando.getFullYear()) };
+  } finally {
+    try { DriveApp.getFileById(doc.getId()).setTrashed(true); } catch (_) {}
+  }
+}
+
+function _salvarAtividadePdfDrive_(pdfResult) {
+  var folder = _getOrCreateAtividadeFolder_(pdfResult.ano);
+  var file = folder.createFile(pdfResult.blob);
+  return { fileId: file.getId(), url: file.getUrl(), nome: pdfResult.nome };
+}
+
 function _enviarAtividadeGestor_(email, nome, itens, emailRealSeForPrevia) {
   var linhas = itens.map(_renderItemAtividadeHtml_).join('');
   var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"></head>' +
@@ -976,11 +1054,14 @@ function _enviarAtividadeGestor_(email, nome, itens, emailRealSeForPrevia) {
     { htmlBody: html, name: 'AgriTrack — Agricef PMO' });
 }
 
-function _enviarAtividadeConsolidada_(paraEmail, porGestor) {
+function _enviarAtividadeConsolidada_(paraEmail, porGestor, driveResult) {
   var nomes = Object.keys(porGestor);
+  var linkPdf = (driveResult && driveResult.url)
+    ? '<tr><td style="padding:12px 28px 0"><a href="' + driveResult.url + '" style="display:inline-block;background:#22d37a;color:#000;font-size:12px;font-weight:700;padding:7px 16px;border-radius:20px;text-decoration:none">📄 Baixar PDF desta semana</a></td></tr>'
+    : '';
   if (!nomes.length) {
     GmailApp.sendEmail(paraEmail, '📋 AgriTrack — Atividade da Semana (consolidado)',
-      'Nenhuma atividade relevante (data/status/bloqueio) registrada nos últimos 7 dias.',
+      'Nenhuma atividade relevante (data/status/bloqueio) registrada nos últimos 7 dias.' + (driveResult && driveResult.url ? ' PDF: ' + driveResult.url : ''),
       { name: 'AgriTrack — Agricef PMO' });
     return;
   }
@@ -999,6 +1080,7 @@ function _enviarAtividadeConsolidada_(paraEmail, porGestor) {
       '<span style="color:#e2e8f4;font-size:17px;font-weight:700">📋 AgriTrack — Atividade da Semana (consolidado)</span>' +
     '</td></tr>' +
     '<tr><td style="padding:20px 28px 8px;color:#c5cfe0;font-size:13px;line-height:1.6">Resumo de tudo que mudou nos últimos 7 dias, por gestor — pronto para a reunião semanal.</td></tr>' +
+    linkPdf +
     blocos +
     '<tr><td style="background:#0b0f17;padding:16px 28px;border-top:1px solid rgba(255,255,255,0.06)">' +
       '<a href="' + DASHBOARD_URL + '" style="color:#22d37a;font-size:11px;text-decoration:none;font-weight:600">Abrir Dashboard completo →</a>' +
