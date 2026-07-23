@@ -18,6 +18,7 @@ function doGet(e) {
     const ACOES_MUTANTES = [
       'deletarProjeto', 'mudarStatus', 'resolverBloqueio', 'registrarBloqueio',
       'atualizarDatas', 'enviarSolicitacaoAtualizacao', 'enviarRelatorio', 'registrarVoto',
+      'relatorioAtividadeSemanal',
     ];
     if (ACOES_MUTANTES.indexOf(data.action) !== -1) _validarToken_(data);
 
@@ -50,6 +51,8 @@ function doGet(e) {
       case 'statusAlertaVencimentosTrigger':        return jsonResp_(statusAlertaVencimentosTrigger());
       case 'statusRelatorioSemanalGestoresTrigger': return jsonResp_(statusRelatorioSemanalGestoresTrigger());
       case 'statusSolicitacaoAtualizacaoTrigger':   return jsonResp_(statusSolicitacaoAtualizacaoTrigger());
+      case 'statusRelatorioAtividadeSemanalTrigger': return jsonResp_(statusRelatorioAtividadeSemanalTrigger());
+      case 'relatorioAtividadeSemanal':             return jsonResp_(relatorioAtividadeSemanal(data));
       case 'enviarSolicitacaoAtualizacao':          return jsonResp_(enviarSolicitacaoAtualizacao(data));
       // ── Votação de prioridade (comitê) ─────────────────────────────────
       case 'registrarVoto':  return jsonResp_(registrarVoto(data));

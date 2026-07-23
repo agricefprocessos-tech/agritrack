@@ -1,7 +1,8 @@
 // ================================================================
 // AGRICEF — Alertas.gs
 // Alertas de vencimento (diário) + Relatório semanal por gestor +
-// Solicitação de atualização automática (diário, só prazos próximos)
+// Solicitação de atualização automática (diário, só prazos próximos) +
+// Relatório de atividade semanal (mudanças + justificativas, p/ reunião)
 //
 // Depende de: JIRA_BASE, JIRA_PROJECT, jiraRequest_() (FormPCP.js)
 //             buscarTarefasJira() (FormPCP.js)
@@ -10,8 +11,9 @@
 //   setupAlertaVencimentosTrigger()          → todo dia às 7h
 //   setupRelatorioSemanalGestoresTrigger()    → toda segunda às 7h
 //   setupSolicitacaoAtualizacaoTrigger()      → todo dia às 7h (só projetos c/ prazo próximo/vencido)
+//   setupRelatorioAtividadeSemanalTrigger()   → toda segunda às 6h (mudanças dos últimos 7 dias)
 // Para remover: deleteAlertaVencimentosTrigger() / deleteRelatorioSemanalGestoresTrigger()
-//               / deleteSolicitacaoAtualizacaoTrigger()
+//               / deleteSolicitacaoAtualizacaoTrigger() / deleteRelatorioAtividadeSemanalTrigger()
 //
 // TEST_MODE (abaixo) desativado em 2026-07-23 — e-mails vão para o gestor real.
 // ================================================================
@@ -744,5 +746,246 @@ function statusRelatorioSemanalGestoresTrigger() {
   return { ativo: ativos.length > 0, triggers: ativos };
 }
 
+// ─── RELATÓRIO DE ATIVIDADE SEMANAL (mudanças + justificativas) ────
+//
+// Usa o histórico nativo do Jira (changelog + comentários) em vez de um log
+// próprio — não depende de instrumentar cada ação, e já tem meses de histórico.
+// Limitação: todas as chamadas do painel usam a MESMA credencial de Jira, então
+// o changelog não diferencia "o gestor mexeu" de "o PMO mexeu por ele" — por
+// isso agrupamos por DONO do projeto (assignee), não por quem clicou o botão.
+
+var ATIVIDADE_CAMPOS_DATA_ = {
+  'duedate': 'Data Limite', 'Start date': 'Data Início',
+  'Data alvo': 'Data Alvo', 'Data Baseline': 'Data Baseline',
+};
+
+function _extrairTextoComentario_(body) {
+  try {
+    if (!body || !body.content) return '';
+    return body.content.map(function (block) {
+      return (block.content || []).map(function (node) { return node.text || ''; }).join('');
+    }).join('\n');
+  } catch (e) { return ''; }
+}
+
+function _classificarComentario_(texto) {
+  if (texto.indexOf('[BLOQUEIO]') === 0) return 'justificativa_bloqueio';
+  if (texto.indexOf('Bloqueio resolvido em') === 0) return 'justificativa_resolucao';
+  if (texto.indexOf('Status alterado para') === 0) return 'justificativa_status';
+  return null;
+}
+
+function _renderEventoAtividadeHtml_(ev) {
+  var hora = Utilities.formatDate(ev.quando, 'America/Sao_Paulo', 'dd/MM HH:mm');
+  var texto = '';
+  if (ev.tipo === 'data') texto = '📅 ' + esc_(ev.campo) + ': ' + esc_(ev.de) + ' → ' + esc_(ev.para);
+  else if (ev.tipo === 'status') texto = '🔄 Status: ' + esc_(ev.de) + ' → ' + esc_(ev.para);
+  else if (ev.tipo === 'bloqueio') texto = '🚧 Bloqueio registrado';
+  else if (ev.tipo === 'desbloqueio') texto = '✅ Desbloqueado';
+  else texto = '💬 ' + esc_(ev.texto).replace(/\n/g, '<br>');
+  return '<div style="font-size:11px;color:#c5cfe0;padding:3px 0">' + texto +
+    ' <span style="color:#5b6b85;font-size:10px">(' + hora + ')</span></div>';
+}
+
+function _renderItemAtividadeHtml_(item) {
+  var eventosHtml = item.eventos.map(_renderEventoAtividadeHtml_).join('');
+  return '<tr><td style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.06)">' +
+    '<div style="font-size:12px;font-weight:700;color:#e2e8f4">' + esc_(item.key) + ' — ' + esc_(item.summary) + '</div>' +
+    '<div style="font-size:10px;color:#8896b0;margin-bottom:4px">' + esc_(item.tipo) + (item.dept ? ' · ' + esc_(item.dept) : '') + '</div>' +
+    eventosHtml +
+  '</td></tr>';
+}
+
+/**
+ * Varre issues tocadas nos últimos 7 dias, classifica as mudanças relevantes
+ * (data, status, bloqueio/desbloqueio) via changelog, e as justificativas via
+ * comentários estruturados do próprio painel. Agrupa por dono do projeto.
+ * dados.apenasPara (opcional): restringe o envio a um único e-mail — usado só
+ * para testar o conteúdo sem notificar todo mundo.
+ */
+function relatorioAtividadeSemanal(dados) {
+  try {
+    dados = dados || {};
+    var hoje = new Date();
+    var seteDiasAtras = new Date(hoje); seteDiasAtras.setDate(hoje.getDate() - 7);
+
+    var jql = encodeURIComponent('project=' + JIRA_PROJECT + ' AND updated >= -7d ORDER BY updated DESC');
+    var fields = ['summary', 'issuetype', 'assignee', 'customfield_10073'].join(',');
+    var all = [];
+    var nextPageToken = null;
+    while (all.length < 500) {
+      var path = '/rest/api/3/search/jql?jql=' + jql + '&maxResults=100&fields=' + fields;
+      if (nextPageToken) path += '&nextPageToken=' + encodeURIComponent(nextPageToken);
+      var r = jiraRequest_('GET', path);
+      if (!r.issues || !r.issues.length) break;
+      all = all.concat(r.issues);
+      nextPageToken = r.nextPageToken || null;
+      if (!nextPageToken) break;
+    }
+
+    var porGestor = {}; // email -> { nome, itens[] }
+    var semEmail = {};
+
+    all.forEach(function (i) {
+      var f = i.fields || {};
+      var nome = f.assignee ? f.assignee.displayName : null;
+      if (!nome) return; // sem responsável — não dá pra atribuir a ninguém
+
+      var eventos = [];
+
+      try {
+        var chg = jiraRequest_('GET', '/rest/api/3/issue/' + i.key + '/changelog?maxResults=100');
+        (chg.values || []).forEach(function (entry) {
+          var created = new Date(entry.created);
+          if (created < seteDiasAtras) return;
+          (entry.items || []).forEach(function (item) {
+            if (ATIVIDADE_CAMPOS_DATA_[item.field]) {
+              eventos.push({ tipo: 'data', campo: ATIVIDADE_CAMPOS_DATA_[item.field], de: item.fromString || '—', para: item.toString || '—', quando: created });
+            } else if (item.field === 'status') {
+              eventos.push({ tipo: 'status', de: item.fromString || '—', para: item.toString || '—', quando: created });
+            } else if (item.field === 'labels') {
+              var ganhou = (item.toString || '').indexOf('bloqueado') !== -1 && (item.fromString || '').indexOf('bloqueado') === -1;
+              var perdeu = (item.fromString || '').indexOf('bloqueado') !== -1 && (item.toString || '').indexOf('bloqueado') === -1;
+              if (ganhou) eventos.push({ tipo: 'bloqueio', quando: created });
+              if (perdeu) eventos.push({ tipo: 'desbloqueio', quando: created });
+            }
+          });
+        });
+      } catch (eChg) { console.warn('relatorioAtividadeSemanal changelog ' + i.key + ': ' + eChg.message); }
+
+      try {
+        var com = jiraRequest_('GET', '/rest/api/3/issue/' + i.key + '/comment?maxResults=50');
+        (com.comments || []).forEach(function (c) {
+          var created = new Date(c.created);
+          if (created < seteDiasAtras) return;
+          var texto = _extrairTextoComentario_(c.body);
+          var tipo = _classificarComentario_(texto);
+          if (tipo) eventos.push({ tipo: tipo, texto: texto, quando: created });
+        });
+      } catch (eCom) { console.warn('relatorioAtividadeSemanal comment ' + i.key + ': ' + eCom.message); }
+
+      if (eventos.length === 0) return; // updated por outro motivo (rank, etc.) — não relevante aqui
+
+      var email = _buscarEmailGestor_(nome);
+      if (!email) { semEmail[nome] = (semEmail[nome] || 0) + 1; return; }
+
+      var dept = f.customfield_10073 ? (f.customfield_10073.value || f.customfield_10073) : '';
+      if (!porGestor[email]) porGestor[email] = { nome: nome, itens: [] };
+      porGestor[email].itens.push({
+        key: i.key, summary: f.summary || '', tipo: f.issuetype ? f.issuetype.name : '', dept: dept,
+        eventos: eventos.sort(function (a, b) { return a.quando - b.quando; }),
+      });
+    });
+
+    // Processa dados reais de todo mundo sempre; só o DESTINO do e-mail muda
+    // em modo prévia — assim dá pra validar o conteúdo real sem notificar ninguém.
+    var emails = Object.keys(porGestor);
+    _checarCotaEmail_(emails.length + 1);
+
+    var previa = !!dados.somentePreviaParaMim;
+    emails.forEach(function (email) {
+      var destino = previa ? TEST_EMAIL : email;
+      _enviarAtividadeGestor_(destino, porGestor[email].nome, porGestor[email].itens, previa ? email : null);
+    });
+    _enviarAtividadeConsolidada_(TEST_EMAIL, porGestor);
+
+    if (Object.keys(semEmail).length > 0) console.warn('relatorioAtividadeSemanal: sem e-mail mapeado: ' + JSON.stringify(semEmail));
+
+    return { success: true, gestoresNotificados: emails.length, semEmailMapeado: semEmail };
+  } catch (err) {
+    console.error('relatorioAtividadeSemanal ERRO: ' + err.message);
+    return { success: false, erro: err.message };
+  }
+}
+
+function _enviarAtividadeGestor_(email, nome, itens, emailRealSeForPrevia) {
+  var linhas = itens.map(_renderItemAtividadeHtml_).join('');
+  var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"></head>' +
+    '<body style="margin:0;padding:0;background:#f0f4f8;font-family:Arial,Helvetica,sans-serif">' +
+    '<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f4f8;padding:32px 16px"><tr><td align="center">' +
+    '<table width="600" cellpadding="0" cellspacing="0" style="background:#111827;border-radius:14px;overflow:hidden;max-width:600px">' +
+    '<tr><td style="background:#0b0f17;padding:20px 28px;border-bottom:1px solid rgba(255,255,255,0.06)">' +
+      '<span style="color:#e2e8f4;font-size:16px;font-weight:700">🔄 AgriTrack — Sua atividade da semana</span>' +
+    '</td></tr>' +
+    '<tr><td style="padding:20px 28px 8px;color:#c5cfe0;font-size:13px;line-height:1.6">Olá ' + esc_(nome.split(' ')[0]) +
+      ', aqui está o resumo do que mudou nos seus ' + itens.length + ' projeto(s) nos últimos 7 dias.</td></tr>' +
+    '<tr><td style="padding:8px 28px 24px"><table width="100%" cellpadding="0" cellspacing="0">' + linhas + '</table></td></tr>' +
+    '<tr><td style="background:#0b0f17;padding:16px 28px;border-top:1px solid rgba(255,255,255,0.06)">' +
+      '<a href="' + DASHBOARD_URL + '" style="color:#22d37a;font-size:11px;text-decoration:none;font-weight:600">Abrir Dashboard completo →</a>' +
+    '</td></tr>' +
+    '</table></td></tr></table></body></html>';
+
+  var avisoTeste = emailRealSeForPrevia ? ' [PRÉVIA — destino real: ' + emailRealSeForPrevia + ']' : (TEST_MODE ? ' [TESTE — destino real seria: ' + email + ']' : '');
+  GmailApp.sendEmail(TEST_MODE && !emailRealSeForPrevia ? TEST_EMAIL : email,
+    '🔄 AgriTrack — Sua atividade da semana (' + itens.length + ' projeto(s))' + avisoTeste,
+    'Resumo da sua atividade da semana no AgriTrack. Acesse ' + DASHBOARD_URL,
+    { htmlBody: html, name: 'AgriTrack — Agricef PMO' });
+}
+
+function _enviarAtividadeConsolidada_(paraEmail, porGestor) {
+  var nomes = Object.keys(porGestor);
+  if (!nomes.length) {
+    GmailApp.sendEmail(paraEmail, '📋 AgriTrack — Atividade da Semana (consolidado)',
+      'Nenhuma atividade relevante (data/status/bloqueio) registrada nos últimos 7 dias.',
+      { name: 'AgriTrack — Agricef PMO' });
+    return;
+  }
+  var blocos = nomes.map(function (email) {
+    var g = porGestor[email];
+    var linhas = g.itens.map(_renderItemAtividadeHtml_).join('');
+    return '<tr><td style="padding:16px 28px 4px"><div style="font-size:13px;font-weight:700;color:#f59e0b">👤 ' + esc_(g.nome) + ' (' + g.itens.length + ' projeto(s))</div></td></tr>' +
+      '<tr><td style="padding:0 28px"><table width="100%" cellpadding="0" cellspacing="0">' + linhas + '</table></td></tr>';
+  }).join('');
+
+  var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"></head>' +
+    '<body style="margin:0;padding:0;background:#f0f4f8;font-family:Arial,Helvetica,sans-serif">' +
+    '<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f4f8;padding:32px 16px"><tr><td align="center">' +
+    '<table width="640" cellpadding="0" cellspacing="0" style="background:#111827;border-radius:14px;overflow:hidden;max-width:640px">' +
+    '<tr><td style="background:#0b0f17;padding:20px 28px;border-bottom:1px solid rgba(255,255,255,0.06)">' +
+      '<span style="color:#e2e8f4;font-size:17px;font-weight:700">📋 AgriTrack — Atividade da Semana (consolidado)</span>' +
+    '</td></tr>' +
+    '<tr><td style="padding:20px 28px 8px;color:#c5cfe0;font-size:13px;line-height:1.6">Resumo de tudo que mudou nos últimos 7 dias, por gestor — pronto para a reunião semanal.</td></tr>' +
+    blocos +
+    '<tr><td style="background:#0b0f17;padding:16px 28px;border-top:1px solid rgba(255,255,255,0.06)">' +
+      '<a href="' + DASHBOARD_URL + '" style="color:#22d37a;font-size:11px;text-decoration:none;font-weight:600">Abrir Dashboard completo →</a>' +
+    '</td></tr>' +
+    '</table></td></tr></table></body></html>';
+
+  GmailApp.sendEmail(paraEmail, '📋 AgriTrack — Atividade da Semana (consolidado, ' + nomes.length + ' gestor(es))',
+    'Resumo consolidado da atividade da semana. Acesse ' + DASHBOARD_URL,
+    { htmlBody: html, name: 'AgriTrack — Agricef PMO' });
+}
+
+function setupRelatorioAtividadeSemanalTrigger() {
+  var existing = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < existing.length; i++) {
+    if (existing[i].getHandlerFunction() === 'relatorioAtividadeSemanal') ScriptApp.deleteTrigger(existing[i]);
+  }
+  ScriptApp.newTrigger('relatorioAtividadeSemanal')
+    .timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(6).inTimezone('America/Sao_Paulo').create();
+  var msg = 'Trigger semanal ativado: relatorioAtividadeSemanal roda toda segunda ~6h (America/Sao_Paulo)';
+  Logger.log(msg);
+  return { success: true, msg: msg };
+}
+
+function deleteRelatorioAtividadeSemanalTrigger() {
+  var removed = 0;
+  var existing = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < existing.length; i++) {
+    if (existing[i].getHandlerFunction() === 'relatorioAtividadeSemanal') { ScriptApp.deleteTrigger(existing[i]); removed++; }
+  }
+  return { success: true, removidos: removed };
+}
+
+function statusRelatorioAtividadeSemanalTrigger() {
+  var triggers = ScriptApp.getProjectTriggers();
+  var ativos = [];
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'relatorioAtividadeSemanal') ativos.push({ id: triggers[i].getUniqueId() });
+  }
+  return { ativo: ativos.length > 0, triggers: ativos };
+}
+
 // ─── HELPER ─────────────────────────────────────────────────────
 function esc_(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
