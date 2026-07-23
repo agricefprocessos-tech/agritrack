@@ -52,6 +52,7 @@ function doGet(e) {
       case 'statusRelatorioSemanalGestoresTrigger': return jsonResp_(statusRelatorioSemanalGestoresTrigger());
       case 'statusSolicitacaoAtualizacaoTrigger':   return jsonResp_(statusSolicitacaoAtualizacaoTrigger());
       case 'statusRelatorioAtividadeSemanalTrigger': return jsonResp_(statusRelatorioAtividadeSemanalTrigger());
+      case 'buscarLinkHistoricoAtividade':           return jsonResp_(buscarLinkHistoricoAtividade());
       case 'relatorioAtividadeSemanal':             return jsonResp_(relatorioAtividadeSemanal(data));
       case 'enviarSolicitacaoAtualizacao':          return jsonResp_(enviarSolicitacaoAtualizacao(data));
       // ── Votação de prioridade (comitê) ─────────────────────────────────

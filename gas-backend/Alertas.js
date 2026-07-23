@@ -883,6 +883,9 @@ function relatorioAtividadeSemanal(dados) {
     _checarCotaEmail_(emails.length + 1);
 
     var previa = !!dados.somentePreviaParaMim;
+    // Não arquiva execuções de prévia — evita linha fantasma na base de consultas.
+    var linhasSalvas = previa ? 0 : _registrarAtividadeHistorico_(porGestor, hoje);
+
     emails.forEach(function (email) {
       var destino = previa ? TEST_EMAIL : email;
       _enviarAtividadeGestor_(destino, porGestor[email].nome, porGestor[email].itens, previa ? email : null);
@@ -891,10 +894,61 @@ function relatorioAtividadeSemanal(dados) {
 
     if (Object.keys(semEmail).length > 0) console.warn('relatorioAtividadeSemanal: sem e-mail mapeado: ' + JSON.stringify(semEmail));
 
-    return { success: true, gestoresNotificados: emails.length, semEmailMapeado: semEmail };
+    return { success: true, gestoresNotificados: emails.length, semEmailMapeado: semEmail, linhasArquivadas: linhasSalvas };
   } catch (err) {
     console.error('relatorioAtividadeSemanal ERRO: ' + err.message);
     return { success: false, erro: err.message };
+  }
+}
+
+// Base de consultas futuras — grava uma linha por EVENTO (não por relatório),
+// na mesma planilha do Log de Auditoria (_auditLog_ em FormPCP.js), aba própria.
+// Reaproveita esse arquivo em vez de espalhar mais um "banco de dados" no Drive.
+function _getOrCreateAtividadeTab_() {
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty('AUDIT_SHEET_ID');
+  var ss;
+  if (id) { try { ss = SpreadsheetApp.openById(id); } catch (e) { id = null; } }
+  if (!id) {
+    ss = SpreadsheetApp.create('AgriTrack — Log de Auditoria');
+    id = ss.getId();
+    props.setProperty('AUDIT_SHEET_ID', id);
+    ss.getSheets()[0].setName('Log');
+    ss.getSheets()[0].appendRow(['DataHora', 'Ação', 'Chave', 'Detalhes']);
+  }
+  var aba = ss.getSheetByName('Atividade Semanal');
+  if (!aba) {
+    aba = ss.insertSheet('Atividade Semanal');
+    aba.appendRow(['DataEvento', 'DataRelatorio', 'Gestor', 'Email', 'Chave', 'Resumo', 'Tipo', 'Departamento', 'TipoEvento', 'Detalhe']);
+    aba.setFrozenRows(1);
+  }
+  return aba;
+}
+
+function _detalheEvento_(ev) {
+  if (ev.tipo === 'data') return ev.campo + ': ' + ev.de + ' → ' + ev.para;
+  if (ev.tipo === 'status') return ev.de + ' → ' + ev.para;
+  if (ev.tipo === 'bloqueio' || ev.tipo === 'desbloqueio') return '';
+  return ev.texto || '';
+}
+
+function _registrarAtividadeHistorico_(porGestor, quandoRelatorio) {
+  try {
+    var aba = _getOrCreateAtividadeTab_();
+    var linhas = [];
+    Object.keys(porGestor).forEach(function (email) {
+      var g = porGestor[email];
+      g.itens.forEach(function (item) {
+        item.eventos.forEach(function (ev) {
+          linhas.push([ev.quando, quandoRelatorio, g.nome, email, item.key, item.summary, item.tipo, item.dept, ev.tipo, _detalheEvento_(ev)]);
+        });
+      });
+    });
+    if (linhas.length > 0) aba.getRange(aba.getLastRow() + 1, 1, linhas.length, 10).setValues(linhas);
+    return linhas.length;
+  } catch (e) {
+    console.warn('_registrarAtividadeHistorico_ falhou: ' + e.message);
+    return 0;
   }
 }
 
@@ -984,6 +1038,16 @@ function statusRelatorioAtividadeSemanalTrigger() {
     if (triggers[i].getHandlerFunction() === 'relatorioAtividadeSemanal') ativos.push({ id: triggers[i].getUniqueId() });
   }
   return { ativo: ativos.length > 0, triggers: ativos };
+}
+
+// Link da planilha-base (mesma do Log de Auditoria, aba "Atividade Semanal") —
+// só leitura, sem risco, pra achar o arquivo sem precisar vasculhar o Drive.
+function buscarLinkHistoricoAtividade() {
+  var id = PropertiesService.getScriptProperties().getProperty('AUDIT_SHEET_ID');
+  if (!id) return { success: false, erro: 'Ainda não foi gerado nenhum relatório — a planilha só é criada na primeira execução.' };
+  try {
+    return { success: true, url: SpreadsheetApp.openById(id).getUrl() };
+  } catch (e) { return { success: false, erro: e.message }; }
 }
 
 // ─── HELPER ─────────────────────────────────────────────────────
