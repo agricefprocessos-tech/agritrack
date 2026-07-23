@@ -2994,108 +2994,145 @@ function getOrCreateBloqueiosFolder_() {
   return folder;
 }
 
-// ─── DESIGN COMPARTILHADO DOS PDFs (bloqueio/resolução) ───────
-// Mesma paleta do painel (verde=resolvido, vermelho=bloqueado, navy=cabeçalho).
-var PDF_COR_PRIMARIA   = '#0b0f17';
-var PDF_COR_VERDE      = '#1f8f5c';
-var PDF_COR_VERMELHO   = '#c23b3b';
-var PDF_COR_CINZA_TXT  = '#5b6b85';
-var PDF_COR_ROTULO_BG  = '#f4f6f9';
-var PDF_COR_TXT        = '#1a1f2b';
+// ─── DESIGN SLIDES COMPARTILHADO (PDFs de bloqueio/resolução) ─
+// Google Slides em vez de Docs — permite fundo escuro de verdade e formas
+// com cantos arredondados, batendo com o visual dos e-mails (Docs não faz
+// nem um nem outro). Mesma paleta do painel.
+var SLD_BG        = '#0b0f17';
+var SLD_CARD      = '#111827';
+var SLD_VERDE     = '#22d37a';
+var SLD_VERMELHO  = '#f05252';
+var SLD_TXT       = '#e2e8f4';
+var SLD_TXT2      = '#8896b0';
+var SLD_TXT3      = '#5b6b85';
+var SLD_ROTULO_BG = '#1a2235';
 
-function _pdfCabecalho_(body, titulo, cor) {
-  var tabela = body.appendTable([[titulo]]);
-  tabela.setBorderWidth(0);
-  var cell = tabela.getCell(0, 0);
-  cell.setBackgroundColor(PDF_COR_PRIMARIA);
-  cell.setPaddingTop(14).setPaddingBottom(14).setPaddingLeft(18).setPaddingRight(18);
-  cell.getChild(0).asParagraph().editAsText().setForegroundColor(cor).setBold(true).setFontSize(15);
-  return tabela;
+function _slideBase_(nomeArquivo) {
+  var pres = SlidesApp.create(nomeArquivo);
+  var slide = pres.getSlides()[0];
+  slide.getShapes().forEach(function (s) { try { s.remove(); } catch (e) {} });
+  slide.getBackground().setSolidFill(SLD_BG);
+  return { pres: pres, slide: slide };
 }
 
-function _pdfBadge_(body, texto, cor) {
-  var p = body.appendParagraph('');
-  p.appendText('  ' + texto + '  ').setBold(true).setForegroundColor('#ffffff').setBackgroundColor(cor).setFontSize(10);
+function _slideTexto_(slide, texto, x, y, w, h, cor, tamanho, negrito) {
+  var box = slide.insertTextBox(texto, x, y, w, h);
+  box.getText().getTextStyle().setForegroundColor(cor).setFontSize(tamanho || 11).setBold(!!negrito).setFontFamily('Arial');
+  return box;
 }
 
-function _pdfTabelaDados_(body, linhas) {
-  var tabela = body.appendTable(linhas);
-  tabela.setBorderColor('#e2e6ec').setBorderWidth(1);
-  for (var i = 0; i < tabela.getNumRows(); i++) {
-    var row = tabela.getRow(i);
-    var rotulo = row.getCell(0);
-    rotulo.setBackgroundColor(PDF_COR_ROTULO_BG).setWidth(150);
-    rotulo.getChild(0).asParagraph().editAsText().setBold(true).setFontSize(10).setForegroundColor(PDF_COR_CINZA_TXT);
-    var valor = row.getCell(1);
-    valor.getChild(0).asParagraph().editAsText().setFontSize(11).setForegroundColor(PDF_COR_TXT);
+function _slideBadge_(slide, texto, x, y, cor) {
+  var w = 20 + texto.length * 6.2;
+  var badge = slide.insertShape(SlidesApp.ShapeType.ROUND_RECTANGLE, x, y, w, 22);
+  badge.getFill().setSolidFill(cor);
+  badge.getBorder().setTransparent();
+  badge.getText().setText(texto);
+  badge.getText().getTextStyle().setForegroundColor('#ffffff').setBold(true).setFontSize(9).setFontFamily('Arial');
+  return badge;
+}
+
+// Retângulos posicionados manualmente em vez de Table nativa — a API simples
+// do Slides não expõe setWidth() em coluna de tabela, isso dá controle total.
+function _slideTabelaDados_(slide, linhas, x, y, w, rowH) {
+  rowH = rowH || 26;
+  var labelW = 150, valW = w - labelW;
+  for (var i = 0; i < linhas.length; i++) {
+    var ry = y + i * rowH;
+    var rotulo = slide.insertShape(SlidesApp.ShapeType.RECTANGLE, x, ry, labelW, rowH);
+    rotulo.getFill().setSolidFill(SLD_ROTULO_BG);
+    rotulo.getBorder().setTransparent();
+    rotulo.getText().setText(linhas[i][0]);
+    rotulo.getText().getTextStyle().setForegroundColor(SLD_TXT2).setBold(true).setFontSize(9).setFontFamily('Arial');
+
+    var valor = slide.insertShape(SlidesApp.ShapeType.RECTANGLE, x + labelW, ry, valW, rowH);
+    valor.getFill().setSolidFill(SLD_CARD);
+    valor.getBorder().setTransparent();
+    valor.getText().setText(linhas[i][1]);
+    valor.getText().getTextStyle().setForegroundColor(SLD_TXT).setFontSize(10).setFontFamily('Arial');
   }
-  return tabela;
+  return { height: linhas.length * rowH };
 }
 
-function _pdfRodape_(body) {
-  body.appendParagraph('');
-  var p = body.appendParagraph('Gerado automaticamente pelo AgriTrack — Agricef PMO · ' +
-    Utilities.formatDate(new Date(), 'America/Sao_Paulo', "dd/MM/yyyy 'às' HH:mm"));
-  p.editAsText().setFontSize(8).setForegroundColor(PDF_COR_CINZA_TXT).setItalic(true);
+function _slideRodape_(slide, x, y, w) {
+  _slideTexto_(slide, 'Gerado automaticamente pelo AgriTrack — Agricef PMO · ' +
+    Utilities.formatDate(new Date(), 'America/Sao_Paulo', "dd/MM/yyyy 'às' HH:mm"), x, y, w, 16, SLD_TXT3, 7, false);
+}
+
+function _slideParaPdf_(pres, nomeArquivo) {
+  pres.saveAndClose();
+  var pdf = DriveApp.getFileById(pres.getId()).getAs('application/pdf');
+  pdf.setName(nomeArquivo);
+  DriveApp.getFileById(pres.getId()).setTrashed(true);
+  return pdf;
 }
 
 function gerarPdfBloqueio_(dados) {
-  var doc = DocumentApp.create('_tmp_blq_' + dados.issueKey + '_' + Date.now());
-  try {
-    var body = doc.getBody();
-    body.setMarginTop(28).setMarginBottom(28).setMarginLeft(40).setMarginRight(40);
-    _pdfCabecalho_(body, '🚧  RELATÓRIO DE BLOQUEIO', '#f28b8b');
-    body.appendParagraph('');
-    body.appendParagraph(dados.issueKey + (dados.resumo ? ' — ' + dados.resumo : '')).setBold(true).setFontSize(13);
-    _pdfBadge_(body, 'BLOQUEADO', PDF_COR_VERMELHO);
-    body.appendParagraph('');
-    _pdfTabelaDados_(body, [
-      ['Departamento', dados.depto || '—'],
-      ['Tipo de Bloqueio', dados.tipoBloqueio || '—'],
-      ['Impacto', dados.impacto || '—'],
-      ['Descrição', dados.descricao || '—'],
-      ['Responsável p/ resolução', dados.responsavel || '—'],
-      ['Prazo para resolução', dados.prazoResolucao || '—'],
-      ['Registrado em', dados.dataRegistro || new Date().toLocaleDateString('pt-BR')],
-      ['Card BLKQ criado', dados.blkqKey || '—'],
-    ]);
-    _pdfRodape_(body);
-    doc.saveAndClose();
-    var nome = dados.issueKey + '_BLOQUEIO_' + Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyyMMdd') + '.pdf';
-    var pdf = DriveApp.getFileById(doc.getId()).getAs(MimeType.PDF);
-    pdf.setName(nome);
-    return { blob: pdf, nome: nome };
-  } finally {
-    try { DriveApp.getFileById(doc.getId()).setTrashed(true); } catch (_) {}
-  }
+  var base = _slideBase_('_tmp_blq_' + dados.issueKey + '_' + Date.now());
+  var pres = base.pres, slide = base.slide;
+  var pageW = pres.getPageWidth(), pageH = pres.getPageHeight();
+  var m = 24;
+  var cardX = m, cardY = m, cardW = pageW - m * 2, cardH = pageH - m * 2;
+  var card = slide.insertShape(SlidesApp.ShapeType.ROUND_RECTANGLE, cardX, cardY, cardW, cardH);
+  card.getFill().setSolidFill(SLD_CARD);
+  card.getBorder().setTransparent();
+
+  var innerX = cardX + 24, innerW = cardW - 48, cy = cardY + 20;
+  _slideTexto_(slide, '🚧 RELATÓRIO DE BLOQUEIO', innerX, cy, innerW, 24, '#f28b8b', 16, true);
+  cy += 34;
+  _slideTexto_(slide, dados.issueKey + (dados.resumo ? ' — ' + dados.resumo : ''), innerX, cy, innerW, 22, SLD_TXT, 13, true);
+  cy += 32;
+  _slideBadge_(slide, 'BLOQUEADO', innerX, cy, SLD_VERMELHO);
+  cy += 34;
+
+  var linhas = [
+    ['Departamento', dados.depto || '—'],
+    ['Tipo de Bloqueio', dados.tipoBloqueio || '—'],
+    ['Impacto', dados.impacto || '—'],
+    ['Descrição', dados.descricao || '—'],
+    ['Responsável p/ resolução', dados.responsavel || '—'],
+    ['Prazo para resolução', dados.prazoResolucao || '—'],
+    ['Registrado em', dados.dataRegistro || new Date().toLocaleDateString('pt-BR')],
+    ['Card BLKQ criado', dados.blkqKey || '—'],
+  ];
+  var rowH = Math.min(26, (cardY + cardH - 30 - cy) / linhas.length);
+  _slideTabelaDados_(slide, linhas, innerX, cy, innerW, rowH);
+  _slideRodape_(slide, innerX, cardY + cardH - 22, innerW);
+
+  var nome = dados.issueKey + '_BLOQUEIO_' + Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyyMMdd') + '.pdf';
+  return { blob: _slideParaPdf_(pres, nome), nome: nome };
 }
 
 function gerarPdfResolucao_(dados) {
-  var doc = DocumentApp.create('_tmp_res_' + dados.issueKey + '_' + Date.now());
-  try {
-    var body = doc.getBody();
-    body.setMarginTop(28).setMarginBottom(28).setMarginLeft(40).setMarginRight(40);
-    _pdfCabecalho_(body, '✅  RELATÓRIO DE RESOLUÇÃO', '#8fe0b8');
-    body.appendParagraph('');
-    body.appendParagraph(dados.issueKey + (dados.resumo ? ' — ' + dados.resumo : '')).setBold(true).setFontSize(13);
-    _pdfBadge_(body, 'RESOLVIDO', PDF_COR_VERDE);
-    body.appendParagraph('');
-    _pdfTabelaDados_(body, [
-      ['Data de resolução', dados.dataResolucao || new Date().toLocaleDateString('pt-BR')],
-      ['Responsável', dados.responsavel || '—'],
-      ['Descrição da resolução', dados.descricao || '—'],
-      ['Label bloqueado removida', dados.labelRemovido ? 'Sim' : 'Não'],
-      ['Card BLKQ fechado', dados.blkqKey || '—'],
-    ]);
-    _pdfRodape_(body);
-    doc.saveAndClose();
-    var nome = dados.issueKey + '_RESOLUCAO_' + Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyyMMdd') + '.pdf';
-    var pdf = DriveApp.getFileById(doc.getId()).getAs(MimeType.PDF);
-    pdf.setName(nome);
-    return { blob: pdf, nome: nome };
-  } finally {
-    try { DriveApp.getFileById(doc.getId()).setTrashed(true); } catch (_) {}
-  }
+  var base = _slideBase_('_tmp_res_' + dados.issueKey + '_' + Date.now());
+  var pres = base.pres, slide = base.slide;
+  var pageW = pres.getPageWidth(), pageH = pres.getPageHeight();
+  var m = 24;
+  var cardX = m, cardY = m, cardW = pageW - m * 2, cardH = pageH - m * 2;
+  var card = slide.insertShape(SlidesApp.ShapeType.ROUND_RECTANGLE, cardX, cardY, cardW, cardH);
+  card.getFill().setSolidFill(SLD_CARD);
+  card.getBorder().setTransparent();
+
+  var innerX = cardX + 24, innerW = cardW - 48, cy = cardY + 20;
+  _slideTexto_(slide, '✅ RELATÓRIO DE RESOLUÇÃO', innerX, cy, innerW, 24, '#8fe0b8', 16, true);
+  cy += 34;
+  _slideTexto_(slide, dados.issueKey + (dados.resumo ? ' — ' + dados.resumo : ''), innerX, cy, innerW, 22, SLD_TXT, 13, true);
+  cy += 32;
+  _slideBadge_(slide, 'RESOLVIDO', innerX, cy, SLD_VERDE);
+  cy += 34;
+
+  var linhas = [
+    ['Data de resolução', dados.dataResolucao || new Date().toLocaleDateString('pt-BR')],
+    ['Responsável', dados.responsavel || '—'],
+    ['Descrição da resolução', dados.descricao || '—'],
+    ['Label bloqueado removida', dados.labelRemovido ? 'Sim' : 'Não'],
+    ['Card BLKQ fechado', dados.blkqKey || '—'],
+  ];
+  var rowH = Math.min(28, (cardY + cardH - 30 - cy) / linhas.length);
+  _slideTabelaDados_(slide, linhas, innerX, cy, innerW, rowH);
+  _slideRodape_(slide, innerX, cardY + cardH - 22, innerW);
+
+  var nome = dados.issueKey + '_RESOLUCAO_' + Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyyMMdd') + '.pdf';
+  return { blob: _slideParaPdf_(pres, nome), nome: nome };
 }
 
 function salvarRelatorioDrive_(pdfResult) {
