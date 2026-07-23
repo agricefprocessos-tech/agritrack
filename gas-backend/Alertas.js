@@ -796,6 +796,15 @@ function _renderItemAtividadeHtml_(item) {
   '</td></tr>';
 }
 
+// O changelog do Jira formata "duedate" (campo nativo) como "2026-07-26 00:00:00.0"
+// mas "Start date"/"Data alvo" (campos custom) já vêm como "26/07/2026" — padroniza
+// pro mesmo formato dd/mm/aaaa pra não ficar inconsistente no relatório.
+function _fmtValorChangelog_(s) {
+  if (!s) return s;
+  var m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})\s+00:00:00/);
+  return m ? (m[3] + '/' + m[2] + '/' + m[1]) : s;
+}
+
 /**
  * Varre issues tocadas nos últimos 7 dias, classifica as mudanças relevantes
  * (data, status, bloqueio/desbloqueio) via changelog, e as justificativas via
@@ -840,7 +849,7 @@ function relatorioAtividadeSemanal(dados) {
           if (created < seteDiasAtras) return;
           (entry.items || []).forEach(function (item) {
             if (ATIVIDADE_CAMPOS_DATA_[item.field]) {
-              eventos.push({ tipo: 'data', campo: ATIVIDADE_CAMPOS_DATA_[item.field], de: item.fromString || '—', para: item.toString || '—', quando: created });
+              eventos.push({ tipo: 'data', campo: ATIVIDADE_CAMPOS_DATA_[item.field], de: _fmtValorChangelog_(item.fromString) || '—', para: _fmtValorChangelog_(item.toString) || '—', quando: created });
             } else if (item.field === 'status') {
               eventos.push({ tipo: 'status', de: item.fromString || '—', para: item.toString || '—', quando: created });
             } else if (item.field === 'labels') {
