@@ -1152,4 +1152,3 @@ function buscarLinkPastaAtividade() {
 
 // ─── HELPER ─────────────────────────────────────────────────────
 function esc_(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-
