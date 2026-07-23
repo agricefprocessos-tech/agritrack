@@ -1141,6 +1141,15 @@ function buscarLinkHistoricoAtividade() {
   } catch (e) { return { success: false, erro: e.message }; }
 }
 
+// Link da pasta raiz dos PDFs semanais (todas as subpastas por ano ficam dentro dela).
+function buscarLinkPastaAtividade() {
+  var id = PropertiesService.getScriptProperties().getProperty('ATIVIDADE_FOLDER_ID');
+  if (!id) return { success: false, erro: 'Ainda não foi gerado nenhum PDF — a pasta só é criada na primeira execução.' };
+  try {
+    return { success: true, url: DriveApp.getFolderById(id).getUrl() };
+  } catch (e) { return { success: false, erro: e.message }; }
+}
+
 // ─── HELPER ─────────────────────────────────────────────────────
 function esc_(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
