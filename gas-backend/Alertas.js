@@ -304,8 +304,11 @@ function enviarSolicitacaoAtualizacao(dados) {
       });
     }
 
-    // Filtro por proximidade de data (trigger automático) — reaproveita os mesmos
-    // marcos de alertaVencimentos() (3/1/0/-1 dias, depois escala semanalmente).
+    // Filtro por proximidade de data (trigger automático). Vence em breve usa os
+    // mesmos marcos de alertaVencimentos() (3/1/0 dias) — mas atrasado entra SEMPRE,
+    // não só nos marcos escalonados (-1/-8/-15...) que aquele outro e-mail usa pra não
+    // repetir o mesmo aviso todo dia. Aqui o objetivo é "peça atualização enquanto
+    // estiver pendente", então todo item vencido antes de hoje conta.
     var candidatos = relevantes;
     if (apenasProximos) {
       var hoje = new Date(); hoje.setHours(0, 0, 0, 0);
@@ -314,12 +317,16 @@ function enviarSolicitacaoAtualizacao(dados) {
         var d = new Date(dataStr + 'T12:00:00');
         return Math.round((d - hoje) / 86400000);
       };
+      var prazoUrgente = function(dias) {
+        if (dias === null) return false;
+        if (dias < 0) return true; // atrasado, qualquer quantidade de dias
+        return dias === 3 || dias === 1 || dias === 0;
+      };
       candidatos = relevantes.filter(function(i) {
         var f = i.fields || {};
-        var diasProprio = diasAte(f.duedate);
-        if (diasProprio !== null && _alertaDeveDisparar(diasProprio)) return true;
+        if (prazoUrgente(diasAte(f.duedate))) return true;
         var subs = subsPorPai[i.key] || [];
-        return subs.some(function(s) { var d = diasAte(s.duedate); return d !== null && _alertaDeveDisparar(d); });
+        return subs.some(function(s) { return prazoUrgente(diasAte(s.duedate)); });
       });
     }
 
