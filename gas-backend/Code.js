@@ -19,6 +19,9 @@ function doGet(e) {
       'deletarProjeto', 'mudarStatus', 'resolverBloqueio', 'registrarBloqueio',
       'atualizarDatas', 'enviarSolicitacaoAtualizacao', 'enviarRelatorio', 'registrarVoto',
       'relatorioAtividadeSemanal',
+      // Custam dinheiro por chamada e o web app e ANYONE_ANONYMOUS:
+      // exigem token mesmo sendo semanticamente leitura.
+      'analiseRiscosIA', 'chatCompras',
     ];
     if (ACOES_MUTANTES.indexOf(data.action) !== -1) _validarToken_(data);
 
@@ -47,6 +50,10 @@ function doGet(e) {
       case 'analisarHaulerBOM':    return jsonResp_(analisarHaulerBOM(data));
       case 'analisarHaulerSerial': return jsonResp_(analisarHaulerSerial(data));
       case 'analisarCompras':      return jsonResp_(analisarCompras(data));
+      // ── IA (ClaudeAI.js) ──────────────────────────────────────────────
+      case 'analiseRiscosIA':      return jsonResp_(analiseRiscosIA(data));
+      case 'chatCompras':          return jsonResp_(chatCompras(data));
+      case 'statusIA':             return jsonResp_(statusIA());
       // ── Backfill datas reais ──────────────────────────────────────────
       case 'syncDatasReais':        return jsonResp_(syncDatasReais());
       case 'statusBackfillTrigger': return jsonResp_(statusBackfillTrigger());

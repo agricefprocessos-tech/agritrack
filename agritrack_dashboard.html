@@ -888,11 +888,12 @@ tr:hover td{background:rgba(255,255,255,0.02)}
     </div>
     <div class="sec" style="margin-top:20px">Inteligência Artificial</div>
     <div class="settings-box">
-      <div class="settings-title">Gemini API Key</div>
+      <div class="settings-title">Assistente de IA</div>
       <div class="fg">
-        <label>Chave API (armazenada localmente, não enviada ao servidor)</label>
-        <input id="geminiKey" type="password" placeholder="AIza…" style="font-family:'IBM Plex Mono',monospace;font-size:11px" oninput="saveGeminiKey()">
-        <div class="hint">Obtenha gratuitamente em <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--blue)">aistudio.google.com/apikey</a> — usada para o Relatório Semanal</div>
+        <div id="iaStatus" style="font-size:12px;color:var(--text2)">Verificando…</div>
+        <div class="hint">A IA agora é central: a chave fica no servidor (Script Properties →
+          <code>ANTHROPIC_API_KEY</code>), então nenhum gestor precisa configurar chave própria.
+          Usada na Pauta Sugerida do Relatório Semanal e no chat da aba Compras.</div>
       </div>
     </div>
     <div class="sec" style="margin-top:20px">Compras</div>
@@ -928,7 +929,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
         Dashboard multi-página com auto-fetch do Jira.<br>
         Formulário PCP para todos os departamentos.<br>
         Registro de bloqueios com atualização de datas.<br>
-        Relatório semanal via Gemini AI.<br>
+        Relatório semanal com pauta sugerida por IA.<br>
         Painel de Compras com chat inteligente.
       </div>
     </div>
@@ -1308,13 +1309,13 @@ tr:hover td{background:rgba(255,255,255,0.02)}
             <span style="font-size:16px">🤖</span>
             <div>
               <div style="font-size:12px;font-weight:600;color:var(--text)">Assistente de Compras</div>
-              <div style="font-size:10px;color:var(--text2)">Powered by Gemini Flash — pergunte sobre os dados carregados</div>
+              <div style="font-size:10px;color:var(--text2)">Motor local + Claude — pergunte sobre os dados carregados</div>
             </div>
           </div>
           <button onclick="limparChat()" style="background:none;border:1px solid var(--border2);border-radius:var(--rs);padding:4px 10px;color:var(--text2);font-size:11px;cursor:pointer">🗑 Limpar</button>
         </div>
         <div id="chatMsgs" style="height:280px;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:10px">
-          <div class="chat-msg-bot"><div class="chat-bubble-bot">Olá! Sou seu assistente de análise de compras. Posso responder perguntas como:<br><br>• <strong>Quais itens estão vencidos?</strong><br>• <strong>Quem tem mais solicitações em aberto?</strong><br>• <strong>Quais itens aguardam chapa/usinagem?</strong><br><br>Configure sua chave Gemini em ⚙️ Config → IA para começar.</div></div>
+          <div class="chat-msg-bot"><div class="chat-bubble-bot">Olá! Sou seu assistente de análise de compras. Posso responder perguntas como:<br><br>• <strong>Quais itens estão vencidos?</strong><br>• <strong>Quem tem mais solicitações em aberto?</strong><br>• <strong>Quais itens aguardam chapa/usinagem?</strong><br><br>O motor local responde na hora; perguntas mais abertas vão para a IA.</div></div>
         </div>
         <div style="padding:10px 12px;border-top:1px solid var(--border);display:flex;gap:8px">
           <input id="chatInput" placeholder="Pergunte sobre os itens de compras…"
@@ -1552,7 +1553,22 @@ const APP_TOKEN = '413992f5-025c-4254-9c97-9ea8aeb1d651';
 const ACOES_MUTANTES = ['deletarProjeto','mudarStatus','resolverBloqueio','registrarBloqueio','atualizarDatas','enviarSolicitacaoAtualizacao','enviarRelatorio','registrarVoto'];
 function getApi(){return localStorage.getItem('agritrack_api')||DEFAULT_API;}
 function saveApiUrl(){localStorage.setItem('agritrack_api',document.getElementById('cfgApi').value);}
-function saveGeminiKey(){localStorage.setItem('gemini_key',document.getElementById('geminiKey').value);}
+// A IA passou a ser central (chave em Script Properties, no backend), então o
+// painel só precisa saber SE está disponível — nunca vê a chave.
+let _iaDisponivel=false;
+async function _checarIA(){
+  try{
+    const r=await api({action:'statusIA'},60000);
+    _iaDisponivel=!!(r&&r.configurada);
+  }catch(e){_iaDisponivel=false;}
+  const el=document.getElementById('iaStatus');
+  if(el){
+    el.textContent=_iaDisponivel
+      ? '✓ IA ativa (Claude) — configurada no servidor, sem chave por usuário.'
+      : '○ IA não configurada. Peça ao PMO para definir ANTHROPIC_API_KEY nas Script Properties.';
+    el.style.color=_iaDisponivel?'var(--green)':'var(--text2)';
+  }
+}
 async function api(payload, timeoutMs=28000){
   const ctrl=new AbortController();
   const tid=setTimeout(()=>ctrl.abort(),timeoutMs);
@@ -2811,11 +2827,11 @@ function _injetarCronogramaVisual(projetos, deptNome){
 }
 
 // ════════════════════════════════════════════════════════════════
-// ANÁLISE DE RISCOS COM IA (Gemini)
+// ANÁLISE DE RISCOS COM IA (Claude, via backend)
 // ════════════════════════════════════════════════════════════════
 async function _injetarAnaliseAI(data,bloqueados,foraPrazo,proxVenc,isDeptFiltro,deptNome){
-  const geminiKey=localStorage.getItem('gemini_key');
-  if(!geminiKey)return;
+  // A chave agora vive em Script Properties, não no navegador de cada gestor.
+  if(!_iaDisponivel)return;
   const rptBox=document.getElementById('rptBox');
   const aiDiv=document.createElement('div');
   aiDiv.id='rpt-ai-section';
@@ -2824,7 +2840,7 @@ async function _injetarAnaliseAI(data,bloqueados,foraPrazo,proxVenc,isDeptFiltro
     <h2 style="font-size:14px;border-bottom:1px solid var(--border);padding-bottom:6px;margin:0 0 12px;color:var(--text)">🗣 Pauta Sugerida para Reunião</h2>
     <div style="display:flex;align-items:center;gap:8px;color:var(--text2);font-size:12px;padding:10px 0">
       <div class="spinner" style="width:16px;height:16px;border-width:2px;flex-shrink:0"></div>
-      Gerando análise com Gemini AI…
+      Gerando análise com Claude…
     </div>`;
   rptBox.appendChild(aiDiv);
 
@@ -2935,19 +2951,17 @@ Seções obrigatórias (mesmo que não haja problemas):
 Use 🔴 Urgente | 🟠 Alta | 🟡 Média. Máximo 8 itens. Responda em português, direto ao ponto, sem introdução.`;
 
   try{
-    const resp=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.65,maxOutputTokens:4000,thinkingConfig:{thinkingBudget:0}}})
-    });
-    const json=await resp.json();
-    if(!resp.ok)throw new Error(json.error?.message||resp.statusText);
-    const text=json.candidates?.[0]?.content?.parts?.[0]?.text||'Não foi possível gerar a análise.';
+    const r=await api({action:'analiseRiscosIA',prompt,token:APP_TOKEN},180000);
     const inner=aiDiv.querySelector('div:last-child');
+    if(!r.success){
+      inner.innerHTML=`<span style="color:var(--red);font-size:12px">⚠️ ${esc(r.erro||'Falha ao gerar a análise.')}</span>`;
+      return;
+    }
     inner.style.cssText='font-size:13px;line-height:1.75;color:var(--text)';
-    inner.innerHTML=mdToHtml(text);
+    inner.innerHTML=mdToHtml(r.texto)+(r.truncado
+      ? '<div style="font-size:11px;color:var(--amber);margin-top:8px">⚠️ A análise foi cortada no limite de tamanho.</div>':'');
   }catch(e){
-    aiDiv.querySelector('div:last-child').innerHTML=`<span style="color:var(--red);font-size:12px">⚠️ Erro ao chamar Gemini: ${e.message}. Verifique a chave em ⚙️ Config.</span>`;
+    aiDiv.querySelector('div:last-child').innerHTML=`<span style="color:var(--red);font-size:12px">⚠️ Erro ao gerar a análise: ${esc(e.message)}</span>`;
   }
 }
 
@@ -3443,11 +3457,11 @@ function renderHaulerTable(rows){
 }
 
 function _renderHaulerRows(rows){
-  const q=(document.getElementById('haulerSearch').value||'').toLowerCase();
+  const q=_fold(document.getElementById('haulerSearch').value);
   const f=_haulerFiltro;
   const filtered=rows.filter(r=>{
     if(f!=='all'&&!r.tipoAll.includes(f))return false;
-    if(q&&!(r.codigo.toLowerCase().includes(q)||r.desc.toLowerCase().includes(q)||r.fabricante.toLowerCase().includes(q)))return false;
+    if(q&&!(_fold(r.codigo).includes(q)||_fold(r.desc).includes(q)||_fold(r.fabricante).includes(q)))return false;
     return true;
   });
   const tbody=document.getElementById('haulerTbody');
@@ -4801,8 +4815,7 @@ function mdToHtml(md){
 function initConfig(){
   document.getElementById('cfgApi').value=getApi();
   document.getElementById('cfgLastUpdate').textContent=localStorage.getItem('agritrack_lastUpdate')||'—';
-  const gk=localStorage.getItem('gemini_key');
-  if(gk)document.getElementById('geminiKey').value=gk;
+  _checarIA();
   const cid=localStorage.getItem('compras_sheet_id');
   const cgid=localStorage.getItem('compras_sheet_gid');
   if(cid){
@@ -5785,7 +5798,7 @@ function filtrarCompras(){
   _filtrarComprasTimer=setTimeout(_filtrarComprasImmediate,250);
 }
 function _filtrarComprasImmediate(){
-  const q=(document.getElementById('comprasSearch').value||'').toLowerCase().trim();
+  const q=_fold(document.getElementById('comprasSearch').value);
   const resp=(document.getElementById('comprasFiltroResp').value||'all');
   const final=(document.getElementById('comprasFiltroFinal').value||'all');
   const venc=(document.getElementById('comprasFiltroVenc').value||'all');
@@ -5798,7 +5811,7 @@ function _filtrarComprasImmediate(){
   const em30=new Date(hoje); em30.setDate(hoje.getDate()+30);
 
   _comprasFilt=_comprasData.filter(row=>{
-    if(q && !Object.values(row).some(v=>(v||'').toLowerCase().includes(q))) return false;
+    if(q && !Object.values(row).some(v=>_fold(v).includes(q))) return false;
     if(resp!=='all' && (row[respKey]||'').trim()!==resp) return false;
     if(final!=='all' && (row[finalKey]||'').trim()!==final) return false;
     if(categ!=='all' && _cmpCateg(row)!==categ) return false;
@@ -5955,10 +5968,18 @@ function limparChat(){
   msgs.innerHTML='<div class="chat-msg-bot"><div class="chat-bubble-bot">Chat limpo. Como posso ajudar com os dados de compras?</div></div>';
 }
 
+// Busca sem acento: "lubrificacao" precisa achar "LUBRIFICAÇÃO". A busca
+// continua no cliente (precisa responder a cada tecla — não é análise), mas
+// normaliza os dois lados antes de comparar.
+function _fold(s){return String(s==null?'':s)
+  .replace(/[àáâãäÀÁÂÃÄ]/g,'a').replace(/[èéêëÈÉÊË]/g,'e')
+  .replace(/[ìíîïÌÍÎÏ]/g,'i').replace(/[òóôõöÒÓÔÕÖ]/g,'o')
+  .replace(/[ùúûüÙÚÛÜ]/g,'u').replace(/[çÇ]/g,'c').replace(/[ñÑ]/g,'n')
+  .toLowerCase().trim();}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
 // ════════════════════════════════════════════════════════════════
-// CHAT COMPRAS (Gemini)
+// CHAT COMPRAS (motor local + Claude)
 // ════════════════════════════════════════════════════════════════
 let _chatContexto='';
 let _chatHistory=[];
@@ -5978,7 +5999,7 @@ function addChatMsg(text,isUser){
 }
 
 function mdLite(s){
-  // Escapa HTML antes de processar markdown (evita XSS em respostas do Gemini)
+  // Escapa HTML antes de processar markdown (evita XSS em respostas da IA)
   const safe=String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   return safe
     .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
@@ -6362,10 +6383,9 @@ async function sendChat(){
     return;
   }
 
-  // 2️⃣ Fallback Gemini (se chave configurada e local não conseguiu)
+  // 2️⃣ Fallback Claude (via backend) quando o motor local não deu conta
   addTypingIndicator();
-  const key=localStorage.getItem('gemini_key');
-  if(!key){
+  if(!_iaDisponivel){
     removeTypingIndicator();
     addChatMsg('Não entendi essa pergunta. Tente:\n\n📊 *resumo geral* · *análise de gargalos* · *sugestões de melhoria* · *previsão de entregas*\n👤 *itens por responsável* · *quem tem mais vencidos*\n🔴 *quais estão vencidos* · *top urgentes* · *atraso médio*\n📋 *por categoria* · *por série* · *por fornecedor* · *por aba*\n🔍 *código 509199* (pesquisa por código)\n📅 *itens de junho* · *vence em 7 dias*',false);
     btn.disabled=false;return;
@@ -6373,31 +6393,24 @@ async function sendChat(){
 
   const sample=_comprasData.slice(0,60);
   const ctxData='Dados da planilha ('+_comprasData.length+' itens, amostra de '+sample.length+'):\n'+JSON.stringify(sample,null,0);
-  _chatHistory.push({role:'user',parts:[{text:q}]});
-  const sys='Você é assistente de compras industriais da Agricef. Responda em português, de forma concisa. Use listas. '+ctxData;
   try{
-    const resp=await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='+key,
-      {method:'POST',headers:{'Content-Type':'application/json'},
-       body:JSON.stringify({system_instruction:{parts:[{text:sys}]},contents:_chatHistory,generationConfig:{temperature:0.3,maxOutputTokens:700}})}
-    );
-    const j=await resp.json();
+    // O histórico vai no formato do painel; o backend converte para o
+    // formato da API (user/assistant) e marca o contexto como cacheável.
+    const r=await api({action:'chatCompras',pergunta:q,contexto:ctxData,
+                       historico:_chatHistory,token:APP_TOKEN},180000);
     removeTypingIndicator();
-    if(j.error){
-      const isQuota=j.error.message&&(j.error.message.includes('quota')||j.error.message.includes('RESOURCE_EXHAUSTED'));
-      const msg=isQuota
-        ? '⚠️ **Cota Gemini esgotada.** Aguarde alguns minutos ou obtenha uma nova chave gratuita em [aistudio.google.com/apikey](https://aistudio.google.com/apikey).\n\n💡 O motor local já responde a maioria das perguntas — tente novamente sem precisar da chave Gemini.'
-        : '⚠️ Gemini: '+j.error.message;
-      addChatMsg(msg,false);
+    if(!r.success){
+      addChatMsg('⚠️ '+(r.erro||'Não consegui responder agora.')
+        +'\n\n💡 O motor local responde sem IA — tente perguntas sobre vencidos, séries, responsáveis, categorias ou peça um **resumo**.',false);
       btn.disabled=false;return;
     }
-    const ans=j.candidates?.[0]?.content?.parts?.[0]?.text||'Sem resposta.';
-    _chatHistory.push({role:'model',parts:[{text:ans}]});
+    _chatHistory.push({papel:'user',texto:q});
+    _chatHistory.push({papel:'bot',texto:r.texto});
     if(_chatHistory.length>16)_chatHistory=_chatHistory.slice(-16);
-    addChatMsg(ans,false);
+    addChatMsg(r.texto,false);
   }catch(e){
     removeTypingIndicator();
-    addChatMsg('Erro de conexão: '+e.message+'\n\n💡 O motor local responde sem API — tente perguntas sobre vencidos, séries, responsáveis, categorias ou peça um **resumo**.',false);
+    addChatMsg('Erro de conexão: '+e.message+'\n\n💡 O motor local responde sem IA — tente perguntas sobre vencidos, séries, responsáveis, categorias ou peça um **resumo**.',false);
   }
   btn.disabled=false;
 }
