@@ -4719,14 +4719,18 @@ async function openSerialCmpModal(serial){
   const rows=ORDER.flatMap(est=>byEstado[est]).filter(it=>it);
   const tableRows=rows.map(it=>{
     const color=ESTADO_COLOR[it.estado]||'var(--text3)';
+    // Quantidade rateada entre séries pode ser fracionária (um PV que cobre 3
+    // Haulers). Arredondar tudo para inteiro fazia uma linha "Parcial"
+    // aparecer como "falta 0", que parece erro. Mostra 1 casa quando precisa.
+    const nq=v=>{const n=Number(v)||0;return Number.isInteger(n)?String(n):n.toFixed(1);};
     const falta=Math.max(0,(it.exigida||0)-(it.entregue||0));
     return`<tr style="border-bottom:1px solid var(--border)">
       <td style="padding:5px 8px;font-family:monospace;font-size:11px">${esc2(it.cod)}</td>
       <td style="padding:5px 8px;font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc2(it.desc)}">${esc2(it.desc)||'—'}</td>
-      <td style="padding:5px 8px;text-align:center;font-size:11px">${(it.exigida||0).toFixed(0)}</td>
-      <td style="padding:5px 8px;text-align:center;font-size:11px">${it.solicitada>0?it.solicitada.toFixed(0):'—'}</td>
-      <td style="padding:5px 8px;text-align:center;font-size:11px">${it.pedida>0?it.pedida.toFixed(0):'—'}</td>
-      <td style="padding:5px 8px;text-align:center;font-size:11px">${it.entregue>0?it.entregue.toFixed(0):'—'}${falta>0&&it.entregue>0?`<span style="color:var(--purple)"> (falta ${falta.toFixed(0)})</span>`:''}</td>
+      <td style="padding:5px 8px;text-align:center;font-size:11px">${nq(it.exigida)}</td>
+      <td style="padding:5px 8px;text-align:center;font-size:11px">${it.solicitada>0?nq(it.solicitada):'—'}</td>
+      <td style="padding:5px 8px;text-align:center;font-size:11px">${it.pedida>0?nq(it.pedida):'—'}</td>
+      <td style="padding:5px 8px;text-align:center;font-size:11px">${it.entregue>0?nq(it.entregue):'—'}${falta>0&&it.entregue>0?`<span style="color:var(--purple)"> (falta ${nq(falta)})</span>`:''}</td>
       <td style="padding:5px 8px;font-size:10px"><span style="color:${color};font-weight:600">${ESTADO_LABEL[it.estado]||esc2(it.estado)}</span></td>
       <td style="padding:5px 8px;font-size:10px">${esc2(it.pedido)||'—'}</td>
       <td style="padding:5px 8px;font-size:10px;white-space:nowrap">${fmtDt(it.dataEnt||it.dataPrev)}</td>
