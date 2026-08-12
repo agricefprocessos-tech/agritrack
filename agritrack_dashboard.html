@@ -591,7 +591,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
         <div class="fg">
           <label>Chave da Tarefa</label>
           <div style="display:flex;gap:8px">
-            <input id="bKey" placeholder="Ex: AGTK-123" style="flex:1">
+            <input id="bKey" placeholder="Ex: AGTK-123" style="flex:1" onchange="_resolverTipoChave()" onblur="_resolverTipoChave()">
             <button class="btn-sec" onclick="lookupIssue()" style="padding:8px 14px;white-space:nowrap">Buscar</button>
           </div>
         </div>
@@ -2390,6 +2390,24 @@ function _toggleAlvoField(tipo){
   if(isSub){wrap.style.display='none';document.getElementById('bNewAlvo').value='';}
   else wrap.style.display='';
 }
+// "Data alvo" nao existe na tela de Subtarefa do Jira. Antes o campo so era
+// escondido depois de clicar em "Buscar"; quem digitava a chave e ia direto
+// preenchia o unico campo de data visivel, clicava em "So Atualizar Datas" e
+// recebia um certinho verde sem nada ter sido gravado.
+let _tipoChaveCache={};
+async function _resolverTipoChave(){
+  const key=(document.getElementById('bKey').value||'').trim().toUpperCase();
+  if(!key)return;
+  if(_tipoChaveCache[key]!==undefined){_toggleAlvoField(_tipoChaveCache[key]);return;}
+  try{
+    const r=await api({action:'buscarIssue',issueKey:key},30000);
+    if(r&&r.success&&r.issue){
+      _tipoChaveCache[key]=r.issue.tipo;
+      _toggleAlvoField(r.issue.tipo);
+    }
+  }catch(e){ /* sem tipo, mantem o campo visivel */ }
+}
+
 function selectBlk(key,_legacy_summary,_legacy_duedate,_legacy_dept){
   // Dados lidos do mapa global (evita injeção via onclick inline)
   const d=(window._blkData&&window._blkData[key])||{};
@@ -2481,8 +2499,10 @@ async function submitApenasData(){
       startDate:document.getElementById('bNewStart').value||null,
     });
     if(r.success){
+      const nUpd=(r.updated||[]).length;
       const ignorados=r.camposIgnorados&&r.camposIgnorados.length?' (ignorado: '+r.camposIgnorados.join('; ')+')':'';
-      showBMsg('✓ Datas atualizadas em '+key+ignorados,'ok');
+      if(nUpd===0){showBMsg('Nenhuma data foi gravada em '+key+ignorados,'err');return;}
+      showBMsg('✓ '+nUpd+' data(s) atualizada(s) em '+key+ignorados,'ok');
       const alvoFoiIgnorado=r.camposIgnorados&&r.camposIgnorados.some(c=>c.startsWith('Data alvo'));
       _patchTaskDatas_(key,{
         startDate:document.getElementById('bNewStart').value||null,
@@ -7530,6 +7550,9 @@ async function submitBlkModal(apenasData){
     const r=await api(payload);
     if(r.success){
       const ignorados=r.camposIgnorados&&r.camposIgnorados.length?' (ignorado: '+r.camposIgnorados.join('; ')+')':'';
+      if(apenasData&&(r.updated||[]).length===0){
+        msg.textContent='Nenhuma data foi gravada'+ignorados;msg.className='form-msg err';return;
+      }
       msg.textContent=(apenasData?'✓ Datas atualizadas!':'✓ Bloqueio registrado em '+key+'!')+ignorados;
       msg.className='form-msg ok';
       // Aplica localmente o que foi salvo — sem isso a tela só refletia a mudança

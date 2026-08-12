@@ -918,7 +918,17 @@ function atualizarDatas(dados) {
     }
 
     if (Object.keys(updates).length === 0) {
-      if (camposIgnorados.length > 0) return { success: true, key: issueKey, updated: [], camposIgnorados: camposIgnorados };
+      // Nada foi gravado. Devolver success:true aqui fazia o painel mostrar
+      // "✓ Datas atualizadas" para uma subtarefa em que o único campo
+      // preenchido foi "Data alvo" — que não existe na tela de Subtarefa.
+      // O gestor via o certinho verde e nada mudava.
+      if (camposIgnorados.length > 0) {
+        return {
+          success: false, key: issueKey, updated: [], camposIgnorados: camposIgnorados,
+          erro: 'Nenhuma data foi gravada: ' + camposIgnorados.join('; ')
+              + '. Em subtarefas use Data Limite e Data de Início.',
+        };
+      }
       throw new Error('Nenhuma data informada.');
     }
 
