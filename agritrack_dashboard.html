@@ -2495,31 +2495,34 @@ async function submitBloqueio(){
 async function submitApenasData(){
   const key=(document.getElementById('bKey').value||'').trim().toUpperCase();
   if(!key){showBMsg('Informe a chave da tarefa.','err');return;}
-  showBMsg('Atualizando datas…','info');
+  const dStart=document.getElementById('bNewStart').value||null;
+  const dDue  =document.getElementById('bNewDue').value||null;
+  const dAlvo =document.getElementById('bNewAlvo').value||null;
+
+  // Optimistic UI — ver o comentário em submitBlkModal.
+  const snap=_snapshotTask_(key);
+  _patchTaskDatas_(key,{startDate:dStart,dueDate:dDue,alvoDate:dAlvo});
+  renderGantt();
+  showBMsg('Datas aplicadas em '+key+' — confirmando no Jira…','info');
+
+  const desfazer=(txt)=>{_restaurarTask_(snap);renderGantt();showBMsg(txt,'err');};
+
   try{
-    const r=await api({
-      action:'atualizarDatas',
-      issueKey:key,
-      dueDate:document.getElementById('bNewDue').value||null,
-      alvoDate:document.getElementById('bNewAlvo').value||null,
-      startDate:document.getElementById('bNewStart').value||null,
-    });
-    if(r.success){
-      const nUpd=(r.updated||[]).length;
-      const ignorados=r.camposIgnorados&&r.camposIgnorados.length?' (ignorado: '+r.camposIgnorados.join('; ')+')':'';
-      if(nUpd===0){showBMsg('Nenhuma data foi gravada em '+key+ignorados,'err');return;}
-      showBMsg('✓ '+nUpd+' data(s) atualizada(s) em '+key+ignorados,'ok');
-      const alvoFoiIgnorado=r.camposIgnorados&&r.camposIgnorados.some(c=>c.startsWith('Data alvo'));
-      _patchTaskDatas_(key,{
-        startDate:document.getElementById('bNewStart').value||null,
-        dueDate:document.getElementById('bNewDue').value||null,
-        alvoDate:alvoFoiIgnorado?null:(document.getElementById('bNewAlvo').value||null),
-      });
-      _jiraCacheSync();
+    const r=await api({action:'atualizarDatas',issueKey:key,dueDate:dDue,alvoDate:dAlvo,startDate:dStart});
+    if(!r.success){desfazer('Não salvou: '+(r.erro||JSON.stringify(r)));return;}
+    const nUpd=(r.updated||[]).length;
+    const ignorados=r.camposIgnorados&&r.camposIgnorados.length?' (ignorado: '+r.camposIgnorados.join('; ')+')':'';
+    if(nUpd===0){desfazer('Nenhuma data foi gravada em '+key+ignorados);return;}
+    // Reaplica só o que o servidor confirmou, caso ele tenha descartado um campo.
+    if(ignorados){
+      const alvoIgnorado=r.camposIgnorados.some(c=>c.startsWith('Data alvo'));
+      _restaurarTask_(snap);
+      _patchTaskDatas_(key,{startDate:dStart,dueDate:dDue,alvoDate:alvoIgnorado?null:dAlvo});
       renderGantt();
     }
-    else showBMsg('Erro: '+(r.erro||JSON.stringify(r)),'err');
-  }catch(e){showBMsg('Erro: '+e.message,'err');}
+    showBMsg('✓ '+nUpd+' data(s) atualizada(s) em '+key+ignorados,'ok');
+    _jiraCacheSync();  // só depois de confirmado
+  }catch(e){desfazer('Não salvou: '+e.message);}
 }
 
 function clearBloqueioForm(){
@@ -7360,27 +7363,32 @@ async function ganttConfirmarMudarStatus(){
   const cmt=(document.getElementById('ganttStatusCmt')||{}).value||'';
   const btn=document.getElementById('ganttStatusConfirmBtn');
   const msg=document.getElementById('ganttStatusMsg');
-  if(btn){btn.disabled=true;btn.textContent='Salvando…';}
   if(msg)msg.textContent='';
+
+  // Optimistic UI — ver o comentário em submitBlkModal. Antes daqui o gestor
+  // encarava "Salvando…" por ~2s e só então o card reabria com o status novo.
+  const snap=_snapshotTask_(key);
+  [allTasks,allSubs].forEach(arr=>{
+    const task=arr.find(x=>x['Chave da item']===key);
+    if(task)task['Status']=novoStatus;
+  });
+  ganttCancelarMudarStatus();
+  ganttClick(key);   // reabre o card já com o status novo
+  renderGantt();
+
   try{
     const r=await api({action:'mudarStatus',issueKey:key,novoStatus,comentario:cmt});
     if(!r.success)throw new Error(r.erro||'Falha ao mudar status');
-    // Atualiza o dado local para refletir imediatamente sem recarregar
-    [allTasks,allSubs].forEach(arr=>{
-      const task=arr.find(x=>x['Chave da item']===key);
-      if(task)task['Status']=novoStatus;
-    });
-    _jiraCacheSync(); // regrava o cache para o F5 não trazer o status antigo de volta
-    if(msg){msg.style.color='var(--green)';msg.textContent='✓ Status atualizado!';}
-    // Fecha o form e reabre o card com o novo status
-    setTimeout(()=>{
-      ganttCancelarMudarStatus();
-      ganttClick(key);      // reabre o modal com o status atualizado
-      renderGantt();        // atualiza a barra no gráfico
-    },1200);
+    // Cache só depois de confirmado — senão o F5 traria de volta um status que
+    // nunca chegou ao Jira.
+    _jiraCacheSync();
   }catch(err){
+    _restaurarTask_(snap);
+    renderGantt();
+    if(document.getElementById('ganttDetailModal').style.display==='flex')ganttClick(key);
+    _toastErro_('Não foi possível mudar o status de '+key+': '+(err.message||err)
+      +' — o status anterior foi restaurado.');
     if(btn){btn.disabled=false;btn.textContent='Confirmar';}
-    if(msg){msg.style.color='var(--red)';msg.textContent='Erro: '+(err.message||err);}
   }
 }
 
@@ -7526,6 +7534,56 @@ function _patchTaskDatas_(key,{startDate,dueDate,alvoDate}={},addBloqueadoLabel)
   return t;
 }
 
+// ── Optimistic UI ────────────────────────────────────────────────
+// Jira, Linear e Asana aplicam a edição na tela antes da resposta do servidor e
+// desfazem se ela falhar. Aqui isso pesa mais que o normal: cada chamada ao
+// Apps Script custa 1,4–2s de piso, então esperar a confirmação faz uma simples
+// troca de data parecer que o painel travou — e é exatamente o que os gestores
+// vão fazer todo dia.
+//
+// _snapshotTask_ guarda só os campos que os fluxos otimistas alteram (clonar a
+// task inteira seria caro e desnecessário) para que _restaurarTask_ consiga
+// devolver o estado anterior quando o salvamento falha.
+const _CAMPOS_OTIMISTAS_=['Campo personalizado (Start date)','Data limite',
+  'Campo personalizado (Data alvo)','Labels','Status',
+  '_plannedStartDt','_plannedEndDt','_startDt','_dlDt'];
+
+function _snapshotTask_(key){
+  const t=allTasks.find(x=>x['Chave da item']===key)||allSubs.find(x=>x['Chave da item']===key);
+  if(!t)return null;
+  const antes={};
+  _CAMPOS_OTIMISTAS_.forEach(c=>{antes[c]=t[c];});
+  return {t:t,antes:antes};
+}
+
+function _restaurarTask_(snap){
+  if(!snap)return;
+  _CAMPOS_OTIMISTAS_.forEach(c=>{snap.t[c]=snap.antes[c];});
+}
+
+// Canal para falhas assíncronas: quando o salvamento otimista é desfeito, o
+// formulário que originou a ação já foi fechado, então não há onde escrever o
+// erro. Sem isto o rollback aconteceria em silêncio — o pior desfecho possível,
+// porque o gestor acharia que salvou.
+function _toastErro_(txt){
+  let el=document.getElementById('toastErro');
+  if(!el){
+    el=document.createElement('div');
+    el.id='toastErro';
+    el.style.cssText='position:fixed;right:18px;bottom:18px;z-index:9999;max-width:380px;'
+      +'background:#2a1215;border:1px solid var(--red,#e5484d);color:#ffd7d9;'
+      +'padding:12px 14px;border-radius:10px;font-size:13px;line-height:1.5;'
+      +'box-shadow:0 8px 24px rgba(0,0,0,.45);cursor:pointer';
+    el.title='Clique para fechar';
+    el.onclick=()=>{el.style.display='none';};
+    document.body.appendChild(el);
+  }
+  el.textContent=txt;
+  el.style.display='block';
+  clearTimeout(el._t);
+  el._t=setTimeout(()=>{el.style.display='none';},9000);
+}
+
 async function submitBlkModal(apenasData){
   const key=document.getElementById('blkModal').dataset.key;
   const tipo=document.getElementById('blkMTipo').value;
@@ -7533,56 +7591,65 @@ async function submitBlkModal(apenasData){
   if(!apenasData&&!tipo){
     msg.textContent='Selecione o tipo de bloqueio.';msg.className='form-msg err';msg.style.display='block';return;
   }
-  msg.textContent=apenasData?'Atualizando datas…':'Registrando bloqueio…';
-  msg.className='form-msg info';msg.style.display='block';
+  const dStart=document.getElementById('blkMStart').value||null;
+  const dDue  =document.getElementById('blkMDue').value||null;
+  const dAlvo =document.getElementById('blkMAlvo').value||null;
+
+  const payload=apenasData?{
+    action:'atualizarDatas',issueKey:key,dueDate:dDue,alvoDate:dAlvo,startDate:dStart,
+  }:{
+    action:'registrarBloqueio',issueKey:key,
+    tipoBloqueio:tipo,
+    faseBloqueio:document.getElementById('blkMFase').value||'',
+    descricao:document.getElementById('blkMDescricao').value,
+    impacto:document.getElementById('blkMImpacto').value,
+    responsavel:document.getElementById('blkMResp').value,
+    prazoResolucao:document.getElementById('blkMPrazo').value,
+    novaDueDate:dDue,novaDataAlvo:dAlvo,novaDataStart:dStart,
+  };
+
+  const modal=document.getElementById('blkModal');
+  const snap=_snapshotTask_(key);
+
+  const repintar=()=>{
+    renderGantt();
+    if(document.getElementById('ganttDetailModal').style.display==='flex')ganttClick(key);
+  };
+
+  // Aplica AGORA e fecha o modal — o gestor segue trabalhando enquanto o Jira confirma.
+  _patchTaskDatas_(key,{startDate:dStart,dueDate:dDue,alvoDate:dAlvo},!apenasData);
+  repintar();
+  modal.style.display='none';
+
+  // Reabre o modal com o erro e devolve os valores antigos. É o preço do
+  // otimismo: quando falha, o gestor precisa ver que NÃO salvou.
+  const desfazer=(txt)=>{
+    _restaurarTask_(snap);
+    repintar();
+    modal.style.display='flex';
+    msg.textContent=txt;msg.className='form-msg err';msg.style.display='block';
+  };
+
   try{
-    const payload=apenasData?{
-      action:'atualizarDatas',issueKey:key,
-      dueDate:document.getElementById('blkMDue').value||null,
-      alvoDate:document.getElementById('blkMAlvo').value||null,
-      startDate:document.getElementById('blkMStart').value||null,
-    }:{
-      action:'registrarBloqueio',issueKey:key,
-      tipoBloqueio:tipo,
-      faseBloqueio:document.getElementById('blkMFase').value||'',
-      descricao:document.getElementById('blkMDescricao').value,
-      impacto:document.getElementById('blkMImpacto').value,
-      responsavel:document.getElementById('blkMResp').value,
-      prazoResolucao:document.getElementById('blkMPrazo').value,
-      novaDueDate:document.getElementById('blkMDue').value||null,
-      novaDataAlvo:document.getElementById('blkMAlvo').value||null,
-      novaDataStart:document.getElementById('blkMStart').value||null,
-    };
     const r=await api(payload);
-    if(r.success){
-      const ignorados=r.camposIgnorados&&r.camposIgnorados.length?' (ignorado: '+r.camposIgnorados.join('; ')+')':'';
-      if(apenasData&&(r.updated||[]).length===0){
-        msg.textContent='Nenhuma data foi gravada'+ignorados;msg.className='form-msg err';return;
-      }
-      msg.textContent=(apenasData?'✓ Datas atualizadas!':'✓ Bloqueio registrado em '+key+'!')+ignorados;
-      msg.className='form-msg ok';
-      // Aplica localmente o que foi salvo — sem isso a tela só refletia a mudança
-      // depois de um refresh completo (F5), mesmo com o Jira já atualizado.
-      // Não propaga alvoDate se o backend o descartou (ex: subtarefa sem o campo).
-      const alvoFoiIgnorado=r.camposIgnorados&&r.camposIgnorados.some(c=>c.startsWith('Data alvo'));
-      _patchTaskDatas_(key,{
-        startDate:document.getElementById('blkMStart').value||null,
-        dueDate:document.getElementById('blkMDue').value||null,
-        alvoDate:alvoFoiIgnorado?null:(document.getElementById('blkMAlvo').value||null),
-      },!apenasData); // registrarBloqueio sempre adiciona a label 'bloqueado'
-      _jiraCacheSync();
-      renderGantt();
-      // Se o pop-up de detalhe deste mesmo item estiver aberto atrás deste modal, atualiza-o também
-      if(document.getElementById('ganttDetailModal').style.display==='flex')ganttClick(key);
-      // Atualiza o badge de bloqueios em segundo plano e fecha o modal após 2s
-      setTimeout(()=>{
-        document.getElementById('blkModal').style.display='none';
-        if(typeof loadBloqueados==='function')loadBloqueados();
-      },2000);
-    }else{
-      msg.textContent='Erro: '+(r.erro||JSON.stringify(r));msg.className='form-msg err';
+    if(!r.success){desfazer('Não salvou: '+(r.erro||JSON.stringify(r)));return;}
+    const ignorados=r.camposIgnorados&&r.camposIgnorados.length?' (ignorado: '+r.camposIgnorados.join('; ')+')':'';
+    if(apenasData&&(r.updated||[]).length===0){desfazer('Nenhuma data foi gravada'+ignorados);return;}
+
+    // Reaplica a partir do estado original usando o que o servidor de fato
+    // gravou — cobre o campo que ele descartou (ex: Data alvo em subtarefa),
+    // que o palpite otimista tinha aplicado.
+    if(ignorados){
+      const alvoIgnorado=r.camposIgnorados.some(c=>c.startsWith('Data alvo'));
+      _restaurarTask_(snap);
+      _patchTaskDatas_(key,{startDate:dStart,dueDate:dDue,alvoDate:alvoIgnorado?null:dAlvo},!apenasData);
+      repintar();
     }
-  }catch(e){msg.textContent='Erro: '+e.message;msg.className='form-msg err';}
+    // O cache só é regravado depois de confirmado: guardar estado otimista
+    // faria o F5 exibir uma data que nunca chegou ao Jira.
+    _jiraCacheSync();
+    if(typeof loadBloqueados==='function')loadBloqueados();
+  }catch(e){desfazer('Não salvou: '+e.message);}
 }
 
 // ════════════════════════════════════════════════════════════════
