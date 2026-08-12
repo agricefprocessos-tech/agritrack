@@ -4662,8 +4662,15 @@ async function openSerialCmpModal(serial){
     try{
       const d=await api({action:'analisarHaulerSerial',fileId,serial},300000);
       if(d&&d.success&&d.detalhe){
-        entry={covData:{...(entry&&entry.covData||{}),items:d.detalhe.itens,extras:d.detalhe.extras,
-               total:(d.seriais[serial]||{}).totalExigidos||d.detalhe.itens.length},
+        // Os contadores vem do resumo: sem eles o cabecalho do modal mostrava
+        // "undefined" quando o modal era aberto antes do cartao ser montado.
+        const rs=d.seriais&&d.seriais[serial]||{};
+        entry={covData:{...(entry&&entry.covData||{}),
+                 items:d.detalhe.itens, extras:d.detalhe.extras,
+                 total:rs.totalExigidos||d.detalhe.itens.length,
+                 nEnt:rs.nEntregue||0, nParcial:rs.nParcial||0, nPed:rs.nPedido||0,
+                 nSol:rs.nSolicitado||0, nDesc:rs.nDescoberto||0,
+                 pctQtd:rs.pctQtd||0, bomIncompativel:!!rs.bomIncompativel},
                bomLookup:_haulerAgregado||{},serial};
         window._serialCmpData=window._serialCmpData||{};
         window._serialCmpData[serial]=entry;
