@@ -43,6 +43,9 @@ function doGet(e) {
       case 'buscarComprasPorSerial': return jsonResp_(buscarComprasPorSerial());
       case 'buscarProducaoHaulerPorSerial': return jsonResp_(buscarProducaoHaulerPorSerial());
       case 'buscarOpcoesCampos':   return jsonResp_(buscarOpcoesCampos());
+      // ── Análises canônicas (HaulerAnalise.js) — fonte única das regras ──
+      case 'analisarHaulerBOM':    return jsonResp_(analisarHaulerBOM(data));
+      case 'analisarHaulerSerial': return jsonResp_(analisarHaulerSerial(data));
       // ── Backfill datas reais ──────────────────────────────────────────
       case 'syncDatasReais':        return jsonResp_(syncDatasReais());
       case 'statusBackfillTrigger': return jsonResp_(statusBackfillTrigger());
