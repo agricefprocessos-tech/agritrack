@@ -49,14 +49,27 @@ const VOTACAO_PRAZO_HORAS = 48;
 
 // ─── PLANILHA DE VOTAÇÃO (criada automaticamente no 1º uso) ───
 
-function _getVotacaoSheet_() {
+// `criar` só é passado pelo caminho que de fato inicia uma votação
+// (notificarComiteVotacao_). Ler nunca cria a planilha: antes, qualquer falha
+// transitória do Drive no openById caía no create() e gerava uma planilha nova
+// — os votos já registrados sumiriam da apuração e ficariam órfãos na antiga.
+// Além disso o create() dentro de um GET custa ~25s e o web app devolvia 404.
+function _getVotacaoSheet_(criar) {
   const props = PropertiesService.getScriptProperties();
   let id = props.getProperty('VOTACAO_SHEET_ID');
-  let ss;
+  let ss = null;
   if (id) {
-    try { ss = SpreadsheetApp.openById(id); } catch (e) { id = null; }
+    try {
+      ss = SpreadsheetApp.openById(id);
+    } catch (e) {
+      throw new Error('Não foi possível abrir a planilha de votação (' + id + '). '
+        + 'Ela pode ter sido movida para a lixeira. Detalhe: ' + e.message);
+    }
   }
-  if (!id) {
+  if (!ss) {
+    if (!criar) {
+      throw new Error('A votação ainda não foi inicializada — nenhum projeto foi enviado ao comitê.');
+    }
     ss = SpreadsheetApp.create('AgriTrack — Votação de Prioridade (comitê)');
     id = ss.getId();
     props.setProperty('VOTACAO_SHEET_ID', id);
@@ -66,11 +79,38 @@ function _getVotacaoSheet_() {
     const votos = ss.insertSheet('Votos');
     votos.appendRow(['Chave', 'DataVoto', 'Votante', 'Email', 'Classificacao', 'Impacto', 'Urgencia', 'Complexidade']);
   }
-  return {
-    ss: ss,
-    pendentes: ss.getSheetByName('Pendentes'),
-    votos: ss.getSheetByName('Votos'),
-  };
+  // Sem esta checagem, uma aba renomeada/apagada à mão só apareceria lá na
+  // frente como "Cannot read property getDataRange of null".
+  const pendentes = ss.getSheetByName('Pendentes');
+  const votos     = ss.getSheetByName('Votos');
+  if (!pendentes || !votos) {
+    throw new Error('A planilha de votação está sem a aba "'
+      + (!pendentes ? 'Pendentes' : 'Votos') + '". Restaure-a em: ' + ss.getUrl());
+  }
+  return { ss: ss, pendentes: pendentes, votos: votos };
+}
+
+// Identidade do votante: e-mail quando houver (estável mesmo se o nome mudar),
+// senão o nome normalizado — sem isto "Guilherme" e "guilherme " seriam duas
+// pessoas diferentes e cada uma pesaria na moda.
+function _idVotante_(nome, email) {
+  var e = String(email || '').trim().toLowerCase();
+  if (e) return 'e:' + e;
+  return 'n:' + String(nome || '').trim().toLowerCase();
+}
+
+// Um votante = um voto: mantém só o mais recente de cada um. Protege a apuração
+// das linhas duplicadas que já existem na planilha (gravadas antes de
+// registrarVoto passar a substituir). Sem isto, quem votasse 3x pesaria 3x em
+// _moda_ e poderia decidir sozinho a prioridade do projeto.
+function _dedupVotos_(votos) {
+  var porVotante = {};
+  votos.forEach(function (v) {
+    var id = _idVotante_(v.Votante, v.Email);
+    var t  = new Date(v.DataVoto).getTime() || 0;
+    if (!porVotante[id] || t >= porVotante[id]._t) { v._t = t; porVotante[id] = v; }
+  });
+  return Object.keys(porVotante).map(function (k) { return porVotante[k]; });
 }
 
 function _sheetToObjects_(sheet) {
@@ -86,7 +126,7 @@ function _sheetToObjects_(sheet) {
 // ─── NOTIFICAÇÃO AO CRIAR PROJETO ──────────────────────────────
 
 function notificarComiteVotacao_(key, summary, scoresGestor) {
-  const sh = _getVotacaoSheet_();
+  const sh = _getVotacaoSheet_(true);  // único ponto autorizado a criar a planilha
   const agora = new Date();
   const prazo = new Date(agora.getTime() + VOTACAO_PRAZO_HORAS * 3600 * 1000);
 
@@ -160,8 +200,25 @@ function registrarVoto(dados) {
     if (!pend) throw new Error('Projeto não está em votação (' + key + ').');
     if (pend.Apurado) throw new Error('Votação já foi apurada para ' + key + '.');
 
-    sh.votos.appendRow([key, new Date(), dados.votante, dados.email || '', dados.classificacao, dados.impacto, dados.urgencia, dados.complexidade]);
-    return buscarVotacao({ issueKey: key });
+    // Se este votante já votou neste projeto, o voto novo SUBSTITUI o anterior
+    // (mudou de ideia) em vez de virar uma segunda linha contada de novo na moda.
+    const idNovo = _idVotante_(dados.votante, dados.email);
+    const vals   = sh.votos.getDataRange().getValues();
+    const hv     = vals[0];
+    const cChave = hv.indexOf('Chave'), cVot = hv.indexOf('Votante'), cMail = hv.indexOf('Email');
+    let linhaExistente = -1;
+    for (let i = 1; i < vals.length; i++) {
+      if (String(vals[i][cChave] || '').trim().toUpperCase() !== key) continue;
+      if (_idVotante_(vals[i][cVot], vals[i][cMail]) === idNovo) { linhaExistente = i + 1; break; }
+    }
+
+    const linha = [key, new Date(), dados.votante, dados.email || '', dados.classificacao, dados.impacto, dados.urgencia, dados.complexidade];
+    if (linhaExistente > 0) sh.votos.getRange(linhaExistente, 1, 1, linha.length).setValues([linha]);
+    else                    sh.votos.appendRow(linha);
+
+    const r = buscarVotacao({ issueKey: key });
+    if (r && r.success) r.substituiu = linhaExistente > 0;
+    return r;
   } catch (err) {
     return { success: false, erro: err.message };
   } finally {
@@ -179,7 +236,7 @@ function buscarVotacao(dados) {
     const pend = _sheetToObjects_(sh.pendentes).find(function (p) { return p.Chave === key; });
     if (!pend) return { success: false, erro: 'Projeto não encontrado em votação: ' + key };
 
-    const votos = _sheetToObjects_(sh.votos).filter(function (v) { return v.Chave === key; }).map(function (v) {
+    const votos = _dedupVotos_(_sheetToObjects_(sh.votos).filter(function (v) { return v.Chave === key; })).map(function (v) {
       const calc = _calcScore({ classificacao: v.Classificacao, impacto: v.Impacto, urgencia: v.Urgencia, complexidade: v.Complexidade });
       return {
         votante: v.Votante, data: v.DataVoto,
@@ -251,7 +308,7 @@ function apurarVotacoesPendentes() {
       if (prazo > agora) continue;
 
       const key = row[idx.Chave];
-      const votosChave = todosVotos.filter(function (v) { return v.Chave === key; });
+      const votosChave = _dedupVotos_(todosVotos.filter(function (v) { return v.Chave === key; }));
 
       const finalClass = _moda_(votosChave.map(function (v) { return v.Classificacao; }), row[idx.GestorClass]);
       const finalImp    = _moda_(votosChave.map(function (v) { return v.Impacto; }), row[idx.GestorImpacto]);
