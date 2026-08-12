@@ -4967,25 +4967,32 @@ const CMP_CATS=[
   {icon:'📦', title:'Compras Gerais',color:'#64748b', kws:['venda','5.01','commerci','adesivo','etiqueta']},
 ];
 function _cmpCateg(row){
-  // Inclui Almoxarifado/Centro de Custo (mesmos campos usados nos swim lanes)
-  // — sem isso, itens com Finalidade vazia mas Almoxarifado="MATERIA PRIMA"
-  // (por ex.) caem em "Outros" no filtro mas aparecem categorizados no painel
-  // operacional, gerando contagens divergentes entre as duas visões.
-  const f=(row[cmpKey('finalid')]||'').toLowerCase();
-  const s=(row[cmpKey('status','situac','situação')]||'').toLowerCase();
-  const d=(row[cmpKey('descri','item','produto')]||'').toLowerCase();
-  const almox=(row[cmpKey('almox','almoxarifado')]||'').toLowerCase();
-  const cc=(row[cmpKey('centro de custo','cent.custo','cc ')]||'').toLowerCase();
-  for(const c of CMP_CATS){
-    if(c.kws.some(k=>f.includes(k)||s.includes(k)||d.includes(k)||almox.includes(k)||cc.includes(k))) return c.title;
-  }
+  // Categoria tambem vem pronta do backend; a heuristica local e retaguarda.
+  if(row&&row._categoria)return row._categoria;
+  const txt=[cmpKey('finalid'),cmpKey('status','situac','situacao'),
+             cmpKey('descri','item','produto'),cmpKey('almox','almoxarifado'),
+             cmpKey('centro de custo','cent.custo','cc ')]
+    .map(k=>k?row[k]||'':'').join(' ');
+  const t=_fold(txt);
+  for(const c of CMP_CATS){ if(c.kws.some(k=>t.includes(_fold(k)))) return c.title; }
   return 'Outros';
 }
 
 // Status que indicam que o item já foi finalizado (entregue ou cancelado) —
 // usado para não contar itens concluídos como "vencidos" ainda pendentes.
+// Fonte unica de "vencido" no painel: usa a flag do backend quando existe.
+function _cmpVencido(row,dtKey,hoje){
+  if(row&&typeof row._vencido==='boolean')return row._vencido;
+  if(_cmpEstaConcluido(row))return false;
+  const d=parseDate(row[dtKey||'_dt']||'');
+  return !!(d&&d<(hoje||new Date()));
+}
+
 function _cmpEstaConcluido(row){
-  const s=(row[cmpKey('status','situac','situação')]||'').trim().toLowerCase();
+  // O backend ja marca _concluido; o calculo local fica so como retaguarda
+  // caso a linha venha do caminho antigo.
+  if(row&&typeof row._concluido==='boolean')return row._concluido;
+  const s=_fold(row[cmpKey('status','situac','situacao')]);
   return s.startsWith('entregue')||s==='cancelado'||s.startsWith('consta entregue');
 }
 
@@ -5012,19 +5019,46 @@ function cmpCol(row, ...candidates){
   return '';
 }
 function cmpKey(...candidates){
-  return _comprasHeaders.find(h=>candidates.some(c=>h.toLowerCase().includes(c.toLowerCase())))||'';
+  // Pedido de coluna de prazo devolve sempre '_dt', a data que o backend ja
+  // resolveu por aba. Antes cada chamada montava sua propria lista de
+  // prioridade e o find iterava os HEADERS por fora, ignorando a ordem dos
+  // candidatos — por isso tabela e swim lanes discordavam do que e "vencido".
+  if(candidates.some(c=>/desejada|entrega|prazo|previs/i.test(c)))return '_dt';
+  return _comprasHeaders.find(h=>candidates.some(c=>_fold(h).includes(_fold(c))))||'';
 }
 
-function parseDate(s){
-  if(!s) return null;
-  // dd/mm/yyyy or yyyy-mm-dd
-  const m=s.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-  if(m) return new Date(+m[3],+m[2]-1,+m[1]);
-  const d=new Date(s);
-  return isNaN(d)?null:d;
+// Mesma logica de _parseData_ no backend. A versao antiga exigia dia e mes com
+// 2 digitos (3/7/2026 caia no parser americano e virava 7 de marco), devolvia
+// null para ano de 2 digitos, perdia um dia em datas ISO (UTC -> local) e
+// lancava excecao se a celula viesse como numero.
+function parseDate(v){
+  try{
+    if(v==null||v==='')return null;
+    if(v instanceof Date)return isNaN(v.getTime())?null:new Date(v.getFullYear(),v.getMonth(),v.getDate(),12,0,0);
+    if(typeof v==='number'&&isFinite(v)){
+      if(v<=0||v>80000)return null;
+      const b=new Date(1899,11,30,12,0,0); b.setDate(b.getDate()+Math.floor(v)); return b;
+    }
+    const s=String(v).trim();
+    if(!s||s==='NaT'||s.toLowerCase()==='nan')return null;
+    const iso=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if(iso){
+      const mo=+iso[2],d=+iso[3];
+      if(mo<1||mo>12||d<1||d>31)return null;
+      const dt=new Date(+iso[1],mo-1,d,12,0,0); return isNaN(dt)?null:dt;
+    }
+    const br=s.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+    if(br){
+      const d=+br[1],mo=+br[2]; let y=+br[3]; if(y<100)y+=2000;
+      if(mo<1||mo>12||d<1||d>31)return null;
+      const dt=new Date(y,mo-1,d,12,0,0); return isNaN(dt)?null:dt;
+    }
+    return null;
+  }catch(e){return null;}
 }
 
-const COMPRAS_CACHE_KEY='agritrack_compras_v2';
+let _comprasMetaBackend=null, _comprasAvisos=[];
+const COMPRAS_CACHE_KEY='agritrack_compras_v3';
 const COMPRAS_CACHE_TTL=60*60*1000; // 1 hora (GAS CacheService também usa 1h)
 function _comprasCache(){try{const r=localStorage.getItem(COMPRAS_CACHE_KEY);return r?JSON.parse(r):null;}catch(e){return null;}}
 function _comprasCacheSet(sid,tabs){try{localStorage.setItem(COMPRAS_CACHE_KEY,JSON.stringify({ts:Date.now(),sid,tabs}));}catch(e){console.warn('[AgriTrack] comprasCache write falhou (quota?):', e.message);}}
@@ -5115,9 +5149,35 @@ async function _refreshComprasBg(sheetId, metaEl){
 }
 
 // Busca dados — 2 etapas: lista abas (rápido) → carrega cada aba em paralelo
+// Fonte canônica da aba Compras. O analisarCompras resolve UMA coluna de prazo
+// por aba e devolve cada linha já com _dt/_vencido/_vence7/_concluido/_categoria,
+// então tabela, filtros, KPIs, gráficos e swim lanes passam a medir "vencido"
+// com a mesma régua — antes cada um escolhia uma coluna de data diferente e os
+// swim lanes ainda contavam item já entregue como vencido.
 async function _fetchComprasTabs(sheetId){
   const loadEl=document.getElementById('comprasLoad');
   function _setMsg(msg){if(loadEl)loadEl.innerHTML=`<div style="padding:40px;text-align:center;color:var(--text2);font-size:13px">${msg}</div>`;}
+
+  try{
+    _setMsg('📥 Carregando e normalizando a planilha…');
+    const r=await api({action:'analisarCompras',sheetId},300000);
+    if(r&&r.success&&Array.isArray(r.linhas)){
+      _comprasMetaBackend=r.meta||null;
+      _comprasAvisos=r.avisos||[];
+      const porAba={};
+      (r.abas||[]).forEach(a=>{porAba[a.nome]={name:a.nome,headers:a.headers||[],rows:[],colunaData:a.colunaData};});
+      r.linhas.forEach(l=>{
+        const nome=l._aba||'Sem aba';
+        if(!porAba[nome])porAba[nome]={name:nome,headers:Object.keys(l).filter(k=>k[0]!=='_'),rows:[],colunaData:null};
+        porAba[nome].rows.push(l);
+      });
+      const tabs=Object.values(porAba);
+      if(tabs.length)return tabs;
+    }
+    console.warn('[AgriTrack] analisarCompras sem dados, caindo no caminho antigo:',r&&r.erro);
+  }catch(e){
+    console.warn('[AgriTrack] analisarCompras falhou, caindo no caminho antigo:',e.message);
+  }
 
   // ── Etapa 1: listar abas (listarAbasCompras é rápido, ~2-5s quando GAS aquecido) ──
   let metaTabs=null;
@@ -5902,7 +5962,10 @@ function renderComprasSwimLanes(){
       if(!da&&!db)return 0; if(!da)return 1; if(!db)return -1; return da-db;
     });
     const MAX_V=14;
-    const numVenc=items.filter(r=>{ const d=parseDate(r[dtKey]||''); return d&&d<hoje; }).length;
+    // Item ja entregue nao esta vencido — ele acabou. Os KPIs do topo ja
+    // excluiam os concluidos, mas o swim lane nao, entao os dois numeros
+    // discordavam na mesma tela.
+    const numVenc=items.filter(r=>_cmpVencido(r,dtKey,hoje)).length;
     const urgBadge=numVenc>0?`<span style="background:#ef444428;color:#ef4444;border-radius:8px;padding:1px 6px;font-size:9px;font-weight:700;flex-shrink:0">⚠ ${numVenc} venc.</span>`:'';
     const rows=sorted.slice(0,MAX_V).map(row=>{
       const itemCod=(itemCodKey?row[itemCodKey]||'':'').trim();
@@ -5911,7 +5974,7 @@ function renderComprasSwimLanes(){
       const resp   =(row[respKey]||'').trim();
       const tab    =(row._tab||'').trim();
       const dt=parseDate(row[dtKey]||'');
-      const isVenc=dt&&dt<hoje;
+      const isVenc=_cmpVencido(row,dtKey,hoje);
       const isProx=dt&&!isVenc&&(dt-hoje)<=7*864e5;
       const bColor=isVenc?'#ef4444':isProx?'#f59e0b':color;
       const dtStr=dt?dt.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}):'';
