@@ -106,6 +106,69 @@ function aquecerCacheJira() {
   }
 }
 
+// ─── ANÁLISES PESADAS (Compras / Hauler por serial) ──────────────
+//
+// analisarCompras e analisarHaulerSerial custam ~80s e ~59s a frio (lêem o
+// CSV do BOM inteiro e as 3 abas da planilha de compras) contra ~6,5s com
+// cache. O cache dura 1h, então quem abre a aba depois disso paga a conta
+// inteira — e 80s é tempo suficiente para o gestor achar que travou.
+//
+// Este gatilho recalcula de hora em hora, mantendo o cache sempre quente.
+// Ele roda separado do aquecimento do Jira porque é lento e caro: misturar
+// os dois faria uma execução de 80s a cada 5 min, sem necessidade.
+//
+// Os ids da planilha e do BOM vivem no localStorage do navegador, invisíveis
+// ao servidor. Por isso analisarCompras/analisarHaulerSerial passaram a
+// gravá-los em Script Properties quando o painel os envia — é de lá que este
+// gatilho os lê. Enquanto ninguém tiver aberto as abas, ele não tem o que
+// recalcular e simplesmente registra isso no log.
+function aquecerAnalisesPesadas() {
+  var props = PropertiesService.getScriptProperties();
+  var out = { success: true };
+
+  var t0 = Date.now();
+  try {
+    var c = analisarCompras({ force: true });
+    out.compras = { ok: !!(c && c.success), ms: Date.now() - t0, erro: (c && c.erro) || null };
+  } catch (e) {
+    out.compras = { ok: false, ms: Date.now() - t0, erro: e.message };
+  }
+
+  var fileId = props.getProperty('HAULER_BOM_FILE_ID');
+  if (!fileId) {
+    out.hauler = { ok: false, pulado: true, erro: 'HAULER_BOM_FILE_ID ainda não conhecido — abra a aba Hauler BOM uma vez.' };
+  } else {
+    var t1 = Date.now();
+    try {
+      var h = analisarHaulerSerial({ fileId: fileId, force: true });
+      out.hauler = { ok: !!(h && h.success), ms: Date.now() - t1, erro: (h && h.erro) || null };
+    } catch (e2) {
+      out.hauler = { ok: false, ms: Date.now() - t1, erro: e2.message };
+    }
+  }
+
+  console.log('aquecerAnalisesPesadas: ' + JSON.stringify(out));
+  return out;
+}
+
+function setupAnalisesTrigger() {
+  var existentes = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < existentes.length; i++) {
+    if (existentes[i].getHandlerFunction() === 'aquecerAnalisesPesadas') ScriptApp.deleteTrigger(existentes[i]);
+  }
+  ScriptApp.newTrigger('aquecerAnalisesPesadas').timeBased().everyHours(1).create();
+  return { success: true, msg: 'Gatilho ativado: aquecerAnalisesPesadas a cada 1h', primeiraCarga: aquecerAnalisesPesadas() };
+}
+
+function deleteAnalisesTrigger() {
+  var removidos = 0;
+  var existentes = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < existentes.length; i++) {
+    if (existentes[i].getHandlerFunction() === 'aquecerAnalisesPesadas') { ScriptApp.deleteTrigger(existentes[i]); removidos++; }
+  }
+  return { success: true, removidos: removidos };
+}
+
 function setupAquecimentoTrigger() {
   var existentes = ScriptApp.getProjectTriggers();
   for (var i = 0; i < existentes.length; i++) {
@@ -128,12 +191,15 @@ function deleteAquecimentoTrigger() {
 
 /** Diz ao painel se o aquecimento está ativo e quão fresco está o cache. */
 function statusAquecimentoTrigger() {
-  var ativo = false;
+  var ativo = false, ativoAnalises = false;
   var gatilhos = ScriptApp.getProjectTriggers();
   for (var i = 0; i < gatilhos.length; i++) {
-    if (gatilhos[i].getHandlerFunction() === 'aquecerCacheJira') { ativo = true; break; }
+    var f = gatilhos[i].getHandlerFunction();
+    if (f === 'aquecerCacheJira') ativo = true;
+    if (f === 'aquecerAnalisesPesadas') ativoAnalises = true;
   }
   var c = _lerCache_(TAREFAS_CACHE_CHAVE_);
+  var props = PropertiesService.getScriptProperties();
   return {
     success: true,
     ativo: ativo,
@@ -141,5 +207,10 @@ function statusAquecimentoTrigger() {
     cacheQuente: !!(c && c.success),
     itens: (c && c.total) || 0,
     idadeSeg: (c && c.geradoEm) ? Math.round((Date.now() - c.geradoEm) / 1000) : null,
+    analises: {
+      ativo: ativoAnalises,
+      comprasSheetId: !!props.getProperty('COMPRAS_SHEET_ID'),
+      haulerFileId: !!props.getProperty('HAULER_BOM_FILE_ID'),
+    },
   };
 }

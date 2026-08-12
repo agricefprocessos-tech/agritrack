@@ -543,12 +543,18 @@ function _escolherVariante_(descCompra, variantes) {
 function analisarHaulerSerial(dados) {
   try {
     dados = dados || {};
-    if (!dados.fileId) return { success: false, erro: 'fileId nao informado' };
+    var props = PropertiesService.getScriptProperties();
+    // O painel guarda o id do BOM no localStorage do navegador, que o servidor
+    // não enxerga. Persistir o último id usado é o que permite ao gatilho de
+    // aquecimento (Aquecimento.js) saber qual BOM recalcular sozinho.
+    if (dados.fileId) props.setProperty('HAULER_BOM_FILE_ID', dados.fileId);
+    var fileId = dados.fileId || props.getProperty('HAULER_BOM_FILE_ID');
+    if (!fileId) return { success: false, erro: 'fileId nao informado' };
 
     // Ler o CSV do BOM + as 3 abas leva ~80s, então o resultado fica em
     // cache por 1h (mesmo padrão de buscarComprasPorSerial). Cache fatiado
     // porque CacheService limita ~100KB por chave.
-    var CK = 'analise_serial_v3_' + String(dados.fileId).slice(-10);
+    var CK = 'analise_serial_v3_' + String(fileId).slice(-10);
     if (!dados.force) {
       var doCache = _lerCache_(CK);
       if (doCache) {
@@ -558,7 +564,7 @@ function analisarHaulerSerial(dados) {
       }
     }
 
-    var bom = analisarHaulerBOM({ fileId: dados.fileId });
+    var bom = analisarHaulerBOM({ fileId: fileId });
     if (!bom.success) return bom;
 
     var compras = _lerAbasCompras_();
@@ -802,6 +808,9 @@ function analisarCompras(dados) {
   try {
     dados = dados || {};
     var props = PropertiesService.getScriptProperties();
+    // Persistir o id recebido é o que permite ao gatilho de aquecimento
+    // recalcular sozinho depois — o painel o guarda no localStorage.
+    if (dados.sheetId) props.setProperty('COMPRAS_SHEET_ID', dados.sheetId);
     var sheetId = dados.sheetId || props.getProperty('COMPRAS_SHEET_ID') || COMPRAS_ID_;
 
     var CK = 'analise_compras_v2_' + String(sheetId).slice(-10);
