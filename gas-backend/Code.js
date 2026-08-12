@@ -29,10 +29,22 @@ function doGet(e) {
     ];
     if (ACOES_MUTANTES.indexOf(data.action) !== -1) _validarToken_(data);
 
+    // Subconjunto que mexe em tarefas/subtarefas do Jira. Depois delas o cache
+    // de aquecimento (Aquecimento.js) precisa ser descartado — senão o gestor
+    // salva uma data, dá F5 e vê o valor antigo voltar, o que é pior que a
+    // lentidão que o cache resolve. Não inclui e-mail/IA, que nada alteram.
+    const ACOES_ALTERAM_TAREFAS = [
+      'criarProjetoJira', 'deletarProjeto', 'mudarStatus',
+      'registrarBloqueio', 'resolverBloqueio', 'atualizarDatas', 'syncDatasReais',
+    ];
+
+    // O switch fica dentro de uma função só para que a invalidação rode depois
+    // dele sem precisar tocar nos ~40 `return` de cada case.
+    const executar = function () {
     switch (data.action) {
       case 'criarProjetoJira':     return jsonResp_(criarProjetoJira(data));
       case 'buscarProximoSerial':  return jsonResp_(buscarProximoSerial());
-      case 'buscarTarefasJira':    return jsonResp_(buscarTarefasJira());
+      case 'buscarTarefasJira':    return jsonResp_(buscarTarefasJira(data));  // aceita {forcar:true}
       case 'buscarBloqueados':     return jsonResp_(buscarBloqueados());
       case 'registrarBloqueio':    return jsonResp_(registrarBloqueio(data));
       case 'resolverBloqueio':    return jsonResp_(resolverBloqueio(data));
@@ -75,8 +87,16 @@ function doGet(e) {
       // ── Votação de prioridade (comitê) ─────────────────────────────────
       case 'registrarVoto':  return jsonResp_(registrarVoto(data));
       case 'buscarVotacao':  return jsonResp_(buscarVotacao(data));
+      // ── Aquecimento do cache de tarefas ───────────────────────────────
+      case 'statusAquecimentoTrigger': return jsonResp_(statusAquecimentoTrigger());
       default: return jsonResp_({ erro: 'Ação desconhecida: ' + data.action });
     }
+    };
+
+    const resp = executar();
+    // Depois, não antes: o cache só é descartado quando a ação já rodou.
+    if (ACOES_ALTERAM_TAREFAS.indexOf(data.action) !== -1) _invalidarCacheTarefas_();
+    return resp;
   } catch (err) {
         try { return jsonResp_({ success: false, erro: err.message }); } catch(_) { return ContentService.createTextOutput(JSON.stringify({success:false,erro:'GAS: '+err.message})).setMimeType(ContentService.MimeType.JSON); }
   }

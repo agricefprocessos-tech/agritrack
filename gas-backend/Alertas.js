@@ -540,7 +540,9 @@ function _pd(s) { if (!s) return null; var d = new Date(s); return isNaN(d) ? nu
  */
 function relatorioSemanalGestores() {
   try {
-    const r = buscarTarefasJira();
+    // Vai direto ao Jira, sem o cache de aquecimento: este relatório sai por
+    // e-mail para os gestores e não pode ser montado sobre dado de minutos atrás.
+    const r = _buscarTarefasJiraDoJira_();
     if (!r.success) throw new Error(r.erro);
 
     const hoje = new Date(); hoje.setHours(0, 0, 0, 0);

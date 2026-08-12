@@ -549,7 +549,11 @@ function addDias_(dateStr, dias) {
 // Retorna JSON no mesmo formato do CSV do Jira (compatível com
 // o dashboard JS sem alterações no código de análise).
 
-function buscarTarefasJira() {
+// Corpo que realmente fala com o Jira. A entrada pública buscarTarefasJira()
+// vive em Aquecimento.js e serve do cache antes de chegar aqui — são ~9
+// requisições sequenciais ao Jira, caras demais para rodar a cada abertura
+// do painel.
+function _buscarTarefasJiraDoJira_() {
   try {
     // Todos os campos necessários — nomes EXATOS conforme CSV exportado pelo Jira
     const fields = [
