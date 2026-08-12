@@ -46,6 +46,7 @@ function doGet(e) {
       // ── Análises canônicas (HaulerAnalise.js) — fonte única das regras ──
       case 'analisarHaulerBOM':    return jsonResp_(analisarHaulerBOM(data));
       case 'analisarHaulerSerial': return jsonResp_(analisarHaulerSerial(data));
+      case 'analisarCompras':      return jsonResp_(analisarCompras(data));
       // ── Backfill datas reais ──────────────────────────────────────────
       case 'syncDatasReais':        return jsonResp_(syncDatasReais());
       case 'statusBackfillTrigger': return jsonResp_(statusBackfillTrigger());

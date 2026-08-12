@@ -308,6 +308,24 @@ function analisarHaulerBOM(dados) {
     var avisos = [];
     var formatos = [];
 
+    // 1ª passada: quantidade de cada nível, para explodir a estrutura.
+    // O BOM é multinível e QNTDE é "por conjunto pai", não o total do Hauler.
+    // 87 dos 236 conjuntos-pai têm quantidade > 1, então somar as linhas cruas
+    // subestima: o código 000059 dá 618 somado e 962 explodido.
+    var qtdPorNivel = {};
+    for (var k = 1; k < linhas.length; k++) {
+      var nvK = _celula_(linhas[k], C.nivel).replace(/\s+/g, '');
+      if (nvK) qtdPorNivel[nvK] = parseFloat(_celula_(linhas[k], C.qtd).replace(',', '.')) || 0;
+    }
+    var fatorDoNivel = function (nv) {
+      var partes = nv.split('.'), f = 1;
+      for (var a = 1; a < partes.length; a++) {
+        var anc = partes.slice(0, a).join('.');
+        if (qtdPorNivel[anc] !== undefined && qtdPorNivel[anc] > 0) f *= qtdPorNivel[anc];
+      }
+      return f;
+    };
+
     for (var i = 1; i < linhas.length; i++) {
       var L = linhas[i];
       var nivel = _celula_(L, C.nivel).replace(/\s+/g, '');
@@ -335,10 +353,11 @@ function analisarHaulerBOM(dados) {
       if (n.risco === 'formato' && formatos.indexOf(codRaw) === -1) formatos.push(codRaw);
 
       if (!agregado[n.cod]) {
-        agregado[n.cod] = { qtd: 0, ocorrencias: 0, desc: desc, tipos: [], externo: false };
+        agregado[n.cod] = { qtd: 0, qtdLinhas: 0, ocorrencias: 0, desc: desc, tipos: [], externo: false };
       }
       var a = agregado[n.cod];
-      a.qtd += qtd;
+      a.qtd += qtd * fatorDoNivel(nivel);   // exigência real por Hauler
+      a.qtdLinhas += qtd;                   // soma crua, para conferência
       a.ocorrencias++;
       if (!a.desc && desc) a.desc = desc;
       if (_ehExterno_(tipos)) a.externo = true;
@@ -529,7 +548,7 @@ function analisarHaulerSerial(dados) {
     // Ler o CSV do BOM + as 3 abas leva ~80s, então o resultado fica em
     // cache por 1h (mesmo padrão de buscarComprasPorSerial). Cache fatiado
     // porque CacheService limita ~100KB por chave.
-    var CK = 'analise_serial_v2_' + String(dados.fileId).slice(-10);
+    var CK = 'analise_serial_v3_' + String(dados.fileId).slice(-10);
     if (!dados.force) {
       var doCache = _lerCache_(CK);
       if (doCache) {
@@ -600,12 +619,20 @@ function analisarHaulerSerial(dados) {
         var entregue = e ? e.entregue : 0;
         somaAtendida += Math.min(entregue, ex.qtd);
 
+        // Um item percorre as 3 abas: nasce em Solicitações, vai para FUP
+        // quando o pedido sai, e cai em Pedidos Concluídos quando chega — e
+        // pode constar em mais de uma ao mesmo tempo. O estágio é o mais
+        // avançado em que ele aparece, decidido pela PRESENÇA na aba (fontes)
+        // e não por a quantidade ser > 0: uma célula de QTD vazia ou ilegível
+        // não pode fazer um item já pedido voltar a "descoberto".
         var estado;
         if (!e) { estado = 'descoberto'; nDesc++; }
-        else if (entregue >= ex.qtd) { estado = 'entregue'; nEnt++; }
-        else if (entregue > 0) { estado = 'parcial'; nParcial++; }
-        else if (e.pedida > 0) { estado = 'pedido'; nPed++; }
-        else if (e.solicitada > 0) { estado = 'solicitado'; nSol++; }
+        else if (e.fontes.indexOf('entregue') !== -1) {
+          if (entregue >= ex.qtd && entregue > 0) { estado = 'entregue'; nEnt++; }
+          else { estado = 'parcial'; nParcial++; }
+        }
+        else if (e.fontes.indexOf('pedido') !== -1) { estado = 'pedido'; nPed++; }
+        else if (e.fontes.indexOf('solicitado') !== -1) { estado = 'solicitado'; nSol++; }
         else { estado = 'descoberto'; nDesc++; }
 
         detalhes.push({
@@ -634,12 +661,38 @@ function analisarHaulerSerial(dados) {
         nEntregue: nEnt, nParcial: nParcial, nPedido: nPed,
         nSolicitado: nSol, nDescoberto: nDesc,
         totalExigidos: exigidos.length,
+        // Três leituras diferentes, porque respondem a perguntas diferentes:
+        // pctQtd  = quanto do material já está fisicamente aqui
+        // pctItens= quantos códigos estão 100% entregues
+        // pctEmCurso = quantos já têm alguma ação de compra (em qualquer aba)
         pctQtd: somaExigida > 0 ? Math.round(somaAtendida / somaExigida * 100) : 0,
         pctItens: exigidos.length > 0 ? Math.round(nEnt / exigidos.length * 100) : 0,
+        pctEmCurso: exigidos.length > 0
+          ? Math.round((exigidos.length - nDesc) / exigidos.length * 100) : 0,
         nExtras: extras.length,
       };
       detalhePorSerial[serial] = { serial: serial, itens: detalhes, extras: extras };
     });
+
+    // Série que tem compras mas nenhuma delas bate com o BOM carregado quase
+    // sempre é de OUTRO modelo de Hauler (o CSV é de um modelo específico).
+    // Mostrar 0% de cobertura nesse caso engana — melhor dizer o que houve.
+    var outroModelo = [];
+    Object.keys(porSerial).forEach(function (s) {
+      var p = porSerial[s];
+      if (p.nDescoberto === p.totalExigidos && p.nExtras > 0) outroModelo.push(s);
+    });
+    if (outroModelo.length) {
+      avisos.push({
+        tipo: 'bom_incompativel',
+        n: outroModelo.length,
+        exemplos: outroModelo,
+        msg: outroModelo.length + ' série(s) têm compras registradas, mas nenhum código coincide '
+           + 'com o BOM carregado — provavelmente são de outro modelo de Hauler. '
+           + 'A cobertura delas não deve ser lida como 0%.',
+      });
+      outroModelo.forEach(function (s) { porSerial[s].bomIncompativel = true; });
+    }
 
     if (ambiguos.length) {
       avisos.push({
@@ -705,4 +758,165 @@ function _lerCache_(chave) {
     }
     return JSON.parse(partes.join(''));
   } catch (e) { return null; }
+}
+
+// ─── COMPRAS: NORMALIZAÇÃO PARA O PAINEL ──────────────────────────
+// Categorias do painel (porte de CMP_CATS / _cmpCateg).
+var CMP_CATS_ = [
+  { titulo: 'Chapa / Corte',   kws: ['chapa', 'corte', 'laser', 'plasma', 'guilhotina'] },
+  { titulo: 'Usinagem',        kws: ['usinagem', 'torno', 'fresa', 'furacao'] },
+  { titulo: 'Hidráulico',      kws: ['hidraulic', 'mangueira', 'cilindro', 'bomba', 'valvula'] },
+  { titulo: 'Elétrico',        kws: ['eletric', 'eletrico', 'cabo', 'sensor', 'chicote', 'bateria'] },
+  { titulo: 'Pneus / Rodas',   kws: ['pneu', 'roda', 'aro', 'camara'] },
+  { titulo: 'Estrutura',       kws: ['estrutura', 'chassi', 'perfil', 'tubo', 'viga'] },
+  { titulo: 'Acabamento',      kws: ['tinta', 'adesivo', 'pintura', 'primer'] },
+  { titulo: 'Fixadores',       kws: ['parafuso', 'porca', 'arruela', 'rebite', 'fixador'] },
+];
+
+// Status que significam "acabou" — entregue ou cancelado. Sem isso, item já
+// entregue continuava sendo contado como vencido nos swim lanes do painel.
+function _cmpConcluido_(status) {
+  var s = _norm_(status);
+  return s.indexOf('entregue') === 0 || s === 'cancelado' || s.indexOf('consta entregue') === 0;
+}
+
+function _cmpCategoria_(txt) {
+  var t = _norm_(txt);
+  for (var i = 0; i < CMP_CATS_.length; i++) {
+    for (var k = 0; k < CMP_CATS_[i].kws.length; k++) {
+      if (t.indexOf(CMP_CATS_[i].kws[k]) !== -1) return CMP_CATS_[i].titulo;
+    }
+  }
+  return 'Outros';
+}
+
+/**
+ * Lê a planilha de Compras e devolve as linhas já normalizadas.
+ * O painel resolvia a coluna de data em 8 lugares com listas de prioridade
+ * diferentes (e o cmpKey ignorava a prioridade), então tabela, KPIs, filtros
+ * e swim lanes discordavam sobre o que é "vencido". Aqui a coluna é resolvida
+ * UMA vez e devolvida em meta.colunaData, e cada linha já vem com _vencido
+ * calculado — excluindo os concluídos.
+ */
+function analisarCompras(dados) {
+  try {
+    dados = dados || {};
+    var props = PropertiesService.getScriptProperties();
+    var sheetId = dados.sheetId || props.getProperty('COMPRAS_SHEET_ID') || COMPRAS_ID_;
+
+    var CK = 'analise_compras_v2_' + String(sheetId).slice(-10);
+    if (!dados.force) {
+      var cacheado = _lerCache_(CK);
+      if (cacheado) { cacheado.fromCache = true; return cacheado; }
+    }
+
+    var ss = SpreadsheetApp.openById(sheetId);
+    var hoje = new Date(); hoje.setHours(12, 0, 0, 0);
+    var em7 = new Date(hoje); em7.setDate(hoje.getDate() + 7);
+    var em30 = new Date(hoje); em30.setDate(hoje.getDate() + 30);
+
+    var abas = [], avisos = [];
+
+    ABAS_COMPRAS_.forEach(function (def) {
+      var sh = null;
+      for (var i = 0; i < def.nomes.length && !sh; i++) sh = ss.getSheetByName(def.nomes[i]);
+      if (!sh) { avisos.push({ tipo: 'planilha', msg: 'Aba não encontrada: ' + def.nomes[0] }); return; }
+      var ultima = sh.getLastRow();
+      if (ultima < 2) return;
+
+      var vals = sh.getRange(1, 1, ultima, sh.getLastColumn()).getValues();
+      var H = vals[0].map(function (h) { return String(h == null ? '' : h).trim(); });
+
+      // A coluna de prazo é resolvida uma única vez, por prioridade real:
+      // previsão de entrega manda; sem ela, a data desejada.
+      // 'previsao entrega' primeiro, sem qualificar o fornecedor: as três abas
+      // têm variantes diferentes dessa coluna ("Previsão Entrega", "...
+      // (Fornecedor)", "... + Prazo Transportadora"). Como _acharColuna_
+      // devolve a 1ª coluna da planilha que casa, o candidato genérico pega a
+      // previsão mais à esquerda em todas — se eu qualificasse por
+      // "(fornecedor)", Solicitações cairia na coluna de transportadora e as
+      // abas passariam a medir "vencido" com réguas diferentes de novo.
+      var iData = _acharColuna_(H, [
+        'previsao entrega', 'prev. entrega',
+        'data entrega atualizada', 'data desejada', 'entrega', 'prazo',
+      ]);
+      var iStatus = _acharColuna_(H, ['status', 'situacao']);
+      var iResp   = _acharColuna_(H, ['responsavel']);
+      var iFinal  = _acharColuna_(H, ['finalidade']);
+      var iAlmox  = _acharColuna_(H, ['almox', 'alnoxarifado']);
+      var iCC     = _acharColuna_(H, ['centro de custo']);
+      var iDesc   = _acharColuna_(H, ['descricao']);
+      var iForn   = _acharColuna_(H, ['fornecedor']);
+      var iPv     = _acharColuna_(H, ['pv']);
+      if (iPv < 0) iPv = 0;   // mesmo fallback de _lerAbasCompras_
+
+      var linhas = [];
+      for (var r = 1; r < vals.length; r++) {
+        var L = vals[r];
+        var vazia = true;
+        for (var c = 0; c < L.length; c++) { if (String(L[c] || '').trim()) { vazia = false; break; } }
+        if (vazia) continue;
+
+        var obj = {};
+        for (var h = 0; h < H.length; h++) if (H[h]) obj[H[h]] = _celula_(L, h);
+
+        var status = iStatus >= 0 ? _celula_(L, iStatus) : '';
+        var concluido = _cmpConcluido_(status);
+        var dt = iData >= 0 ? _parseData_(L[iData]) : null;
+
+        obj._pv = _celula_(L, iPv);
+        obj._dt = _fmtIso_(dt);
+        obj._concluido = concluido;
+        // Um item entregue não está "vencido" — ele acabou.
+        obj._vencido = !!(dt && dt < hoje && !concluido);
+        obj._vence7 = !!(dt && !concluido && dt >= hoje && dt <= em7);
+        obj._vence30 = !!(dt && !concluido && dt >= hoje && dt <= em30);
+        obj._categoria = _cmpCategoria_(
+          [iFinal, iAlmox, iCC, iDesc].map(function (ix) { return ix >= 0 ? _celula_(L, ix) : ''; }).join(' ')
+          + ' ' + status);
+        obj._responsavel = iResp >= 0 ? _celula_(L, iResp) : '';
+        obj._fornecedor = iForn >= 0 ? _celula_(L, iForn) : '';
+        obj._aba = def.nomes[0];
+        obj._fonte = def.fonte;
+        linhas.push(obj);
+      }
+
+      abas.push({
+        nome: def.nomes[0], fonte: def.fonte, headers: H.filter(function (h) { return h; }),
+        colunaData: iData >= 0 ? H[iData] : null,
+        linhas: linhas, total: linhas.length,
+      });
+      if (iData < 0) {
+        avisos.push({ tipo: 'planilha', msg: 'Aba ' + def.nomes[0] + ': nenhuma coluna de data reconhecida.' });
+      }
+    });
+
+    var todas = [];
+    abas.forEach(function (a) { todas = todas.concat(a.linhas); });
+
+    var resultado = {
+      success: true,
+      geradoEm: new Date().toISOString(),
+      abas: abas.map(function (a) {
+        return { nome: a.nome, fonte: a.fonte, headers: a.headers, colunaData: a.colunaData, total: a.total };
+      }),
+      linhas: todas,
+      meta: {
+        colunaData: abas.length ? abas[0].colunaData : null,
+        colunaDataPorAba: abas.reduce(function (m, a) { m[a.nome] = a.colunaData; return m; }, {}),
+      },
+      totais: {
+        linhas: todas.length,
+        vencidos: todas.filter(function (l) { return l._vencido; }).length,
+        vence7: todas.filter(function (l) { return l._vence7; }).length,
+        concluidos: todas.filter(function (l) { return l._concluido; }).length,
+      },
+      avisos: avisos,
+    };
+
+    _gravarCache_(CK, resultado);
+    return resultado;
+  } catch (e) {
+    return { success: false, erro: e.message };
+  }
 }
