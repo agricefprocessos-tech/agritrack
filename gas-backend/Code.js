@@ -22,6 +22,10 @@ function doGet(e) {
       // Custam dinheiro por chamada e o web app e ANYONE_ANONYMOUS:
       // exigem token mesmo sendo semanticamente leitura.
       'analiseRiscosIA', 'chatCompras',
+      // Criam/alteram dados no Jira. O web app e ANYONE_ANONYMOUS, entao sem
+      // token qualquer pessoa com a URL poderia criar projetos ou reescrever
+      // datas em massa. Espelhar em ACOES_MUTANTES no painel.
+      'criarProjetoJira', 'syncDatasReais',
     ];
     if (ACOES_MUTANTES.indexOf(data.action) !== -1) _validarToken_(data);
 

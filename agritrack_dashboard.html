@@ -1551,7 +1551,13 @@ const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbxeB715oIGkd1jIcCaW
 // (ver _validarToken_ em FormPCP.js). Não é autenticação de identidade —
 // só eleva o esforço de acesso não autorizado ao endpoint público do GAS.
 const APP_TOKEN = '413992f5-025c-4254-9c97-9ea8aeb1d651';
-const ACOES_MUTANTES = ['deletarProjeto','mudarStatus','resolverBloqueio','registrarBloqueio','atualizarDatas','enviarSolicitacaoAtualizacao','enviarRelatorio','registrarVoto'];
+// Precisa espelhar a lista do backend (Code.js). Toda acao que ESCREVE entra
+// aqui, senao o painel manda a chamada sem token e o backend recusa; e toda
+// acao que o backend exige token precisa estar aqui, senao quebra em producao.
+const ACOES_MUTANTES = ['deletarProjeto','mudarStatus','resolverBloqueio','registrarBloqueio',
+  'atualizarDatas','enviarSolicitacaoAtualizacao','enviarRelatorio','registrarVoto',
+  'relatorioAtividadeSemanal','analiseRiscosIA','chatCompras',
+  'criarProjetoJira','syncDatasReais'];
 function getApi(){return localStorage.getItem('agritrack_api')||DEFAULT_API;}
 function saveApiUrl(){localStorage.setItem('agritrack_api',document.getElementById('cfgApi').value);}
 // A IA passou a ser central (chave em Script Properties, no backend), então o
