@@ -251,6 +251,12 @@ function criarProjetoSimples_(dados) {
   const tipoCfg = deptCfg.tipos[dados.tipo];
   if (!tipoCfg) throw new Error('Tipo desconhecido: ' + dados.tipo);
 
+  // Validar ANTES do POST: depois que a tarefa-pai existe no Jira não há como
+  // desfazer, e uma data inválida só apareceria lá na frente como subtarefa com
+  // data vazia — ou fazendo addDias_ lançar no meio da criação.
+  const erroPeriodo = _validarPeriodo_(dados.startDate, dados.dueDate);
+  if (erroPeriodo) throw new Error(erroPeriodo);
+
   const summary  = buildSummaryGenerico_(dados, tipoCfg);
   const body     = buildBodyGenerico_(dados, tipoCfg, summary);
   const resp     = jiraRequest_('POST', '/rest/api/3/issue', body);
@@ -264,16 +270,29 @@ function criarProjetoSimples_(dados) {
 
   // Criar subtarefas com datas distribuídas igualmente
   const sts = tipoCfg.subtarefas || [];
+  const avisos = [];
   if (sts.length > 0 && dados.startDate && dados.dueDate) {
     const total  = Math.max(1, (new Date(dados.dueDate) - new Date(dados.startDate)) / 86400000);
     const step   = Math.max(3, Math.round(total / sts.length));
     for (let i = 0; i < sts.length; i++) {
       const stStart = addDias_(dados.startDate, i * step);
-      const stEnd   = addDias_(dados.startDate, (i + 1) * step);
-      const r = criarSubtarefa_(resp.key, sts[i], stStart, stEnd);
-      if (r.key) resultado.subtasks.push(r.key);
+      // Nunca deixa a subtarefa terminar depois do projeto: com poucos dias e
+      // muitas etapas, o passo mínimo de 3 dias estouraria a data limite.
+      const stEndBruto = addDias_(dados.startDate, (i + 1) * step);
+      const stEnd = stEndBruto > dados.dueDate ? dados.dueDate : stEndBruto;
+      // Uma subtarefa que falha NÃO pode derrubar a criação: a tarefa-pai já
+      // existe no Jira, e devolver erro levaria o usuário a repetir o
+      // formulário — criando um projeto duplicado. Vira aviso.
+      try {
+        const r = criarSubtarefa_(resp.key, sts[i], stStart, stEnd);
+        if (r && r.key) resultado.subtasks.push(r.key);
+        else avisos.push('Subtarefa "' + sts[i] + '" não foi criada.');
+      } catch (eSt) {
+        avisos.push('Subtarefa "' + sts[i] + '": ' + eSt.message);
+      }
     }
   }
+  if (avisos.length) resultado.avisos = avisos;
 
   // Notifica o comitê para votação de prioridade (não bloqueia a criação se falhar)
   try {
@@ -534,6 +553,19 @@ function jiraRequest_(method, path, payload) {
 }
 
 // ─── HELPER DATAS ─────────────────────────────────────────────
+
+// Devolve a mensagem de erro, ou '' se o período estiver utilizável.
+// Sem período o projeto é criado sem subtarefas datadas — comportamento
+// existente, mantido de propósito.
+function _validarPeriodo_(inicio, fim) {
+  if (!inicio || !fim) return '';
+  const di = new Date(inicio + 'T12:00:00');
+  const df = new Date(fim + 'T12:00:00');
+  if (isNaN(di.getTime())) return 'Data de início inválida: ' + inicio;
+  if (isNaN(df.getTime())) return 'Data limite inválida: ' + fim;
+  if (df < di) return 'A data limite (' + fim + ') é anterior à data de início (' + inicio + ').';
+  return '';
+}
 
 function addDias_(dateStr, dias) {
   const d = new Date(dateStr + 'T12:00:00');
