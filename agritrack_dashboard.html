@@ -3819,9 +3819,19 @@ function _renderHaulerApontamentos(data){
   const temposNorm={};
   Object.entries(tempos).forEach(([cod,ops])=>{temposNorm[_normCod(cod)]=ops;});
   const apontCodigos=new Set(Object.keys(temposNorm));
+  // Listas de LINHAS do BOM — alimentam as tabelas de detalhe mais abaixo.
   const found=bomRows.filter(r=>apontCodigos.has(_normCod(r.codigo)));
   const notFound=bomRows.filter(r=>!apontCodigos.has(_normCod(r.codigo)));
-  const coverage=bomCodigos.size?Math.round(found.length/bomCodigos.size*100):0;
+  // Cobertura precisa comparar a MESMA unidade dos dois lados. O BOM tem 1633
+  // linhas para 994 códigos distintos (o mesmo item aparece em vários
+  // conjuntos), então dividir linhas por códigos dava até 164%.
+  const codsComApont =[...bomCodigos].filter(c=>apontCodigos.has(c)).length;
+  const codsSemApont =bomCodigos.size-codsComApont;
+  const coverage=bomCodigos.size?Math.round(codsComApont/bomCodigos.size*100):0;
+  // Lista de faltantes sem repetição: a mesma peça aparece em vários conjuntos
+  // do BOM, e mostrá-la 5 vezes como "sem apontamento" só ocupa espaço.
+  const notFoundUnicos=[];const _jaVi=new Set();
+  notFound.forEach(r=>{const c=_normCod(r.codigo);if(_jaVi.has(c))return;_jaVi.add(c);notFoundUnicos.push(r);});
   // Saldo por série
   const saldoBySerie={};
   saldo.forEach(s=>{
@@ -3835,16 +3845,16 @@ function _renderHaulerApontamentos(data){
     <div class="krow" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
       <div class="kpi ${coverage>=80?'g':coverage>=50?'a':'r'}">
         <div class="kl">Cobertura BOM</div><div class="kv">${coverage}%</div>
-        <div class="kn">${found.length} de ${bomCodigos.size} itens</div>
+        <div class="kn">${codsComApont} de ${bomCodigos.size} códigos</div>
         <div class="kb" style="width:${coverage}%"></div>
       </div>
       <div class="kpi g">
-        <div class="kl">Com Apontamento</div><div class="kv">${found.length}</div>
-        <div class="kn">itens registrados</div><div class="kb" style="width:100%"></div>
+        <div class="kl">Com Apontamento</div><div class="kv">${codsComApont}</div>
+        <div class="kn">códigos registrados</div><div class="kb" style="width:100%"></div>
       </div>
       <div class="kpi r">
-        <div class="kl">Sem Apontamento</div><div class="kv">${notFound.length}</div>
-        <div class="kn">não encontrados</div><div class="kb" style="width:100%"></div>
+        <div class="kl">Sem Apontamento</div><div class="kv">${codsSemApont}</div>
+        <div class="kn">códigos não encontrados</div><div class="kb" style="width:100%"></div>
       </div>
       <div class="kpi">
         <div class="kl">Séries Hauler</div><div class="kv">${seriesList.length}</div>
@@ -3954,15 +3964,15 @@ function _renderHaulerApontamentos(data){
     </div>`:''}
 
     <!-- Items sem apontamento -->
-    ${notFound.length?`
+    ${notFoundUnicos.length?`
     <div class="card" style="padding:16px">
-      <div style="font-size:12px;font-weight:600;color:var(--red);margin-bottom:10px">❌ ${notFound.length} itens do BOM sem apontamentos registrados</div>
+      <div style="font-size:12px;font-weight:600;color:var(--red);margin-bottom:10px">❌ ${notFoundUnicos.length} códigos do BOM sem apontamentos registrados</div>
       <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Estes itens existem no BOM mas não foram encontrados nos apontamentos de produção do Hauler. Podem ser itens comprados (sem apontamento de fabricação), novos ou ainda não produzidos.</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px">
-        ${notFound.slice(0,80).map(r=>`
+        ${notFoundUnicos.slice(0,80).map(r=>`
           <span title="${esc(r.desc)}" style="padding:3px 8px;background:var(--bg3);border-radius:4px;font-size:11px;font-family:monospace;color:${r.tipoAll.includes('comprar')?'var(--blue)':'var(--text2)'}">${r.codigo||esc(r.desc.slice(0,20))}</span>
         `).join('')}
-        ${notFound.length>80?`<span style="font-size:11px;color:var(--text3)">...+${notFound.length-80}</span>`:''}
+        ${notFoundUnicos.length>80?`<span style="font-size:11px;color:var(--text3)">...+${notFoundUnicos.length-80}</span>`:''}
       </div>
       <div style="margin-top:10px;font-size:11px;color:var(--text3)">🔵 Azul = item de compra (esperado sem apontamento de fab.) &nbsp;⬜ Branco = fabricado mas sem registro</div>
     </div>`:''}
