@@ -2521,7 +2521,24 @@ async function submitBloqueio(){
   const tipo=document.getElementById('bTipo').value;
   const descr=document.getElementById('bDescricao').value;
   if(!tipo){showBMsg('Selecione o tipo de bloqueio.','err');return;}
-  showBMsg('Registrando…','info');
+
+  const dStart=document.getElementById('bNewStart').value||null;
+  const dDue  =document.getElementById('bNewDue').value||null;
+  const dAlvo =document.getElementById('bNewAlvo').value||null;
+
+  // Optimistic UI — ver o comentário em submitBlkModal (Gantt). Medido ao vivo
+  // em 13/08 com o script quente e sem concorrência: registrarBloqueio levou
+  // 16,5s de ponta a ponta (busca a issue, atualiza label, cria o card BLKQ,
+  // linka, comenta, grava datas — tudo em série no backend). Tirar o PDF da
+  // requisição não resolveu isso porque o PDF nunca foi o gargalo; o otimismo
+  // aqui é o que faz o gestor não esperar os 16,5s olhando para o botão.
+  const snap=_snapshotTask_(key);
+  _patchTaskDatas_(key,{startDate:dStart,dueDate:dDue,alvoDate:dAlvo},true);
+  renderGantt();
+  showBMsg('Bloqueio aplicado em '+key+' — confirmando no Jira…','info');
+
+  const desfazer=(txt)=>{_restaurarTask_(snap);renderGantt();showBMsg(txt,'err');};
+
   try{
     const r=await api({
       action:'registrarBloqueio',
@@ -2532,30 +2549,31 @@ async function submitBloqueio(){
       impacto:document.getElementById('bImpacto').value,
       responsavel:document.getElementById('bResponsavel').value,
       prazoResolucao:document.getElementById('bPrazoRes').value,
-      novaDueDate:document.getElementById('bNewDue').value||null,
-      novaDataAlvo:document.getElementById('bNewAlvo').value||null,
-      novaDataStart:document.getElementById('bNewStart').value||null,
-    });
-    if(r.success){
-      const ignorados=r.camposIgnorados&&r.camposIgnorados.length?' (ignorado: '+r.camposIgnorados.join('; ')+')':'';
-      showBMsg('✓ Bloqueio registrado em '+key+'. Atualizando lista…'+ignorados,'ok');
-      if(r.drive&&r.drive.url){const el=document.getElementById('bMsg');el.innerHTML=el.textContent+` <a href="${r.drive.url}" target="_blank" style="color:inherit;text-decoration:underline">📄 ${r.drive.nome||'Relatório PDF'}</a>`;}
-      // Aplica localmente (label + datas) — sem isso o Gantt/pop-up de detalhe
-      // continuavam mostrando o item como não-bloqueado até um refresh completo.
-      // Não propaga alvoDate se o backend o descartou (ex: subtarefa sem o campo).
-      const alvoFoiIgnorado=r.camposIgnorados&&r.camposIgnorados.some(c=>c.startsWith('Data alvo'));
-      _patchTaskDatas_(key,{
-        startDate:document.getElementById('bNewStart').value||null,
-        dueDate:document.getElementById('bNewDue').value||null,
-        alvoDate:alvoFoiIgnorado?null:(document.getElementById('bNewAlvo').value||null),
-      },true);
-      _jiraCacheSync();
+      novaDueDate:dDue,
+      novaDataAlvo:dAlvo,
+      novaDataStart:dStart,
+    }, 60000); // registrarBloqueio é a ação mais lenta do sistema (medido: até 16,5s)
+    if(!r.success){desfazer('Não bloqueou: '+(r.erro||JSON.stringify(r)));return;}
+
+    const ignorados=r.camposIgnorados&&r.camposIgnorados.length?' (ignorado: '+r.camposIgnorados.join('; ')+')':'';
+    let msgOk='✓ Bloqueio registrado em '+key+ignorados;
+    if(r.drive&&r.drive.pendente)msgOk+=' — relatório PDF sendo gerado em segundo plano';
+    else if(r.drive&&r.drive.url)msgOk+=` <a href="${r.drive.url}" target="_blank" style="color:inherit;text-decoration:underline">📄 ${r.drive.nome||'Relatório PDF'}</a>`;
+    document.getElementById('bMsg').innerHTML=msgOk;
+    document.getElementById('bMsg').className='form-msg ok';
+
+    // Reaplica a partir do estado original com o que o servidor confirmou —
+    // cobre o campo que ele descartou (ex: Data alvo em subtarefa).
+    if(ignorados){
+      const alvoIgnorado=r.camposIgnorados.some(c=>c.startsWith('Data alvo'));
+      _restaurarTask_(snap);
+      _patchTaskDatas_(key,{startDate:dStart,dueDate:dDue,alvoDate:alvoIgnorado?null:dAlvo},true);
       renderGantt();
-      clearBloqueioForm();
-      setTimeout(()=>loadBloqueados(),3000);
     }
-    else showBMsg('Erro: '+(r.erro||JSON.stringify(r)),'err');
-  }catch(e){showBMsg('Erro: '+e.message,'err');}
+    _jiraCacheSync(); // só depois de confirmado
+    clearBloqueioForm();
+    setTimeout(()=>loadBloqueados(),3000);
+  }catch(e){desfazer('Não bloqueou: '+e.message);}
 }
 
 async function submitApenasData(){
@@ -2613,36 +2631,58 @@ async function submitResolucao(apenasComentario=false){
   if(!resolucao){showBMsgRes('Descreva o que foi feito para resolver o bloqueio.','err');return;}
   const responsavel=document.getElementById('bResponsavelRes').value.trim();
   const dataRes=document.getElementById('bDataRes').value||new Date().toISOString().slice(0,10);
-  showBMsgRes(apenasComentario?'Registrando comentário…':'Desbloqueando projeto…','info');
+
+  // Optimistic UI só faz sentido no desbloqueio de verdade (remove label). O
+  // modo "apenas comentário" não muda estado visível, então segue síncrono.
+  if(apenasComentario){
+    showBMsgRes('Registrando comentário…','info');
+    try{
+      const r=await api({action:'resolverBloqueio',issueKey:key,descricaoResolucao:resolucao,
+        responsavelResolucao:responsavel,dataResolucao:dataRes,removerLabel:false},60000);
+      if(!r.success){showBMsgRes('Erro: '+(r.erro||JSON.stringify(r)),'err');return;}
+      let msg=`✓ Resolução registrada em ${key} como comentário.`;
+      if(r.drive&&r.drive.pendente)msg+=' — relatório sendo gerado em segundo plano';
+      showBMsgRes(msg,'ok');
+    }catch(e){showBMsgRes('Erro: '+e.message,'err');}
+    return;
+  }
+
+  // Medido ao vivo em 13/08 com o script quente: resolverBloqueio levou 8,9s.
+  const t=allTasks.find(x=>x['Chave da item']===key)||allSubs.find(x=>x['Chave da item']===key);
+  const labelsAntes=t?t['Labels']:null;
+  if(t)t['Labels']=(t['Labels']||'').split(' ').filter(l=>l!=='bloqueado').join(' ');
+  renderGantt();
+  showBMsgRes('Desbloqueio aplicado em '+key+' — confirmando no Jira…','info');
+
+  const camposForm={resolucao:document.getElementById('bResolucao').value,
+    responsavel:document.getElementById('bResponsavelRes').value,
+    dataRes:document.getElementById('bDataRes').value};
+  const desfazer=(txt)=>{
+    if(t&&labelsAntes!==null)t['Labels']=labelsAntes;
+    renderGantt();
+    document.getElementById('bResolucao').value=camposForm.resolucao;
+    document.getElementById('bResponsavelRes').value=camposForm.responsavel;
+    document.getElementById('bDataRes').value=camposForm.dataRes;
+    showBMsgRes(txt,'err');
+  };
+
   try{
-    const r=await api({
-      action:'resolverBloqueio',
-      issueKey:key,
-      descricaoResolucao:resolucao,
-      responsavelResolucao:responsavel,
-      dataResolucao:dataRes,
-      removerLabel:!apenasComentario,
-    });
-    if(r.success){
-      const baseMsg=apenasComentario?`✓ Resolução registrada em ${key} como comentário.`:`✅ ${key} desbloqueado! Label removido e resolução registrada.`;
-      showBMsgRes(baseMsg,'ok');
-      if(r.drive&&r.drive.url){const el=document.getElementById('bMsgRes');el.innerHTML=el.textContent+` <a href="${r.drive.url}" target="_blank" style="color:inherit;text-decoration:underline">📄 ${r.drive.nome||'Relatório PDF'}</a>`;}
-      if(!apenasComentario){
-        document.getElementById('bResolucao').value='';
-        document.getElementById('bResponsavelRes').value='';
-        document.getElementById('bDataRes').value='';
-        // Remove a label localmente — sem isso o item continuava aparecendo como
-        // bloqueado no Gantt/pop-up de detalhe até um refresh completo.
-        const t=allTasks.find(x=>x['Chave da item']===key)||allSubs.find(x=>x['Chave da item']===key);
-        if(t)t['Labels']=(t['Labels']||'').split(' ').filter(l=>l!=='bloqueado').join(' ');
-        _jiraCacheSync();
-        renderGantt();
-        setTimeout(()=>loadBloqueados(),2500);
-      }
-    } else {
-      showBMsgRes('Erro: '+(r.erro||JSON.stringify(r)),'err');
-    }
-  }catch(e){showBMsgRes('Erro: '+e.message,'err');}
+    const r=await api({action:'resolverBloqueio',issueKey:key,descricaoResolucao:resolucao,
+      responsavelResolucao:responsavel,dataResolucao:dataRes,removerLabel:true},60000);
+    if(!r.success){desfazer('Não desbloqueou: '+(r.erro||JSON.stringify(r)));return;}
+
+    let msg=`✅ ${key} desbloqueado! Label removido e resolução registrada.`;
+    if(r.drive&&r.drive.pendente)msg+=' — relatório PDF sendo gerado em segundo plano';
+    else if(r.drive&&r.drive.url)msg+=` <a href="${r.drive.url}" target="_blank" style="color:inherit;text-decoration:underline">📄 ${r.drive.nome||'Relatório PDF'}</a>`;
+    document.getElementById('bMsgRes').innerHTML=msg;
+    document.getElementById('bMsgRes').className='form-msg ok';
+
+    document.getElementById('bResolucao').value='';
+    document.getElementById('bResponsavelRes').value='';
+    document.getElementById('bDataRes').value='';
+    _jiraCacheSync(); // só depois de confirmado
+    setTimeout(()=>loadBloqueados(),2500);
+  }catch(e){desfazer('Não desbloqueou: '+e.message);}
 }
 
 // ════════════════════════════════════════════════════════════════
