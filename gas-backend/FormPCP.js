@@ -272,14 +272,14 @@ function criarProjetoSimples_(dados) {
   const sts = tipoCfg.subtarefas || [];
   const avisos = [];
   if (sts.length > 0 && dados.startDate && dados.dueDate) {
-    const total  = Math.max(1, (new Date(dados.dueDate) - new Date(dados.startDate)) / 86400000);
-    const step   = Math.max(3, Math.round(total / sts.length));
+    const marcos = _distribuirEtapas_(dados.startDate, dados.dueDate, sts.length);
+    if (marcos.colapsadas > 0) {
+      avisos.push('O período de ' + marcos.totalDias + ' dia(s) é curto para ' + sts.length
+        + ' etapas: ' + marcos.colapsadas + ' subtarefa(s) ficaram com a mesma data limite.');
+    }
     for (let i = 0; i < sts.length; i++) {
-      const stStart = addDias_(dados.startDate, i * step);
-      // Nunca deixa a subtarefa terminar depois do projeto: com poucos dias e
-      // muitas etapas, o passo mínimo de 3 dias estouraria a data limite.
-      const stEndBruto = addDias_(dados.startDate, (i + 1) * step);
-      const stEnd = stEndBruto > dados.dueDate ? dados.dueDate : stEndBruto;
+      const stStart = i === 0 ? dados.startDate : marcos.fins[i - 1];
+      const stEnd   = marcos.fins[i];
       // Uma subtarefa que falha NÃO pode derrubar a criação: a tarefa-pai já
       // existe no Jira, e devolver erro levaria o usuário a repetir o
       // formulário — criando um projeto duplicado. Vira aviso.
@@ -553,6 +553,32 @@ function jiraRequest_(method, path, payload) {
 }
 
 // ─── HELPER DATAS ─────────────────────────────────────────────
+
+// Reparte as etapas ao longo do período do projeto.
+//
+// A versão anterior usava passo fixo `max(3, total/n)` e depois cortava no
+// prazo final. O piso de 3 dias brigava com o corte: num projeto de 10 dias
+// com 7 etapas, quatro subtarefas terminavam no MESMO dia (4 datas distintas
+// de 7), e num de 5 dias com 6 etapas sobravam só 2 datas. Além disso a última
+// etapa terminava antes do fim do projeto (dia 42 de 44).
+//
+// Aqui o corte é proporcional, e `Math.max(i, ...)` garante datas
+// estritamente crescentes sempre que houver dias suficientes — 10 dias com 7
+// etapas passa a render 7 datas distintas, e a última etapa fecha exatamente
+// no prazo. Quando o período é curto demais o colapso é inevitável: em vez de
+// esconder, contamos e devolvemos em `colapsadas` para virar aviso.
+function _distribuirEtapas_(inicio, fim, n) {
+  const total = Math.round((new Date(fim + 'T12:00:00') - new Date(inicio + 'T12:00:00')) / 86400000);
+  const fins = [];
+  for (let i = 1; i <= n; i++) {
+    let d = Math.max(i, Math.round(total * i / n));
+    if (d > total) d = total;
+    fins.push(addDias_(inicio, d));
+  }
+  const distintas = {};
+  fins.forEach(function (f) { distintas[f] = 1; });
+  return { fins: fins, totalDias: total, colapsadas: n - Object.keys(distintas).length };
+}
 
 // Devolve a mensagem de erro, ou '' se o período estiver utilizável.
 // Sem período o projeto é criado sem subtarefas datadas — comportamento
