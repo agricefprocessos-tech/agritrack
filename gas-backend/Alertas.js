@@ -127,6 +127,12 @@ function alertaVencimentos(opcoes) {
       const diasRestantes = Math.round((due - hoje) / 86400000);
       if (!_alertaDeveDisparar(diasRestantes, opcoes && opcoes.janelaDias)) return;
 
+      // Subtarefa cujo PAI já está concluído é resíduo: o projeto acabou e
+      // ninguém fechou a subtarefa. Cobrar isso é ruído que destrói a confiança
+      // no alerta — num gestor real, 14 dos 19 "atrasados" eram exatamente isso.
+      const paiSt = f.parent && f.parent.fields && f.parent.fields.status;
+      if (paiSt && paiSt.statusCategory && paiSt.statusCategory.key === 'done') return;
+
       const nome = f.assignee ? f.assignee.displayName : '';
       const email = _buscarEmailGestor_(nome);
       if (!email) { semEmail[nome] = (semEmail[nome] || 0) + 1; return; }
@@ -577,7 +583,14 @@ function relatorioSemanalGestores(opcoes) {
     });
 
     // Este é indexado por NOME (os outros dois por e-mail) — o digest normaliza.
-    if (opcoes && opcoes.somenteColeta) return { success: true, porGestorNome: porGestor, semEmailMapeado: semEmail };
+    // `concluidas` permite ao digest descartar subtarefa de projeto já fechado:
+    // o pai pode ser de OUTRO gestor, então o recorte não dá para fazer só com
+    // a lista de um gestor.
+    if (opcoes && opcoes.somenteColeta) {
+      var concluidas = {};
+      r.issues.forEach(function (t) { if ((t._statusKey || '') === 'done') concluidas[t['Chave da item']] = 1; });
+      return { success: true, porGestorNome: porGestor, semEmailMapeado: semEmail, concluidas: concluidas };
+    }
 
     _checarCotaEmail_(Object.keys(porGestor).length);
 

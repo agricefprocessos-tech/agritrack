@@ -64,15 +64,19 @@ function digestSemanalGestores(opcoes) {
     Object.keys(plan.porGestorNome || {}).forEach(function (nome) {
       var g = plan.porGestorNome[nome];
       if (!g.email) return;
-      slot(g.email, nome).planejamento = g.itens || [];
+      var sl = slot(g.email, nome); sl.planejamento = g.itens || []; sl.concluidas = plan.concluidas || {};
     });
 
     // Gestor sem nada em nenhuma das três não recebe e-mail. Mandar "você
     // não tem pendências" toda segunda é o tipo de ruído que faz o filtro
     // do Gmail nascer.
+    // Filtra pelo que o e-mail REALMENTE vai mostrar, não pela lista crua:
+    // `planejamento` traz todas as issues do gestor (inclusive concluídas), então
+    // usá-lo aqui fazia um gestor com 42 issues — todas fechadas — entrar na
+    // lista e receber um e-mail com as três seções vazias.
     var destinos = Object.keys(porEmail).filter(function (e) {
       var g = porEmail[e];
-      return g.vencimentos.length || g.projetos.length || g.planejamento.length;
+      return g.vencimentos.length || g.projetos.length || _cargaDaSemana_(g.planejamento, g.concluidas).total;
     });
 
     // Modo inspeção: devolve o HTML montado SEM enviar nada. Existe porque na
@@ -84,7 +88,7 @@ function digestSemanalGestores(opcoes) {
         var g = porEmail[email];
         return { email: email, nome: g.nome, assunto: _resumoAssunto_(g),
                  secoes: { vencimentos: g.vencimentos.length, projetos: g.projetos.length,
-                           cargaBruta: g.planejamento.length, carga: _cargaDaSemana_(g.planejamento) },
+                           cargaBruta: g.planejamento.length, carga: _cargaDaSemana_(g.planejamento, g.concluidas) },
                  html: _montarDigestHtml_(g, email, true) };
       });
       return { success: true, inspecao: true, totalDestinos: destinos.length, amostra: amostra };
@@ -124,7 +128,7 @@ function digestSemanalGestores(opcoes) {
  * crua de todas as issues do gestor — inclusive Done de anos anteriores.
  * Um item "sem data limite" só conta se já foi iniciado; senão é backlog, não carga.
  */
-function _cargaDaSemana_(itens) {
+function _cargaDaSemana_(itens, concluidas) {
   var hoje = new Date(); hoje.setHours(0, 0, 0, 0);
   var fim = new Date(hoje); fim.setDate(hoje.getDate() + 7);
   var atrasados = 0, naSemana = 0, semData = 0;
@@ -132,6 +136,9 @@ function _cargaDaSemana_(itens) {
   var abertos = 0;
   (itens || []).forEach(function (t) {
     if ((t._statusKey || '') === 'done') return;
+    // Mesmo recorte do alerta: subtarefa de projeto concluído é resíduo.
+    var pai = t['Chave pai'];
+    if (pai && concluidas && concluidas[pai]) return;
     abertos++;
     var due = _pd(t['Data limite']);
     if (!due) { semData++; return; }
@@ -202,7 +209,7 @@ function _montarDigestHtml_(g, emailReal, previa) {
   // — são TODAS as issues já atribuídas ao gestor, inclusive concluídas em anos
   // anteriores. Chamar isso de "em andamento nesta semana" é falso (mostrava 99
   // para um gestor). O recorte tem que ser feito aqui.
-  var carga = _cargaDaSemana_(g.planejamento);
+  var carga = _cargaDaSemana_(g.planejamento, g.concluidas);
   var corpoPlan = '';
   if (carga.total) {
     corpoPlan = '<div style="background:#1a2235;border-radius:8px;padding:12px;font-size:12px;color:#c5cfe0">'
