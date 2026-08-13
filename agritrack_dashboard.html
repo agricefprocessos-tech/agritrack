@@ -1557,7 +1557,12 @@ const APP_TOKEN = '413992f5-025c-4254-9c97-9ea8aeb1d651';
 const ACOES_MUTANTES = ['deletarProjeto','mudarStatus','resolverBloqueio','registrarBloqueio',
   'atualizarDatas','enviarSolicitacaoAtualizacao','enviarRelatorio','registrarVoto',
   'relatorioAtividadeSemanal','analiseRiscosIA','chatCompras',
-  'criarProjetoJira','syncDatasReais'];
+  'criarProjetoJira','syncDatasReais',
+  // Ativação de gatilhos agendados + disparo de e-mail. Esta lista precisa
+  // espelhar ACOES_MUTANTES em Code.js: sem a ação aqui, o painel não anexa o
+  // token e o backend responde "Não autorizado".
+  'previaDigestSemanal','setupDigestSemanalTrigger','desativarTriggersAntigosDiarios',
+  'setupAquecimentoTrigger','setupAnalisesTrigger'];
 function getApi(){return localStorage.getItem('agritrack_api')||DEFAULT_API;}
 function saveApiUrl(){localStorage.setItem('agritrack_api',document.getElementById('cfgApi').value);}
 // A IA passou a ser central (chave em Script Properties, no backend), então o
