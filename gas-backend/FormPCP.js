@@ -1063,13 +1063,23 @@ function mudarStatus(dados) {
     // Busca as transições disponíveis para o issue
     var trans = jiraRequest_('GET', '/rest/api/3/issue/' + issueKey + '/transitions');
     var list  = (trans.transitions) || [];
+    // Os ALVOS são o laço de FORA: eles estão em ordem de preferência, então o
+    // alias mais específico tem que vencer. Com as transições por fora, a
+    // primeira da lista do Jira que casasse com QUALQUER alias ganhava — se o
+    // fluxo tivesse "Concluído sem sucesso" antes de "Feito", pedir "Feito"
+    // mandava a tarefa para o status errado. Mesmo erro já corrigido em
+    // _acharColuna_ (HaulerAnalise.js).
     var match = null;
-    for (var i = 0; i < list.length; i++) {
-      var tn = (list[i].name || '').toLowerCase();
-      for (var j = 0; j < targets.length; j++) {
-        if (tn.indexOf(targets[j]) !== -1) { match = list[i]; break; }
+    for (var j = 0; j < targets.length && !match; j++) {
+      // Preferir nome idêntico antes de aceitar substring: "Feito" não deve
+      // casar com "Não feito" só porque veio antes na lista.
+      for (var i = 0; i < list.length; i++) {
+        if ((list[i].name || '').toLowerCase() === targets[j]) { match = list[i]; break; }
       }
       if (match) break;
+      for (var k = 0; k < list.length; k++) {
+        if ((list[k].name || '').toLowerCase().indexOf(targets[j]) !== -1) { match = list[k]; break; }
+      }
     }
     if (!match) {
       var nomes = list.map(function(t){ return t.name; }).join(', ');
@@ -1081,20 +1091,28 @@ function mudarStatus(dados) {
       transition: { id: match.id }
     });
 
-    // Adiciona comentário justificando a mudança (se informado)
+    // A transição JÁ ACONTECEU. Se o comentário falhar, devolver erro faria o
+    // painel desfazer o status na tela (optimistic UI) enquanto o Jira ficou
+    // com o status novo — a tela passaria a mentir. Vira aviso.
+    var avisoComentario = null;
     if (comentario) {
       var texto = 'Status alterado para "' + novoStatus + '" via AgriTrack PMO Dashboard.\n\n' + comentario;
-      jiraRequest_('POST', '/rest/api/3/issue/' + issueKey + '/comment', {
-        body: {
-          type: 'doc', version: 1,
-          content: [{ type: 'paragraph', content: [{ type: 'text', text: texto }] }]
-        }
-      });
+      try {
+        jiraRequest_('POST', '/rest/api/3/issue/' + issueKey + '/comment', {
+          body: {
+            type: 'doc', version: 1,
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: texto }] }]
+          }
+        });
+      } catch (eCom) {
+        avisoComentario = 'Status alterado, mas a justificativa não foi gravada: ' + eCom.message;
+        console.warn('mudarStatus ' + issueKey + ': ' + avisoComentario);
+      }
     }
 
     _auditLog_('mudarStatus', issueKey, 'novoStatus=' + novoStatus + (comentario ? ' comentario="' + comentario + '"' : ''));
 
-    return { success: true, key: issueKey, novoStatus: novoStatus, transicao: match.name };
+    return { success: true, key: issueKey, novoStatus: novoStatus, transicao: match.name, aviso: avisoComentario };
   } catch (err) {
     return { success: false, erro: err.message };
   }
@@ -1368,7 +1386,11 @@ function buscarCompras(dados) {
 function syncDatasReais() {
   try {
     var result = backfillDatasReais({ dryRun: false });
-    console.log('syncDatasReais OK | updated=' + result.updated +
+    var falhas = (result.falhasFonte || []);
+    // Fonte que falhou vai para console.warn mesmo quando a execução seguiu:
+    // rodando por gatilho às 3h, o log é o único lugar onde alguém veria isso.
+    if (falhas.length) console.warn('syncDatasReais: ' + falhas.length + ' fonte(s) falharam — ' + falhas.join(' | '));
+    console.log('syncDatasReais ' + (result.success ? 'OK' : 'FALHOU') + ' | updated=' + result.updated +
                 ' skipped=' + result.skipped + ' erros=' + result.erros);
     return result;
   } catch (e) {
@@ -1471,6 +1493,10 @@ function backfillDatasReais(opcoes) {
   var forcarReescrita = !!(opcoes && opcoes.forcarReescrita);
 
   var log = [];
+  // Falha de fonte NAO pode virar "0 atualizados" silencioso: o gatilho roda as
+  // 3h todo dia, e um erro permanente ficaria indistinguivel de "esta tudo em
+  // dia". Cada catch abaixo registra aqui, e o retorno carrega a lista.
+  var falhasFonte = [];
   var props    = PropertiesService.getScriptProperties();
   var jiraBase = 'https://agricefprojetos.atlassian.net';
   var email    = props.getProperty('JIRA_EMAIL');
@@ -1487,7 +1513,7 @@ function backfillDatasReais(opcoes) {
   try {
     comprasMap = _bf_loadCompras_(log, serialFilter);
     log.push('      Seriais com dados Compras: ' + Object.keys(comprasMap).length);
-  } catch (e) { log.push('  ERRO Compras: ' + e.message); }
+  } catch (e) { log.push('  ERRO Compras: ' + e.message); falhasFonte.push('Compras: ' + e.message); }
 
   // ── 2. Carregar dados de Fabricação Agricef (ops 0010-0050) ──────────────
   log.push('[2/5] Carregando dados de Apontamentos — Fabricação (ops 0010-0050)…');
@@ -1495,7 +1521,7 @@ function backfillDatasReais(opcoes) {
   try {
     fabMap = _bf_loadFabricacao_(log, serialFilter);
     log.push('      Seriais com dados Fabricação: ' + Object.keys(fabMap).length);
-  } catch (e) { log.push('  ERRO Fabricação: ' + e.message); }
+  } catch (e) { log.push('  ERRO Fabricação: ' + e.message); falhasFonte.push('Fabricação: ' + e.message); }
 
   // ── 3. Carregar dados de Montagem (ops 0030/0060/0070/0090) ─────────────
   log.push('[3/5] Carregando dados de Apontamentos — Montagens (ops 0030/0060/0070/0090)…');
@@ -1503,7 +1529,7 @@ function backfillDatasReais(opcoes) {
   try {
     montMap = _bf_loadMontagens_(log, serialFilter);
     log.push('      Seriais com dados de Montagem: ' + Object.keys(montMap).length);
-  } catch (e) { log.push('  ERRO Montagens: ' + e.message); }
+  } catch (e) { log.push('  ERRO Montagens: ' + e.message); falhasFonte.push('Montagens: ' + e.message); }
 
   // ── 4. Buscar subtarefas PCP Hauler no Jira ──────────────────────────────
   log.push('[4/5] Buscando tarefas pai PCP no Jira AGTK…');
@@ -1511,7 +1537,7 @@ function backfillDatasReais(opcoes) {
   try {
     subtasks = _bf_fetchSubtasks_(jiraBase, jiraAuth, log);
     log.push('      Subtarefas Hauler carregadas: ' + subtasks.length);
-  } catch (e) { log.push('  ERRO Jira fetch: ' + e.message); }
+  } catch (e) { log.push('  ERRO Jira fetch: ' + e.message); falhasFonte.push('Jira: ' + e.message); }
 
   // ── 5. Processar atualizações ────────────────────────────────────────────
   log.push('[5/5] ' + (dryRun ? '[DRY-RUN] ' : '[PRODUÇÃO] ') + 'Processando…');
@@ -1624,7 +1650,15 @@ function backfillDatasReais(opcoes) {
   log.push(sumLine);
   Logger.log(log.join('\n'));
 
-  return { success: true, dryRun: dryRun, updated: updated, skipped: skipped, erros: erros, log: log };
+  // success:false quando TODAS as fontes falharam — nesse caso "0 atualizados"
+  // não significa nada e não pode ser lido como execução saudável.
+  var todasFalharam = falhasFonte.length >= 4;
+  return {
+    success: !todasFalharam,
+    erro: todasFalharam ? 'Nenhuma fonte de dados pôde ser lida: ' + falhasFonte.join(' | ') : undefined,
+    dryRun: dryRun, updated: updated, skipped: skipped, erros: erros,
+    falhasFonte: falhasFonte, log: log,
+  };
 }
 
 // ─── Helpers internos do backfill ──────────────────────────────────────────
