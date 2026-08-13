@@ -7423,14 +7423,24 @@ function abrirModalExcluir(key, summary){
   document.getElementById('delModal').style.display = 'flex';
   // Foca o campo de confirmação
   setTimeout(()=>document.getElementById('delMConfirm').focus(), 100);
-  // Busca info de subtarefas (async, não bloqueia abertura)
+  // Busca info de subtarefas (async, não bloqueia abertura).
+  // Este campo NUNCA pode ficar em branco: a exclusão no Jira é irreversível e
+  // leva as subtarefas junto. Com o cold start do GAS (medido em 20s+, às vezes
+  // devolvendo HTML), dava para abrir o modal, digitar a chave e confirmar antes
+  // do aviso chegar — e o catch vazio fazia a falha passar despercebida. Silêncio
+  // aqui é indistinguível de "não tem subtarefa".
+  const elSub=document.getElementById('delMSubInfo');
+  elSub.textContent='Verificando subtarefas…';
   api({action:'buscarIssue', issueKey:key}).then(r=>{
-    if(r.success && r.issue){
-      const nSubs = r.issue.subtasks || 0;
-      if(nSubs > 0)
-        document.getElementById('delMSubInfo').textContent = '⚠ Este projeto tem ' + nSubs + ' subtarefa(s) — também serão excluídas.';
-    }
-  }).catch(()=>{});
+    if(!(r&&r.success&&r.issue)) throw new Error(r&&r.erro||'resposta inesperada');
+    const nSubs = r.issue.subtasks || 0;
+    elSub.textContent = nSubs>0
+      ? '⚠ Este projeto tem ' + nSubs + ' subtarefa(s) — também serão excluídas.'
+      : 'Sem subtarefas.';
+  }).catch(e=>{
+    elSub.textContent='⚠ Não foi possível verificar quantas subtarefas serão excluídas ('
+      +(e.message||e)+'). Elas serão excluídas junto mesmo assim.';
+  });
 }
 
 function validarConfirmacaoExclusao(){
