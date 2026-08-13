@@ -5,7 +5,7 @@
 //
 // Por que este arquivo existe: as mesmas regras estavam implementadas
 // três vezes com comportamentos diferentes — no painel
-// (agritrack_dashboard.html), em buscarComprasPorSerial() e em
+// (agritrack_dashboard.html) e em
 // buscarHaulerDadosCompletos(). Cada cópia errava de um jeito. Aqui
 // elas passam a existir uma vez só, e o painel só renderiza.
 //
@@ -552,7 +552,7 @@ function analisarHaulerSerial(dados) {
     if (!fileId) return { success: false, erro: 'fileId nao informado' };
 
     // Ler o CSV do BOM + as 3 abas leva ~80s, então o resultado fica em
-    // cache por 1h (mesmo padrão de buscarComprasPorSerial). Cache fatiado
+    // cache por 1h. Cache fatiado
     // porque CacheService limita ~100KB por chave.
     var CK = 'analise_serial_v3_' + String(fileId).slice(-10);
     if (!dados.force) {
@@ -575,7 +575,7 @@ function analisarHaulerSerial(dados) {
     var idx = {};
     compras.linhas.forEach(function (l) {
       // Um PV que cobre N Haulers rateia a quantidade entre eles (mesma
-      // regra já usada em buscarComprasPorSerial).
+      // regra herdada do buscarComprasPorSerial, removido por desuso).
       var qtdPorSerie = l.seriais.length > 1 ? l.qtd / l.seriais.length : l.qtd;
       var variantes = bom.variantes[l.cod];
       var esc = _escolherVariante_(l.desc, variantes);

@@ -872,7 +872,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
       <div class="settings-title">Apps Script (Jira Proxy)</div>
       <div class="fg">
         <label>URL da API</label>
-        <input id="cfgApi" style="font-family:'IBM Plex Mono',monospace;font-size:11px" oninput="saveApiUrl()">
+        <input id="cfgApi" style="font-family:'IBM Plex Mono',monospace;font-size:11px" onchange="saveApiUrl()">
         <div class="hint">URL do Web App publicado no Google Apps Script</div>
       </div>
       <div style="margin-top:14px">
@@ -1564,7 +1564,27 @@ const ACOES_MUTANTES = ['deletarProjeto','mudarStatus','resolverBloqueio','regis
   'previaDigestSemanal','inspecionarDigest','setupDigestSemanalTrigger','desativarTriggersAntigosDiarios',
   'setupAquecimentoTrigger','setupAnalisesTrigger'];
 function getApi(){return localStorage.getItem('agritrack_api')||DEFAULT_API;}
-function saveApiUrl(){localStorage.setItem('agritrack_api',document.getElementById('cfgApi').value);}
+// Grava no blur (onchange), não a cada tecla. Antes era oninput sem validação:
+// digitar um caractere no campo já apontava o painel para uma URL quebrada, e
+// como getApi() só cai no DEFAULT_API quando a chave está AUSENTE, não havia
+// como voltar sem limpar o localStorage na mão. Campo vazio agora restaura o padrão.
+function saveApiUrl(){
+  const el=document.getElementById('cfgApi');
+  const st=document.getElementById('cfgApiStatus');
+  const msg=(t,c)=>{if(st){st.textContent=t;st.style.color=c||'var(--text2)';}};
+  const v=(el.value||'').trim();
+  if(!v){
+    localStorage.removeItem('agritrack_api');
+    el.value=DEFAULT_API;
+    msg('URL padrão restaurada.');
+    return;
+  }
+  let ok=false;
+  try{const u=new URL(v);ok=(u.protocol==='http:'||u.protocol==='https:');}catch(e){ok=false;}
+  if(!ok){msg('URL inválida — não foi salva. Deixe em branco para voltar ao padrão.','var(--red)');return;}
+  localStorage.setItem('agritrack_api',v);
+  msg('URL salva. Use "Testar Conexão" para validar.');
+}
 // A IA passou a ser central (chave em Script Properties, no backend), então o
 // painel só precisa saber SE está disponível — nunca vê a chave.
 let _iaDisponivel=false;

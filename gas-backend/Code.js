@@ -59,11 +59,9 @@ function doGet(e) {
       case 'enviarRelatorio':      return jsonResp_(enviarRelatorio(data));
       case 'buscarCompras':            return jsonResp_(buscarCompras(data));
       case 'listarAbasCompras':       return jsonResp_(listarAbasCompras(data));
-    case 'buscarTodasAbasCompras':   return jsonResp_(buscarTodasAbasCompras(data));
       case 'buscarHaulerDadosCompletos': return jsonResp_(buscarHaulerDadosCompletos());
       case 'buscarApontamentosHauler': return jsonResp_(buscarApontamentosHauler());
       case 'buscarComprasHaulerLeadTime': return jsonResp_(buscarComprasHaulerLeadTime());
-      case 'buscarComprasPorSerial': return jsonResp_(buscarComprasPorSerial());
       case 'buscarProducaoHaulerPorSerial': return jsonResp_(buscarProducaoHaulerPorSerial());
       case 'buscarOpcoesCampos':   return jsonResp_(buscarOpcoesCampos());
       // ── Análises canônicas (HaulerAnalise.js) — fonte única das regras ──

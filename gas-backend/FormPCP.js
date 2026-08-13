@@ -1223,7 +1223,6 @@ function enviarRelatorio(dados) {
 // sheetId é salvo em Script Properties → COMPRAS_SHEET_ID
 // Ou recebido direto como parâmetro (para setup inicial)
 
-
 // ─── LISTAR ABAS DA PLANILHA DE COMPRAS (rápido — só metadados) ──
 // Retorna nomes, GIDs e contagem de linhas sem ler os dados
 function listarAbasCompras(dados) {
@@ -1253,57 +1252,7 @@ function listarAbasCompras(dados) {
 
 // —— BUSCAR TODAS AS ABAS DA PLANILHA DE COMPRAS ——————————
 // Usa CacheService (1h) para evitar timeout em planilhas grandes
-function buscarTodasAbasCompras(dados) {
-  try {
-    var props   = PropertiesService.getScriptProperties();
-    var sheetId = (dados && dados.sheetId) || props.getProperty('COMPRAS_SHEET_ID');
-    if (!sheetId) return { success: false, erro: 'ID da planilha não configurado.' };
-    if (dados && dados.sheetId) props.setProperty('COMPRAS_SHEET_ID', dados.sheetId);
 
-    // — Verificar cache (evita leitura repetida da planilha grande) —
-    var cache    = CacheService.getScriptCache();
-    var cacheKey = 'compras_tabs_' + sheetId.slice(-12);
-    var force    = dados && dados.force;
-    if (!force) {
-      var cached = cache.get(cacheKey);
-      if (cached) {
-        try {
-          var parsed = JSON.parse(cached);
-          return { success: true, tabs: parsed, totalTabs: parsed.length, fromCache: true };
-        } catch(e2) { /* cache corrompido, continua */ }
-      }
-    }
-
-    var ss     = SpreadsheetApp.openById(sheetId);
-    var sheets = ss.getSheets();
-    var tz     = Session.getScriptTimeZone();
-    var tabs = sheets.map(function(sheet) {
-      var range = sheet.getDataRange();
-      var vals  = range.getValues();
-      if (vals.length < 2) return { name: sheet.getName(), gid: sheet.getSheetId(), headers: [], rows: [], total: 0, empty: true };
-      var headers = vals[0].map(function(h){ return String(h).trim(); }).filter(function(h){ return h; });
-      var rows = vals.slice(1).map(function(row){
-        var obj = {};
-        headers.forEach(function(h, i){
-          var v = row[i];
-          obj[h] = (v !== undefined && v !== null && v !== '')
-            ? (v instanceof Date ? Utilities.formatDate(v, tz, 'dd/MM/yyyy') : String(v))
-            : '';
-        });
-        return obj;
-      }).filter(function(row){ return Object.values(row).some(function(v){ return v !== ''; }); });
-      if (rows.length === 0) return { name: sheet.getName(), gid: sheet.getSheetId(), headers: headers, rows: [], total: 0, empty: true };
-      return { name: sheet.getName(), gid: sheet.getSheetId(), headers: headers, rows: rows, total: rows.length };
-    }).filter(function(t){ return t && t.name; }); // inclui abas vazias
-
-    // Salva no cache por 1 hora (3600s)
-    try { cache.put(cacheKey, JSON.stringify(tabs), 3600); } catch(ec) { /* ignora erro de cache */ }
-
-    return { success: true, tabs: tabs, totalTabs: tabs.length };
-  } catch (err) {
-    return { success: false, erro: err.message };
-  }
-}
 function buscarCompras(dados) {
   try {
     const props   = PropertiesService.getScriptProperties();
@@ -2134,7 +2083,6 @@ function _bf_parseDate_(val) {
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.substring(0, 10);
   return null;
 }
-
 
 // ══════════════════════════════════════════════════════════════════
 // buscarHaulerDadosCompletos
@@ -3240,152 +3188,3 @@ function salvarRelatorioDrive_(pdfResult) {
 // teste, chama registrarBloqueio() e resolverBloqueio() de verdade (mesmo
 // caminho que o painel usa), depois apaga a issue. Confirma que os PDFs
 // novos (Slides) e a pasta por ano funcionam ponta a ponta.
-// ─── buscarComprasPorSerial ───────────────────────────────────────────────
-function buscarComprasPorSerial() {
-  var CACHE_KEY = 'compras_por_serial_v1';
-  var cache = CacheService.getScriptCache();
-  var cached = cache.get(CACHE_KEY);
-  if (cached) { try { return JSON.parse(cached); } catch(e) {} }
-
-  var COMPRAS_ID = '16kKKfYC_TBmuR6wpEyah4BwBsv0TcCD_2ImQE1SN32A';
-  var ss;
-  try { ss = SpreadsheetApp.openById(COMPRAS_ID); }
-  catch(e) { return { erro: 'Nao foi possivel abrir planilha de compras: ' + e.message }; }
-
-  function normCod(raw) {
-    if (!raw && raw !== 0) return '';
-    return String(raw).trim().replace(/^0+/, '').toUpperCase();
-  }
-
-  // Parse PV → array of serials (220XXXXX)
-  function parsePvSeriais(pv) {
-    if (!pv) return [];
-    var s = String(pv).trim();
-    if (!s) return [];
-    var sl = s.toLowerCase();
-    if (sl.indexOf('estoque') !== -1 || sl === 'sc') return [];
-    var serials = [];
-    // Scan for 8-char tokens starting with 220 followed by 5 digits
-    for (var i = 0; i <= s.length - 8; i++) {
-      if (s.charAt(i) === '2' && s.charAt(i+1) === '2' && s.charAt(i+2) === '0') {
-        var cand = s.substring(i, i+8);
-        var ok = true;
-        for (var j = 3; j < 8; j++) { var cc = cand.charCodeAt(j); if (cc < 48 || cc > 57) { ok = false; break; } }
-        if (ok && serials.indexOf(cand) === -1) serials.push(cand);
-      }
-    }
-    return serials;
-  }
-
-  function parseFmt(raw) {
-    if (!raw) return null;
-    if (raw instanceof Date) return Utilities.formatDate(raw, 'America/Sao_Paulo', 'yyyy-MM-dd');
-    var s = String(raw).trim();
-    return s || null;
-  }
-
-  function findCol(hdrs, keywords) {
-    for (var ki = 0; ki < keywords.length; ki++) {
-      var kw = keywords[ki].toUpperCase();
-      for (var hi = 0; hi < hdrs.length; hi++) {
-        if (hdrs[hi].indexOf(kw) !== -1) return hi;
-      }
-    }
-    return -1;
-  }
-
-  function readTab(sheetName, fonte) {
-    var sh = ss.getSheetByName(sheetName);
-    if (!sh) return { rows: [], warn: 'Aba "' + sheetName + '" nao encontrada' };
-    var lastRow = sh.getLastRow();
-    if (lastRow < 2) return { rows: [], warn: 'Aba "' + sheetName + '" vazia' };
-    var data = sh.getRange(1, 1, lastRow, 27).getValues();
-    var hdrs = data[0].map(function(h){ return String(h || '').toUpperCase(); });
-
-    var iCodigo = findCol(hdrs, ['COD. AGRICEF','COD AGRICEF','CODIGO AGRICEF','COD AGRI','CODIGO','COD MAT']);
-    var iQtd    = findCol(hdrs, ['QTD','QUANT']);
-    var iStatus = findCol(hdrs, ['STATUS','SITUA','CONCLU','SITUACAO']);
-    var iPedido = findCol(hdrs, ['PEDIDO',' PO ',' PO']);
-    var iDataEnt = findCol(hdrs, ['DATA DA ENTREGA','ENTREGA EFET','EFETIV','ENTREGA REAL']);
-    var iDataAtu = findCol(hdrs, ['ENTREGA ATUALIZADA','DATA ENTREGA ATU','ENTREGA ATU','ATUALIZ']);
-
-    var rows = [];
-    for (var ri = 1; ri < data.length; ri++) {
-      var row = data[ri];
-      var pv = String(row[0] || '').trim();
-      if (!pv) continue;
-      var pvL = pv.toLowerCase();
-      if (pvL.indexOf('estoque') !== -1 || pvL === 'sc') continue;
-      var cod = iCodigo >= 0 ? normCod(row[iCodigo]) : '';
-      if (!cod) continue;
-      var qtdRaw = parseFloat(String(row[iQtd] || '0').replace(',', '.')) || 0;
-      var status = iStatus >= 0 ? String(row[iStatus] || '').trim() : '';
-      var pedido = iPedido >= 0 ? String(row[iPedido] || '').trim() : '';
-      var dataEnt = iDataEnt >= 0 ? parseFmt(row[iDataEnt]) : null;
-      var dataAtu = iDataAtu >= 0 ? parseFmt(row[iDataAtu]) : null;
-      rows.push({ pv: pv, cod: cod, qtd: qtdRaw, status: status, pedido: pedido, dataEnt: dataEnt, dataAtu: dataAtu, fonte: fonte });
-    }
-    return { rows: rows, warn: null };
-  }
-
-  var diagnostics = [];
-  var allRows = [];
-  // Try both accented and plain names
-  var tabAttempts = [
-    ['Solicitações', 'Solicitacoes'],
-    ['FUP online', 'FUP Online', 'FUP'],
-    ['Pedidos Concluídos', 'Pedidos Concluidos', 'Concluidos']
-  ];
-  var fontes = ['solicitado', 'pedido', 'entregue'];
-  for (var ti = 0; ti < tabAttempts.length; ti++) {
-    var found = false;
-    for (var ai = 0; ai < tabAttempts[ti].length; ai++) {
-      var res = readTab(tabAttempts[ti][ai], fontes[ti]);
-      if (!res.warn) { allRows = allRows.concat(res.rows); found = true; break; }
-    }
-    if (!found) diagnostics.push('Aba nao encontrada: ' + tabAttempts[ti][0]);
-  }
-
-  // Build per-serial index
-  var index = {};
-  for (var ri = 0; ri < allRows.length; ri++) {
-    var row = allRows[ri];
-    var seriais = parsePvSeriais(row.pv);
-    if (!seriais.length) continue;
-    var qtdPerSerial = seriais.length > 1 ? row.qtd / seriais.length : row.qtd;
-    for (var si = 0; si < seriais.length; si++) {
-      var ser = seriais[si];
-      if (!index[ser]) index[ser] = {};
-      if (!index[ser][row.cod]) {
-        index[ser][row.cod] = { qtdSolicitada: 0, qtdPedida: 0, qtdEntregue: 0, status: '', pedido: '', dataEnt: null, dataAtu: null, fontes: [] };
-      }
-      var entry = index[ser][row.cod];
-      if (row.fonte === 'solicitado') {
-        entry.qtdSolicitada += qtdPerSerial;
-        if (!entry.status) entry.status = row.status;
-      } else if (row.fonte === 'pedido') {
-        entry.qtdPedida += qtdPerSerial;
-        entry.status = row.status || entry.status;
-        if (!entry.pedido) entry.pedido = row.pedido;
-        if (!entry.dataAtu) entry.dataAtu = row.dataAtu;
-      } else if (row.fonte === 'entregue') {
-        entry.qtdEntregue += qtdPerSerial;
-        entry.status = row.status || entry.status;
-        if (!entry.pedido) entry.pedido = row.pedido;
-        if (!entry.dataEnt) entry.dataEnt = row.dataEnt;
-        if (!entry.dataAtu) entry.dataAtu = row.dataAtu;
-      }
-      if (entry.fontes.indexOf(row.fonte) === -1) entry.fontes.push(row.fonte);
-    }
-  }
-
-  var result = {
-    index: index,
-    totalSeriais: Object.keys(index).length,
-    totalLinhas: allRows.length,
-    diagnostics: diagnostics,
-    geradoEm: new Date().toISOString()
-  };
-  try { cache.put(CACHE_KEY, JSON.stringify(result), 3600); } catch(e) {}
-  return result;
-}
