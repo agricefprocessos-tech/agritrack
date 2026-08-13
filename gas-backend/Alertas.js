@@ -837,10 +837,28 @@ function relatorioAtividadeSemanal(dados) {
     var porGestor = {}; // email -> { nome, itens[] }
     var semEmail = {};
 
+    // Cada item custa DUAS requisições ao Jira (changelog + comentários). Com
+    // um pico de itens atualizados isso vira centenas de chamadas sequenciais,
+    // e gatilhos do Apps Script são mortos aos 6 min. Sem orçamento, a execução
+    // morreria no meio — depois de _registrarAtividadeHistorico_ ter gravado o
+    // histórico como se o relatório tivesse saído inteiro, e com parte dos
+    // gestores notificada e parte não. Melhor entregar o que deu e avisar.
+    var _t0 = Date.now();
+    var ORCAMENTO_MS = 4 * 60 * 1000;  // 4 dos 6 min; sobra para PDF, Drive e envios
+    var truncados = 0;
+
     all.forEach(function (i) {
       var f = i.fields || {};
       var nome = f.assignee ? f.assignee.displayName : null;
       if (!nome) return; // sem responsável — não dá pra atribuir a ninguém
+
+      // Resolver o e-mail ANTES do changelog/comentários: sem mapeamento o item
+      // seria descartado logo adiante de qualquer jeito, então pagar as duas
+      // requisições por ele é desperdício puro.
+      var email = _buscarEmailGestor_(nome);
+      if (!email) { semEmail[nome] = (semEmail[nome] || 0) + 1; return; }
+
+      if (Date.now() - _t0 > ORCAMENTO_MS) { truncados++; return; }
 
       var eventos = [];
 
@@ -877,9 +895,6 @@ function relatorioAtividadeSemanal(dados) {
 
       if (eventos.length === 0) return; // updated por outro motivo (rank, etc.) — não relevante aqui
 
-      var email = _buscarEmailGestor_(nome);
-      if (!email) { semEmail[nome] = (semEmail[nome] || 0) + 1; return; }
-
       var dept = f.customfield_10073 ? (f.customfield_10073.value || f.customfield_10073) : '';
       if (!porGestor[email]) porGestor[email] = { nome: nome, itens: [] };
       porGestor[email].itens.push({
@@ -914,8 +929,10 @@ function relatorioAtividadeSemanal(dados) {
     _enviarAtividadeConsolidada_(TEST_EMAIL, porGestor, driveResult);
 
     if (Object.keys(semEmail).length > 0) console.warn('relatorioAtividadeSemanal: sem e-mail mapeado: ' + JSON.stringify(semEmail));
+    if (truncados > 0) console.warn('relatorioAtividadeSemanal: ' + truncados + ' item(ns) ficaram de fora por orçamento de tempo.');
 
-    return { success: true, gestoresNotificados: emails.length, semEmailMapeado: semEmail, linhasArquivadas: linhasSalvas, drive: driveResult };
+    return { success: true, gestoresNotificados: emails.length, semEmailMapeado: semEmail, linhasArquivadas: linhasSalvas, drive: driveResult,
+             itensTruncados: truncados, duracaoSeg: Math.round((Date.now() - _t0) / 1000) };
   } catch (err) {
     console.error('relatorioAtividadeSemanal ERRO: ' + err.message);
     return { success: false, erro: err.message };
@@ -929,8 +946,19 @@ function _getOrCreateAtividadeTab_() {
   var props = PropertiesService.getScriptProperties();
   var id = props.getProperty('AUDIT_SHEET_ID');
   var ss;
-  if (id) { try { ss = SpreadsheetApp.openById(id); } catch (e) { id = null; } }
-  if (!id) {
+  // Mesmo cuidado de _getVotacaoSheet_: se o openById falhar por instabilidade
+  // do Drive e caíssemos no create(), o histórico de atividade já gravado
+  // ficaria órfão na planilha antiga e o AUDIT_SHEET_ID apontaria para uma nova
+  // e vazia — perda silenciosa de base de auditoria.
+  if (id) {
+    try {
+      ss = SpreadsheetApp.openById(id);
+    } catch (e) {
+      throw new Error('Não foi possível abrir o Log de Auditoria (' + id + '). '
+        + 'Pode ter ido para a lixeira. Detalhe: ' + e.message);
+    }
+  }
+  if (!ss) {
     ss = SpreadsheetApp.create('AgriTrack — Log de Auditoria');
     id = ss.getId();
     props.setProperty('AUDIT_SHEET_ID', id);
