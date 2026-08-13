@@ -89,6 +89,7 @@ function doGet(e) {
       case 'buscarVotacao':  return jsonResp_(buscarVotacao(data));
       // ── Aquecimento do cache de tarefas ───────────────────────────────
       case 'statusAquecimentoTrigger': return jsonResp_(statusAquecimentoTrigger());
+      case 'statusDigestSemanalTrigger': return jsonResp_(statusDigestSemanalTrigger());
       default: return jsonResp_({ erro: 'Ação desconhecida: ' + data.action });
     }
     };

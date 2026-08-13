@@ -87,7 +87,11 @@ function _alertaDeveDisparar(diasRestantes) {
  * Alvo do trigger diário. Varre tarefas/subtarefas não concluídas com
  * vencimento próximo ou atrasado e envia um e-mail consolidado por gestor.
  */
-function alertaVencimentos() {
+// opcoes.somenteColeta = true devolve o agrupamento por gestor SEM enviar nada.
+// É assim que o digest semanal (DigestSemanal.js) reaproveita esta coleta em vez
+// de duplicar a regra — duplicar foi exatamente o que fez as regras de serial
+// divergirem em três lugares neste projeto.
+function alertaVencimentos(opcoes) {
   try {
     const jql = encodeURIComponent(
       'project=' + JIRA_PROJECT + ' AND statusCategory != Done AND duedate is not EMPTY ORDER BY duedate ASC'
@@ -131,6 +135,8 @@ function alertaVencimentos() {
         tipo: f.issuetype ? f.issuetype.name : '',
       });
     });
+
+    if (opcoes && opcoes.somenteColeta) return { success: true, porGestor: porGestor, semEmailMapeado: semEmail };
 
     _checarCotaEmail_(Object.keys(porGestor).length);
 
@@ -357,6 +363,8 @@ function enviarSolicitacaoAtualizacao(dados) {
       });
     });
 
+    if (dados && dados.somenteColeta) return { success: true, porGestor: porGestor, semEmailMapeado: semEmail };
+
     _checarCotaEmail_(Object.keys(porGestor).length);
 
     var enviados = 0;
@@ -538,7 +546,7 @@ function _pd(s) { if (!s) return null; var d = new Date(s); return isNaN(d) ? nu
  * um e-mail de planejamento individual — carga da semana, vencimentos,
  * sugestão de alocação e estratégia conforme o cenário do portfólio dele.
  */
-function relatorioSemanalGestores() {
+function relatorioSemanalGestores(opcoes) {
   try {
     // Vai direto ao Jira, sem o cache de aquecimento: este relatório sai por
     // e-mail para os gestores e não pode ser montado sobre dado de minutos atrás.
@@ -560,6 +568,9 @@ function relatorioSemanalGestores() {
       if (!porGestor[nome]) porGestor[nome] = { email: email, itens: [] };
       porGestor[nome].itens.push(t);
     });
+
+    // Este é indexado por NOME (os outros dois por e-mail) — o digest normaliza.
+    if (opcoes && opcoes.somenteColeta) return { success: true, porGestorNome: porGestor, semEmailMapeado: semEmail };
 
     _checarCotaEmail_(Object.keys(porGestor).length);
 
