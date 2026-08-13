@@ -432,7 +432,7 @@ function _renderSubtarefasHtml_(subtarefas, hoje) {
 
   var itens = visiveis.map(function(s) {
     var cor = s.bloqueada ? '#f05252' : s.atrasada ? '#f05252' : (s.diasDue !== null && s.diasDue <= 7) ? '#f59e0b' : '#8896b0';
-    var tag = s.bloqueada ? '🚧 bloqueada' : s.atrasada ? Math.abs(s.diasDue) + 'd atrasada' : s.diasDue === null ? 'sem prazo' : s.diasDue === 0 ? 'vence hoje' : 'vence em ' + s.diasDue + 'd';
+    var tag = s.bloqueada ? '&#128679; bloqueada' : s.atrasada ? Math.abs(s.diasDue) + 'd atrasada' : s.diasDue === null ? 'sem prazo' : s.diasDue === 0 ? 'vence hoje' : 'vence em ' + s.diasDue + 'd';
     var link = DASHBOARD_URL + '?abrir=' + encodeURIComponent(s.key);
     return '<a href="' + link + '" style="display:block;text-decoration:none;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04)">' +
       '<span style="font-size:11px;color:#c5cfe0"><strong style="color:#e2e8f4">' + esc_(s.key) + '</strong> — ' + esc_(s.summary) + '</span> ' +
@@ -443,7 +443,7 @@ function _renderSubtarefasHtml_(subtarefas, hoje) {
   var maisTxt = resto > 0 ? '<div style="font-size:10px;color:#8896b0;margin-top:3px">+ ' + resto + ' subtarefa(s) — veja todas no painel</div>' : '';
 
   return '<div style="margin-top:8px;padding:8px 10px;background:rgba(255,255,255,0.03);border-radius:6px;border-left:2px solid #60a5fa33">' +
-    '<div style="font-size:9px;color:#60a5fa;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;font-weight:700">📌 Subtarefas que precisam de atenção (' + subtarefas.length + ')</div>' +
+    '<div style="font-size:9px;color:#60a5fa;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;font-weight:700">&#128204; Subtarefas que precisam de atenção (' + subtarefas.length + ')</div>' +
     itens + maisTxt +
   '</div>';
 }
@@ -489,7 +489,7 @@ function _enviarSolicitacaoGestor_(email, nome, projetos, msgExtra) {
     '<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f4f8;padding:32px 16px"><tr><td align="center">' +
     '<table width="600" cellpadding="0" cellspacing="0" style="background:#111827;border-radius:14px;overflow:hidden;max-width:600px">' +
     '<tr><td style="background:#0b0f17;padding:20px 28px;border-bottom:1px solid rgba(255,255,255,0.06)">' +
-      '<span style="color:#e2e8f4;font-size:17px;font-weight:700">📋 AgriTrack — Atualização de Projetos</span>' +
+      '<span style="color:#e2e8f4;font-size:17px;font-weight:700">&#128203; AgriTrack — Atualização de Projetos</span>' +
     '</td></tr>' +
     '<tr><td style="padding:20px 28px 8px;color:#c5cfe0;font-size:13px;line-height:1.7">' +
       'Olá <strong style="color:#e2e8f4">' + esc_(nome.split(' ')[0]) + '</strong>, ' +
@@ -506,7 +506,7 @@ function _enviarSolicitacaoGestor_(email, nome, projetos, msgExtra) {
 
   GmailApp.sendEmail(
     _destinoEmail(email),
-    '📋 AgriTrack — Por favor, atualize seus ' + projetos.length + ' projeto(s) em andamento' +
+    '✍ AgriTrack — Por favor, atualize seus ' + projetos.length + ' projeto(s) em andamento' +
       (TEST_MODE ? ' [TESTE — destino real: ' + email + ']' : ''),
     'Você tem ' + projetos.length + ' projeto(s) em andamento que precisam de atualização. Acesse: ' + DASHBOARD_URL,
     { htmlBody: html, name: 'AgriTrack — Agricef PMO' }
@@ -1181,7 +1181,7 @@ function _enviarAtividadeConsolidada_(paraEmail, porGestor, driveResult) {
     '<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f4f8;padding:32px 16px"><tr><td align="center">' +
     '<table width="640" cellpadding="0" cellspacing="0" style="background:#111827;border-radius:14px;overflow:hidden;max-width:640px">' +
     '<tr><td style="background:#0b0f17;padding:20px 28px;border-bottom:1px solid rgba(255,255,255,0.06)">' +
-      '<span style="color:#e2e8f4;font-size:17px;font-weight:700">📋 AgriTrack — Atividade da Semana (consolidado)</span>' +
+      '<span style="color:#e2e8f4;font-size:17px;font-weight:700">&#128203; AgriTrack — Atividade da Semana (consolidado)</span>' +
     '</td></tr>' +
     '<tr><td style="padding:20px 28px 8px;color:#c5cfe0;font-size:13px;line-height:1.6">Resumo de tudo que mudou nos últimos 7 dias, por gestor — pronto para a reunião semanal.</td></tr>' +
     linkPdf +

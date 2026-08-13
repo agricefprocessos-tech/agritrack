@@ -180,8 +180,46 @@ function _linhaItem_(esquerda, direita, corDireita) {
     + '</tr></table>';
 }
 
+/**
+ * Cartão de um projeto: cabeçalho (chave · status · prazo), título, contexto,
+ * subtarefas aninhadas e o botão que abre esse projeto no painel.
+ *
+ * Portado do e-mail de solicitação (_enviarSolicitacaoGestor_ em Alertas.js),
+ * que já tinha esse formato — o gestor precisa ver QUAL subtarefa está travando
+ * o projeto sem abrir o painel para descobrir. Reaproveita
+ * _renderSubtarefasHtml_ em vez de duplicar a regra de ordenação/prazo.
+ */
+function _cartaoProjeto_(p, hoje) {
+  var link = DASHBOARD_URL + '?abrir=' + encodeURIComponent(p.key);
+  var due = p.duedate ? new Date(p.duedate + 'T12:00:00') : null;
+  var dias = due ? Math.round((due - hoje) / 86400000) : null;
+
+  var cor = dias === null ? '#8896b0' : dias < 0 ? '#f05252' : dias <= 7 ? '#f59e0b' : '#22d37a';
+  var txt = dias === null ? 'sem prazo'
+    : dias < 0  ? Math.abs(dias) + ' dia(s) atrasado'
+    : dias === 0 ? 'vence hoje'
+    : 'vence em ' + dias + ' dia(s)';
+
+  return '<div style="padding:14px 0;border-bottom:1px solid rgba(255,255,255,0.06)">'
+    + '<div style="margin-bottom:5px">'
+      + '<span style="font-family:monospace;font-size:11px;font-weight:700;color:#8896b0">' + esc_(p.key) + '</span>'
+      + '<span style="background:#f59e0b22;color:#f59e0b;border-radius:8px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:8px">' + esc_(p.status || 'Fazendo') + '</span>'
+      + '<span style="color:' + cor + ';font-size:11px;font-weight:700;margin-left:8px">' + txt + '</span>'
+    + '</div>'
+    + '<div style="font-size:13px;font-weight:600;color:#e2e8f4;margin-bottom:4px">' + esc_(p.summary || '') + '</div>'
+    + '<div style="font-size:11px;color:#8896b0;margin-bottom:6px">'
+      + (p.dept ? esc_(p.dept) + ' &middot; ' : '')
+      + 'Início: ' + _fmtDate_(p.start) + ' &middot; Alvo: ' + _fmtDate_(p.alvo)
+    + '</div>'
+    + _renderSubtarefasHtml_(p.subtarefas, hoje)
+    + '<a href="' + link + '" style="display:inline-block;margin-top:9px;background:#22d37a;color:#000;font-size:11px;font-weight:700;padding:6px 15px;border-radius:20px;text-decoration:none">Atualizar projeto &rarr;</a>'
+  + '</div>';
+}
+
 function _montarDigestHtml_(g, emailReal, previa) {
   var link = DASHBOARD_URL;
+
+  var hoje = new Date(); hoje.setHours(0, 0, 0, 0);
 
   // ── 1. Vencimentos ──
   var atrasados = g.vencimentos.filter(function (i) { return i.diasRestantes < 0; });
@@ -196,13 +234,13 @@ function _montarDigestHtml_(g, emailReal, previa) {
   if (g.vencimentos.length > 25) corpoVenc += '<div style="font-size:11px;color:#8896b0;margin-top:4px">…e mais ' + (g.vencimentos.length - 25) + ' item(ns).</div>';
 
   // ── 2. Projetos a atualizar ──
+  // Cartão completo (tarefa-pai + subtarefas aninhadas + botão de ação), o mesmo
+  // formato do e-mail antigo de solicitação. A linha resumida de antes obrigava
+  // o gestor a abrir o painel só para descobrir O QUE estava atrasado dentro do
+  // projeto; aqui ele já vê a subtarefa culpada e clica direto nela.
   var corpoAtu = '';
-  g.projetos.slice(0, 25).forEach(function (p) {
-    var nSub = (p.subtarefas || []).length;
-    corpoAtu += _linhaItem_('<strong style="color:#e2e8f4">' + p.key + '</strong> ' + esc_(p.summary || ''),
-      nSub ? nSub + ' subtarefa(s)' : (p.status || ''), '#8896b0');
-  });
-  if (g.projetos.length > 25) corpoAtu += '<div style="font-size:11px;color:#8896b0;margin-top:4px">…e mais ' + (g.projetos.length - 25) + ' projeto(s).</div>';
+  g.projetos.slice(0, 15).forEach(function (p) { corpoAtu += _cartaoProjeto_(p, hoje); });
+  if (g.projetos.length > 15) corpoAtu += '<div style="font-size:11px;color:#8896b0;margin-top:6px">…e mais ' + (g.projetos.length - 15) + ' projeto(s) — veja todos no painel.</div>';
 
   // ── 3. Carga da semana ──
   // ATENÇÃO: g.planejamento vem de relatorioSemanalGestores, que NÃO filtra nada
