@@ -77,7 +77,14 @@ function _checarCotaEmail_(qtdNecessaria) {
 const ALERTA_MARCOS = [3, 1, 0, -1];
 
 // Após o primeiro alerta de atraso (-1), escala semanalmente: -8, -15, -22...
-function _alertaDeveDisparar(diasRestantes) {
+// janelaDias troca a régua de MARCOS por uma JANELA. Os marcos (dia 7, 3, 1…)
+// existem porque este alerta nasceu diário: relembrar em pontos exatos evita
+// repetir o mesmo item todo dia. Num digest SEMANAL isso se vira contra: rodando
+// uma vez por semana, o item cujo diasRestantes não cair exatamente num marco
+// naquela segunda é pulado para sempre. Com janela, entra tudo que está atrasado
+// ou vence dentro dos próximos N dias.
+function _alertaDeveDisparar(diasRestantes, janelaDias) {
+  if (janelaDias) return diasRestantes <= janelaDias;
   if (ALERTA_MARCOS.indexOf(diasRestantes) !== -1) return true;
   if (diasRestantes < -1 && (diasRestantes + 1) % 7 === 0) return true;
   return false;
@@ -118,7 +125,7 @@ function alertaVencimentos(opcoes) {
       if (!f.duedate) return;
       const due = new Date(f.duedate + 'T12:00:00');
       const diasRestantes = Math.round((due - hoje) / 86400000);
-      if (!_alertaDeveDisparar(diasRestantes)) return;
+      if (!_alertaDeveDisparar(diasRestantes, opcoes && opcoes.janelaDias)) return;
 
       const nome = f.assignee ? f.assignee.displayName : '';
       const email = _buscarEmailGestor_(nome);

@@ -36,7 +36,9 @@ function digestSemanalGestores(opcoes) {
 
   try {
     // ── Coleta (reaproveitando as três funções existentes) ──────────
-    var venc = alertaVencimentos({ somenteColeta: true });
+    // janelaDias:7 — sem isto a coleta usa a régua de MARCOS do alerta diário e
+    // um item que não caia num marco exato nesta segunda nunca apareceria.
+    var venc = alertaVencimentos({ somenteColeta: true, janelaDias: 7 });
     var soli = enviarSolicitacaoAtualizacao({ apenasProximos: true, somenteColeta: true });
     var plan = relatorioSemanalGestores({ somenteColeta: true });
 
@@ -73,13 +75,28 @@ function digestSemanalGestores(opcoes) {
       return g.vencimentos.length || g.projetos.length || g.planejamento.length;
     });
 
+    // Modo inspeção: devolve o HTML montado SEM enviar nada. Existe porque na
+    // primeira rodada eu conferi só o retorno (success + contagem) e dei por
+    // bom — e o e-mail saiu com emoji quebrado e um número errado. Contagem de
+    // sucesso não é conferência de conteúdo.
+    if (opcoes.retornarHtml) {
+      var amostra = destinos.slice(0, opcoes.limiteAmostra || 3).map(function (email) {
+        var g = porEmail[email];
+        return { email: email, nome: g.nome, assunto: _resumoAssunto_(g),
+                 secoes: { vencimentos: g.vencimentos.length, projetos: g.projetos.length,
+                           cargaBruta: g.planejamento.length, carga: _cargaDaSemana_(g.planejamento) },
+                 html: _montarDigestHtml_(g, email, true) };
+      });
+      return { success: true, inspecao: true, totalDestinos: destinos.length, amostra: amostra };
+    }
+
     _checarCotaEmail_(destinos.length + 1);
 
     var enviados = 0;
     destinos.forEach(function (email) {
       var g = porEmail[email];
       var html = _montarDigestHtml_(g, email, previa);
-      var assunto = '📌 AgriTrack — Sua semana: ' + _resumoAssunto_(g)
+      var assunto = '⏰ AgriTrack — Sua semana: ' + _resumoAssunto_(g)
         + (previa ? ' [PRÉVIA — destino real: ' + email + ']' : '');
       GmailApp.sendEmail(previa ? PREVIA_EMAIL_ : _destinoEmail(email), assunto,
         'Abra em um cliente que suporte HTML para ver o resumo da semana.',
@@ -100,6 +117,31 @@ function digestSemanalGestores(opcoes) {
     console.error('digestSemanalGestores ERRO: ' + err.message);
     return { success: false, erro: err.message };
   }
+}
+
+/**
+ * Recorte real da carga: só o que está ABERTO e é da semana. A entrada é a lista
+ * crua de todas as issues do gestor — inclusive Done de anos anteriores.
+ * Um item "sem data limite" só conta se já foi iniciado; senão é backlog, não carga.
+ */
+function _cargaDaSemana_(itens) {
+  var hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  var fim = new Date(hoje); fim.setDate(hoje.getDate() + 7);
+  var atrasados = 0, naSemana = 0, semData = 0;
+
+  (itens || []).forEach(function (t) {
+    if ((t._statusKey || '') === 'done') return;
+    var due = _pd(t['Data limite']);
+    if (!due) {
+      var ini = _pd(t['Campo personalizado (Start date)']);
+      if (ini && ini <= hoje) semData++;
+      return;
+    }
+    if (due < hoje) atrasados++;
+    else if (due <= fim) naSemana++;
+  });
+
+  return { total: atrasados + naSemana + semData, atrasados: atrasados, naSemana: naSemana, semData: semData };
 }
 
 /** Frase curta do assunto — o gestor decide abrir pelo assunto. */
@@ -154,16 +196,23 @@ function _montarDigestHtml_(g, emailReal, previa) {
   if (g.projetos.length > 25) corpoAtu += '<div style="font-size:11px;color:#8896b0;margin-top:4px">…e mais ' + (g.projetos.length - 25) + ' projeto(s).</div>';
 
   // ── 3. Carga da semana ──
+  // ATENÇÃO: g.planejamento vem de relatorioSemanalGestores, que NÃO filtra nada
+  // — são TODAS as issues já atribuídas ao gestor, inclusive concluídas em anos
+  // anteriores. Chamar isso de "em andamento nesta semana" é falso (mostrava 99
+  // para um gestor). O recorte tem que ser feito aqui.
+  var carga = _cargaDaSemana_(g.planejamento);
   var corpoPlan = '';
-  if (g.planejamento.length) {
+  if (carga.total) {
     corpoPlan = '<div style="background:#1a2235;border-radius:8px;padding:12px;font-size:12px;color:#c5cfe0">'
-      + '<strong style="color:#e2e8f4">' + g.planejamento.length + '</strong> item(ns) em andamento sob sua responsabilidade nesta semana.'
-      + '</div>';
+      + '<strong style="color:#e2e8f4">' + carga.total + '</strong> item(ns) abertos com prazo até o fim da próxima semana.'
+      + '<div style="margin-top:6px;font-size:11px;color:#8896b0">'
+      + carga.atrasados + ' atrasado(s) · ' + carga.naSemana + ' vencendo em 7 dias · ' + carga.semData + ' sem data limite'
+      + '</div></div>';
   }
 
   var aviso = previa
     ? '<tr><td style="background:#3a2a00;padding:10px 28px;font-size:12px;color:#ffd98a">'
-      + '⚠️ PRÉVIA — este e-mail iria para <strong>' + emailReal + '</strong>. Nenhum gestor foi notificado.'
+      + '&#9888; PRÉVIA — este e-mail iria para <strong>' + emailReal + '</strong>. Nenhum gestor foi notificado.'
       + '</td></tr>'
     : '';
 
@@ -173,15 +222,15 @@ function _montarDigestHtml_(g, emailReal, previa) {
     + '<table width="640" cellpadding="0" cellspacing="0" style="background:#111827;border-radius:14px;overflow:hidden;max-width:640px">'
     + aviso
     + '<tr><td style="background:#0b0f17;padding:20px 28px;border-bottom:1px solid rgba(255,255,255,0.06)">'
-      + '<span style="color:#e2e8f4;font-size:16px;font-weight:700">📌 Sua semana no AgriTrack</span>'
+      + '<span style="color:#e2e8f4;font-size:16px;font-weight:700">&#128204; Sua semana no AgriTrack</span>'
       + '<div style="color:#8896b0;font-size:12px;margin-top:4px">' + esc_(g.nome || '') + '</div>'
     + '</td></tr>'
-    + _secaoDigest_('⏰ Vencimentos', '#ff6b6b',
+    + _secaoDigest_('&#9200; Vencimentos', '#ff6b6b',
         atrasados.length ? atrasados.length + ' atrasado(s) e ' + proximos.length + ' vencendo em breve' : proximos.length + ' vencendo em breve',
         corpoVenc)
-    + _secaoDigest_('✍️ Projetos a atualizar', '#f59e0b',
+    + _secaoDigest_('&#9997; Projetos a atualizar', '#f59e0b',
         'Atualize datas e status direto no painel — leva menos de um minuto por item.', corpoAtu)
-    + _secaoDigest_('📅 Carga da semana', '#22d37a', '', corpoPlan)
+    + _secaoDigest_('&#128197; Carga da semana', '#22d37a', '', corpoPlan)
     + '<tr><td style="padding:8px 28px 24px">'
       + '<a href="' + link + '" style="display:inline-block;background:#22d37a;color:#000;font-size:13px;font-weight:700;text-decoration:none;padding:11px 22px;border-radius:8px">Abrir o painel →</a>'
     + '</td></tr>'

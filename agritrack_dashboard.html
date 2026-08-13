@@ -1561,7 +1561,7 @@ const ACOES_MUTANTES = ['deletarProjeto','mudarStatus','resolverBloqueio','regis
   // Ativação de gatilhos agendados + disparo de e-mail. Esta lista precisa
   // espelhar ACOES_MUTANTES em Code.js: sem a ação aqui, o painel não anexa o
   // token e o backend responde "Não autorizado".
-  'previaDigestSemanal','setupDigestSemanalTrigger','desativarTriggersAntigosDiarios',
+  'previaDigestSemanal','inspecionarDigest','setupDigestSemanalTrigger','desativarTriggersAntigosDiarios',
   'setupAquecimentoTrigger','setupAnalisesTrigger'];
 function getApi(){return localStorage.getItem('agritrack_api')||DEFAULT_API;}
 function saveApiUrl(){localStorage.setItem('agritrack_api',document.getElementById('cfgApi').value);}

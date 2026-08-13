@@ -28,7 +28,7 @@ function doGet(e) {
       'criarProjetoJira', 'syncDatasReais',
       // Criam/removem gatilhos agendados e disparam e-mail. Configuração
       // persistente — nunca podem ficar abertas num web app ANYONE_ANONYMOUS.
-      'previaDigestSemanal', 'setupDigestSemanalTrigger', 'desativarTriggersAntigosDiarios',
+      'previaDigestSemanal', 'inspecionarDigest', 'setupDigestSemanalTrigger', 'desativarTriggersAntigosDiarios',
       'setupAquecimentoTrigger', 'setupAnalisesTrigger',
     ];
     if (ACOES_MUTANTES.indexOf(data.action) !== -1) _validarToken_(data);
@@ -96,6 +96,7 @@ function doGet(e) {
       case 'statusDigestSemanalTrigger': return jsonResp_(statusDigestSemanalTrigger());
       // ── Ativação dos gatilhos (exigem token — ver ACOES_MUTANTES) ─────
       case 'previaDigestSemanal':             return jsonResp_(previaDigestSemanal());
+      case 'inspecionarDigest':               return jsonResp_(digestSemanalGestores({ retornarHtml: true, limiteAmostra: data.limiteAmostra || 3 }));
       case 'setupDigestSemanalTrigger':       return jsonResp_(setupDigestSemanalTrigger());
       case 'desativarTriggersAntigosDiarios': return jsonResp_(desativarTriggersAntigosDiarios());
       case 'setupAquecimentoTrigger':         return jsonResp_(setupAquecimentoTrigger());
