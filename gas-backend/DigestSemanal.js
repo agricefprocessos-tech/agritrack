@@ -129,19 +129,21 @@ function _cargaDaSemana_(itens) {
   var fim = new Date(hoje); fim.setDate(hoje.getDate() + 7);
   var atrasados = 0, naSemana = 0, semData = 0;
 
+  var abertos = 0;
   (itens || []).forEach(function (t) {
     if ((t._statusKey || '') === 'done') return;
+    abertos++;
     var due = _pd(t['Data limite']);
-    if (!due) {
-      var ini = _pd(t['Campo personalizado (Start date)']);
-      if (ini && ini <= hoje) semData++;
-      return;
-    }
+    if (!due) { semData++; return; }
     if (due < hoje) atrasados++;
     else if (due <= fim) naSemana++;
   });
 
-  return { total: atrasados + naSemana + semData, atrasados: atrasados, naSemana: naSemana, semData: semData };
+  // `total` é o backlog ABERTO inteiro, não só a janela de 7 dias. Contar só a
+  // janela fazia esta seção repetir exatamente o número de "Vencimentos" (8 e 8,
+  // 19 e 19, 40 e 40 nos gestores reais) — duas seções dizendo a mesma coisa.
+  // Aberto total dá o contexto que falta: quanto do backlog já está atrasado.
+  return { total: abertos, atrasados: atrasados, naSemana: naSemana, semData: semData };
 }
 
 /** Frase curta do assunto — o gestor decide abrir pelo assunto. */
@@ -204,7 +206,7 @@ function _montarDigestHtml_(g, emailReal, previa) {
   var corpoPlan = '';
   if (carga.total) {
     corpoPlan = '<div style="background:#1a2235;border-radius:8px;padding:12px;font-size:12px;color:#c5cfe0">'
-      + '<strong style="color:#e2e8f4">' + carga.total + '</strong> item(ns) abertos com prazo até o fim da próxima semana.'
+      + '<strong style="color:#e2e8f4">' + carga.total + '</strong> item(ns) abertos sob sua responsabilidade.'
       + '<div style="margin-top:6px;font-size:11px;color:#8896b0">'
       + carga.atrasados + ' atrasado(s) · ' + carga.naSemana + ' vencendo em 7 dias · ' + carga.semData + ' sem data limite'
       + '</div></div>';
