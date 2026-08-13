@@ -1564,6 +1564,31 @@ const ACOES_MUTANTES = ['deletarProjeto','mudarStatus','resolverBloqueio','regis
   'previaDigestSemanal','inspecionarDigest','setupDigestSemanalTrigger','desativarTriggersAntigosDiarios',
   'setupAquecimentoTrigger','setupAnalisesTrigger'];
 function getApi(){return localStorage.getItem('agritrack_api')||DEFAULT_API;}
+// Procura no Jira um projeto recém-criado que case com o que o formulário
+// enviou. Serve para desfazer a ambiguidade de "erro de transporte": a escrita
+// pode ter acontecido e só a resposta ter se perdido. Devolve a chave achada
+// ou null. Usa forcar:true porque o cache do servidor ainda não conhece o item.
+async function _conferirProjetoCriado_(dados){
+  const alvo=(dados.titulo||dados.clienteNome||'').trim().toLowerCase();
+  if(!alvo) return null;
+  for(let t=0;t<3;t++){
+    try{
+      const r=await api({action:'buscarTarefasJira',forcar:true}, 120000);
+      if(r&&r.issues){
+        // Só considera criado nos últimos 10 minutos, para não confundir com um
+        // projeto homônimo antigo.
+        const limite=Date.now()-10*60*1000;
+        const m=r.issues.filter(i=>(i['Tipo de item']==='Tarefa')
+          &&String(i['Resumo']||'').toLowerCase().includes(alvo)
+          &&new Date(i['Criado']||0).getTime()>=limite);
+        if(m.length) return m.map(x=>x['Chave da item']).join(', ');
+        return null;
+      }
+    }catch(e){ /* tenta de novo — o servidor pode estar engasgado */ }
+  }
+  return null;  // não deu para confirmar; a mensagem chamadora trata
+}
+
 // Grava no blur (onchange), não a cada tecla. Antes era oninput sem validação:
 // digitar um caractere no campo já apontava o painel para uma URL quebrada, e
 // como getApi() só cai no DEFAULT_API quando a chave está AUSENTE, não havia
@@ -2372,6 +2397,22 @@ async function submitForm(){
       const keys=res.key?[res.key]:(res.chaves?Object.values(res.chaves).filter(v=>typeof v==='string'&&v.startsWith('AGTK')):[]);
       showFMsg('✓ Criado com sucesso! '+keys.join(', '),'ok');
     } else {
+      // Erro NÃO significa que não gravou. Medido em 13/08: o painel recebeu
+      // "API retornou HTML" e o AGTK-2095 tinha sido criado do mesmo jeito — a
+      // escrita aconteceu e só a resposta se perdeu. Dizer "Erro" seco leva o
+      // gestor a clicar em Criar de novo e duplicar o projeto inteiro, com
+      // subtarefas. Quando o erro é de transporte, conferimos antes de acusar.
+      const transporte=/HTML|timeout|Timeout|tempo|network|Failed to fetch/i.test(r.erro||'');
+      if(transporte){
+        showFMsg('A resposta do servidor se perdeu — conferindo se o projeto foi criado…','info');
+        const criado=await _conferirProjetoCriado_(dados);
+        if(criado){
+          showFMsg('✓ Criado com sucesso! '+criado+' (a confirmação demorou, mas o projeto está no Jira — NÃO clique em Criar de novo)','ok');
+          return;
+        }
+        showFMsg('Não foi criado — a chamada falhou antes de gravar. Pode tentar de novo com segurança.','err');
+        return;
+      }
       showFMsg('Erro: '+(r.erro||JSON.stringify(r)),'err');
     }
   }catch(e){
