@@ -92,6 +92,7 @@ function doGet(e) {
       // ── Aquecimento do cache de tarefas ───────────────────────────────
       case 'statusAquecimentoTrigger': return jsonResp_(statusAquecimentoTrigger());
       case 'statusDigestSemanalTrigger': return jsonResp_(statusDigestSemanalTrigger());
+      case 'statusFilaPdf':              return jsonResp_(statusFilaPdf());
       // ── Ativação dos gatilhos (exigem token — ver ACOES_MUTANTES) ─────
       case 'previaDigestSemanal':             return jsonResp_(previaDigestSemanal());
       case 'inspecionarDigest':               return jsonResp_(digestSemanalGestores({ retornarHtml: true, limiteAmostra: data.limiteAmostra || 3 }));
@@ -203,21 +204,16 @@ function resolverBloqueio(p) {
            }
          } catch (eBlkq) { /* falha nao-critica */ }
 
-         // Gera PDF de resolucao e salva no Drive
-         var driveResult = {};
-         try {
-           var pdfRes = gerarPdfResolucao_({
-             issueKey: issueKey,
-             dataResolucao: dataRes,
-             responsavel: responsavel,
-             descricao: descricao,
-             labelRemovido: labelRemovido,
-             blkqKey: blkqKey || '—',
-           });
-           driveResult = salvarRelatorioDrive_(pdfRes);
-         } catch (eDrive) {
-           driveResult = { erro: eDrive.message };
-         }
+         // PDF de resolucao — ENFILEIRADO (ver PdfFila.js). Gerar aqui
+         // respondia por boa parte dos 11,4s medidos no fluxo real.
+         var driveResult = _enfileirarPdf_('resolucao', {
+           issueKey: issueKey,
+           dataResolucao: dataRes,
+           responsavel: responsavel,
+           descricao: descricao,
+           labelRemovido: labelRemovido,
+           blkqKey: blkqKey || '—',
+         });
 
          return { success: true, comentarioId: commentResp.id, labelRemovido: labelRemovido, blkqKey: blkqKey, blkqFechado: blkqFechado, drive: driveResult };
 

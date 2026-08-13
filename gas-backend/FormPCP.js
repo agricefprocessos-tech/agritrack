@@ -898,25 +898,21 @@ function registrarBloqueio(dados) {
       blkqErro = blkqErr.message;
     }
 
-    // 6. Gera PDF de registro e salva no Drive (falha não-crítica)
-    var driveResult = {};
-    try {
-      var pdfBlq = gerarPdfBloqueio_({
-        issueKey: issueKey,
-        resumo: resumoOriginal,
-        depto: depto,
-        tipoBloqueio: tipoBloqueio,
-        impacto: impacto,
-        descricao: descricao,
-        responsavel: responsavel,
-        prazoResolucao: prazoRes,
-        dataRegistro: new Date().toLocaleDateString('pt-BR'),
-        blkqKey: blkqKey || '—',
-      });
-      driveResult = salvarRelatorioDrive_(pdfBlq);
-    } catch (eDrive) {
-      driveResult = { erro: eDrive.message };
-    }
+    // 6. PDF de registro — ENFILEIRADO, não gerado aqui. Gerar + gravar no
+    // Drive dentro da requisição respondia por boa parte dos 14,1s medidos.
+    // O PDF e um artefato de arquivo; o gestor nao precisa dele no clique.
+    var driveResult = _enfileirarPdf_('bloqueio', {
+      issueKey: issueKey,
+      resumo: resumoOriginal,
+      depto: depto,
+      tipoBloqueio: tipoBloqueio,
+      impacto: impacto,
+      descricao: descricao,
+      responsavel: responsavel,
+      prazoResolucao: prazoRes,
+      dataRegistro: new Date().toLocaleDateString('pt-BR'),
+      blkqKey: blkqKey || '—',
+    });
 
     return { success: true, key: issueKey, blkqKey: blkqKey, blkqErro: blkqErro, drive: driveResult, camposIgnorados: camposIgnorados };
   } catch (err) {
