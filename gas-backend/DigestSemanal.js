@@ -221,26 +221,48 @@ function _montarDigestHtml_(g, emailReal, previa) {
 
   var hoje = new Date(); hoje.setHours(0, 0, 0, 0);
 
-  // ── 1. Vencimentos ──
-  var atrasados = g.vencimentos.filter(function (i) { return i.diasRestantes < 0; });
-  var proximos  = g.vencimentos.filter(function (i) { return i.diasRestantes >= 0; });
-  var corpoVenc = '';
-  atrasados.concat(proximos).slice(0, 25).forEach(function (i) {
-    var dias = i.diasRestantes;
-    var txt = dias < 0 ? Math.abs(dias) + 'd atrasado' : (dias === 0 ? 'vence hoje' : 'em ' + dias + 'd');
-    var cor = dias < 0 ? '#ff6b6b' : (dias <= 2 ? '#f59e0b' : '#8896b0');
-    corpoVenc += _linhaItem_('<strong style="color:#e2e8f4">' + i.key + '</strong> ' + esc_(i.summary || ''), txt, cor);
-  });
-  if (g.vencimentos.length > 25) corpoVenc += '<div style="font-size:11px;color:#8896b0;margin-top:4px">…e mais ' + (g.vencimentos.length - 25) + ' item(ns).</div>';
-
-  // ── 2. Projetos a atualizar ──
+  // ── 1. Projetos a atualizar (vem PRIMEIRO no código, não no e-mail) ──
   // Cartão completo (tarefa-pai + subtarefas aninhadas + botão de ação), o mesmo
   // formato do e-mail antigo de solicitação. A linha resumida de antes obrigava
   // o gestor a abrir o painel só para descobrir O QUE estava atrasado dentro do
   // projeto; aqui ele já vê a subtarefa culpada e clica direto nela.
+  //
+  // Montado antes da seção de vencimentos porque precisamos saber QUAIS chaves
+  // já foram mostradas aqui dentro — ver `jaMostrados` logo abaixo.
+  var LIMITE_PROJ = 15;
+  var projVisiveis = g.projetos.slice(0, LIMITE_PROJ);
   var corpoAtu = '';
-  g.projetos.slice(0, 15).forEach(function (p) { corpoAtu += _cartaoProjeto_(p, hoje); });
-  if (g.projetos.length > 15) corpoAtu += '<div style="font-size:11px;color:#8896b0;margin-top:6px">…e mais ' + (g.projetos.length - 15) + ' projeto(s) — veja todos no painel.</div>';
+  projVisiveis.forEach(function (p) { corpoAtu += _cartaoProjeto_(p, hoje); });
+  if (g.projetos.length > LIMITE_PROJ) corpoAtu += '<div style="font-size:11px;color:#8896b0;margin-top:6px">…e mais ' + (g.projetos.length - LIMITE_PROJ) + ' projeto(s) — veja todos no painel.</div>';
+
+  // Tudo que já apareceu dentro de um cartão: o projeto e TODAS as subtarefas
+  // dele (inclusive as que _renderSubtarefasHtml_ cortou no limite de 6 — elas
+  // continuam pertencendo àquele projeto, e repeti-las soltas lá embaixo é
+  // justamente a confusão que queremos evitar).
+  var jaMostrados = {};
+  projVisiveis.forEach(function (p) {
+    jaMostrados[p.key] = 1;
+    (p.subtarefas || []).forEach(function (s) { jaMostrados[s.key] = 1; });
+  });
+
+  // ── 2. Outros vencimentos ──
+  // Só o que NÃO pertence a nenhum projeto mostrado acima. Antes esta lista era
+  // plana e independente, então a mesma subtarefa atrasada aparecia duas vezes:
+  // solta aqui e aninhada no cartão do pai (medido: 12 de 25 itens repetidos).
+  var soltos = g.vencimentos.filter(function (i) { return !jaMostrados[i.key]; });
+  var atrasados = soltos.filter(function (i) { return i.diasRestantes < 0; });
+  var proximos  = soltos.filter(function (i) { return i.diasRestantes >= 0; });
+  var LIMITE_VENC = 15;
+  var corpoVenc = '';
+  atrasados.concat(proximos).slice(0, LIMITE_VENC).forEach(function (i) {
+    var dias = i.diasRestantes;
+    var txt = dias < 0 ? Math.abs(dias) + 'd atrasado' : (dias === 0 ? 'vence hoje' : 'em ' + dias + 'd');
+    var cor = dias < 0 ? '#ff6b6b' : (dias <= 2 ? '#f59e0b' : '#8896b0');
+    // Mostra o projeto-pai quando houver, para o item solto não ficar órfão de contexto.
+    var contexto = i.parentSummary ? '<div style="font-size:10px;color:#8896b0;margin-top:2px">em ' + esc_(i.parentSummary) + '</div>' : '';
+    corpoVenc += _linhaItem_('<strong style="color:#e2e8f4">' + i.key + '</strong> ' + esc_(i.summary || '') + contexto, txt, cor);
+  });
+  if (soltos.length > LIMITE_VENC) corpoVenc += '<div style="font-size:11px;color:#8896b0;margin-top:4px">…e mais ' + (soltos.length - LIMITE_VENC) + ' item(ns).</div>';
 
   // ── 3. Carga da semana ──
   // ATENÇÃO: g.planejamento vem de relatorioSemanalGestores, que NÃO filtra nada
@@ -272,11 +294,13 @@ function _montarDigestHtml_(g, emailReal, previa) {
       + '<span style="color:#e2e8f4;font-size:16px;font-weight:700">&#128204; Sua semana no AgriTrack</span>'
       + '<div style="color:#8896b0;font-size:12px;margin-top:4px">' + esc_(g.nome || '') + '</div>'
     + '</td></tr>'
-    + _secaoDigest_('&#9200; Vencimentos', '#ff6b6b',
-        atrasados.length ? atrasados.length + ' atrasado(s) e ' + proximos.length + ' vencendo em breve' : proximos.length + ' vencendo em breve',
-        corpoVenc)
+    // Projetos vêm primeiro: é a seção acionável, com o cartão + subtarefas
+    // aninhadas. A lista de itens soltos abaixo é complemento, não repetição.
     + _secaoDigest_('&#9997; Projetos a atualizar', '#f59e0b',
-        'Atualize datas e status direto no painel — leva menos de um minuto por item.', corpoAtu)
+        'Cada projeto abaixo já mostra as subtarefas que precisam de atenção.', corpoAtu)
+    + _secaoDigest_('&#9200; Outros vencimentos', '#ff6b6b',
+        'Itens fora dos projetos acima — nada aqui se repete.',
+        corpoVenc)
     + _secaoDigest_('&#128197; Carga da semana', '#22d37a', '', corpoPlan)
     + '<tr><td style="padding:8px 28px 24px">'
       + '<a href="' + link + '" style="display:inline-block;background:#22d37a;color:#000;font-size:13px;font-weight:700;text-decoration:none;padding:11px 22px;border-radius:8px">Abrir o painel →</a>'
