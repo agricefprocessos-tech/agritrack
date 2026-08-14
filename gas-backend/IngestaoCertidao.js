@@ -178,6 +178,7 @@ function _certidaoMontarPayload_(linha, tipo) {
     tipo: 'PPP',
     departamento: 'PCP',
     titulo: linha.produto,
+    serial: linha.serie ? _certidaoNormSerial_(linha.serie) : null,
     startDate: linha.inicio,
     dueDate: linha.fimPrevisto,
     alvoDate: linha.entrega,
@@ -225,13 +226,24 @@ function inspecionarIngestaoCertidao() {
       item.bloqueios = m.bloqueios.slice();
       item.resumoPrevisto = m.resumoPrevisto;
 
-      // Cruzamento com o Jira: só faz sentido para Hauler, que tem serial
-      // dedicado. PPP não tem um identificador equivalente hoje — não dá
-      // para saber se "PPP - PLANTADORA X" já foi criado sem arriscar
-      // falso positivo por nome parecido, então PPP não é cruzado ainda.
-      if (c.tipo === 'HAULER' && item.dados.serial && seriaisExistentes[item.dados.serial]) {
+      // Cruzamento com o Jira, para os dois tipos. Achado ao checar dado
+      // real: PPP TAMBÉM leva o serial no Jira — só que não num campo
+      // dedicado (buildBodyGenerico_ nunca grava customfield_10537, só
+      // buildBodyHauler_ faz isso), o número fica só no texto do resumo
+      // ("P175 - IRRIGADOR DEXCO (3) S22000076"). Confirmado: das 4 linhas
+      // PPP que o dry-run anterior reportou como "bloqueada", as 4 já
+      // existiam no Jira — o cruzamento só não estava sendo aplicado fora
+      // de Hauler.
+      //
+      // A confiabilidade não é igual nos dois casos: em Hauler o serial
+      // sempre está no campo dedicado; em PPP depende de alguém ter
+      // digitado o serial no texto do resumo. "não achou" para PPP não é
+      // garantia de que não existe — por isso o aviso abaixo.
+      if (item.dados.serial && seriaisExistentes[item.dados.serial]) {
         item.jaExisteNoJira = seriaisExistentes[item.dados.serial];
         item.bloqueios.push('já existe no Jira (' + item.jaExisteNoJira + ') — não seria recriado');
+      } else if (c.tipo === 'PPP') {
+        item.avisoCruzamento = 'PPP não tem campo de serial dedicado no Jira — cruzamento feito só pelo texto do resumo, pode não pegar tudo';
       }
 
       item.pronto = item.bloqueios.length === 0;
