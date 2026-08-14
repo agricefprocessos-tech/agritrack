@@ -30,6 +30,10 @@ function doGet(e) {
       // persistente — nunca podem ficar abertas num web app ANYONE_ANONYMOUS.
       'previaDigestSemanal', 'inspecionarDigest', 'setupDigestSemanalTrigger', 'desativarTriggersAntigosDiarios',
       'setupAquecimentoTrigger', 'setupAnalisesTrigger',
+      // Lê planilha de outro time (Certidão de nascimento) e monta payload
+      // com dados de pedido/cliente. Só leitura, mas expõe dado que não é
+      // do AgriTrack — exige token mesmo sem escrever nada ainda.
+      'inspecionarIngestaoCertidao',
     ];
     if (ACOES_MUTANTES.indexOf(data.action) !== -1) _validarToken_(data);
 
@@ -100,6 +104,8 @@ function doGet(e) {
       case 'desativarTriggersAntigosDiarios': return jsonResp_(desativarTriggersAntigosDiarios());
       case 'setupAquecimentoTrigger':         return jsonResp_(setupAquecimentoTrigger());
       case 'setupAnalisesTrigger':            return jsonResp_(setupAnalisesTrigger());
+      // ── Ingestão da Certidão de nascimento (PCP) ──────────────────────
+      case 'inspecionarIngestaoCertidao':     return jsonResp_(inspecionarIngestaoCertidao());
       default: return jsonResp_({ erro: 'Ação desconhecida: ' + data.action });
     }
     };
