@@ -98,6 +98,39 @@ function _certidaoLerLinhasPCP_() {
   return linhas;
 }
 
+// Seriais Hauler já existentes no Jira (departamento PCP). Reaproveita o
+// mesmo padrão de busca de buscarProximoSerial() (FormPCP.js) — mesmo
+// campo, mesma regex — em vez de inventar uma segunda forma de achar
+// serial. Sem isso a ingestão proporia recriar um Hauler que o próprio
+// usuário já lançou pelo formulário manual.
+function _certidaoSeriaisExistentesNoJira_() {
+  var jql = 'project=' + JIRA_PROJECT + ' AND issuetype=Tarefa AND Departamento=PCP ORDER BY created DESC';
+  var res = jiraRequest_('GET',
+    '/rest/api/3/search/jql?jql=' + encodeURIComponent(jql) + '&maxResults=100&fields=summary,customfield_10537');
+  var achados = {};
+  (res.issues || []).forEach(function (issue) {
+    [issue.fields.customfield_10537, issue.fields.summary].forEach(function (s) {
+      var m = String(s || '').match(/S?22000(\d+)/i);
+      if (m) achados[_certidaoNormSerial_(m[1])] = issue.key;
+    });
+  });
+  return achados; // { "S22000086": "AGTK-1516", ... }
+}
+
+// Sempre "S22000" + 3 dígitos, para o lado Jira e o lado Certidão baterem
+// na mesma chave — aceita tanto o serial completo da Certidão ("22000072")
+// quanto só o sufixo capturado por regex ("072"), porque os dois formatos
+// chegam aqui dependendo de quem chama. Passar o serial completo pra dentro
+// de uma versão que só esperava o sufixo foi o bug que o dry-run pegou
+// (virava "S2200022000072", prefixo duplicado) — daí a normalização ficar
+// centralizada numa função só, em vez de espalhada.
+function _certidaoNormSerial_(valor) {
+  var d = String(valor || '').replace(/\D/g, '');
+  if (d.indexOf('22000') === 0) d = d.slice(5); // já veio com o prefixo embutido
+  while (d.length < 3) d = '0' + d;
+  return 'S22000' + d;
+}
+
 function _certidaoClassificar_(produtoTexto) {
   var m = String(produtoTexto || '').trim().match(/^(\d{6})/);
   var codigo = m ? m[1] : null;
@@ -129,7 +162,7 @@ function _certidaoMontarPayload_(linha, tipo) {
       tipo: 'HAULER',
       startDate: linha.inicio,
       alvoDate: linha.entrega,
-      serial: linha.serie ? ('S' + linha.serie) : null,
+      serial: linha.serie ? _certidaoNormSerial_(linha.serie) : null,
       diametro: diametro,
       destino: null, // a aba PCP não traz cliente; sai sem nome de cliente no resumo
       departamento: 'PCP',
@@ -158,42 +191,73 @@ function _certidaoMontarPayload_(linha, tipo) {
  * que SERIA enviado a criarProjetoJira/criarHaulerJira — sem chamar essas
  * funções de verdade, sem escrever na planilha, sem tocar no Jira.
  */
+// Ano mínimo da Data de Entrega para uma linha entrar no escopo — decidido
+// com o usuário em 2026-08-1x: a base histórica tem muita linha antiga sem
+// dado suficiente (era ruído, não sinal), e o uso real é sobre pedidos
+// correntes, não sobre preencher retroativamente anos de histórico.
+var CERTIDAO_ANO_MINIMO_ENTREGA_ = 2026;
+
 function inspecionarIngestaoCertidao() {
   try {
     var linhas = _certidaoLerLinhasPCP_();
+    var seriaisExistentes = _certidaoSeriaisExistentesNoJira_();
+
     var porTipo = { HAULER: [], PPP: [], IGNORADO: [] };
+    var foraDoEscopo = [];
 
     linhas.forEach(function (linha) {
       var c = _certidaoClassificar_(linha.produto);
-      var item = { pedido: linha.pedido, produto: linha.produto, serie: linha.serie, config: linha.config };
-      if (c.tipo !== 'IGNORADO') {
-        var m = _certidaoMontarPayload_(linha, c.tipo);
-        item.dados = m.dados;
-        item.bloqueios = m.bloqueios;
-        item.resumoPrevisto = m.resumoPrevisto;
-        item.pronto = m.bloqueios.length === 0;
+      if (c.tipo === 'IGNORADO') { porTipo.IGNORADO.push({ pedido: linha.pedido, produto: linha.produto }); return; }
+
+      // Escopo por Data de Entrega. Linha sem essa data, ou com ano anterior
+      // ao mínimo, não entra na contagem de "pronta"/"bloqueada" — fica à
+      // parte, visível, mas não pesa no resumo principal.
+      var ano = linha.entrega ? parseInt(linha.entrega.slice(0, 4), 10) : null;
+      if (!ano || ano < CERTIDAO_ANO_MINIMO_ENTREGA_) {
+        foraDoEscopo.push({ pedido: linha.pedido, produto: linha.produto, tipo: c.tipo,
+          motivo: ano ? ('Data de Entrega em ' + ano) : 'sem Data de Entrega' });
+        return;
       }
+
+      var item = { pedido: linha.pedido, produto: linha.produto, serie: linha.serie, config: linha.config, entrega: linha.entrega };
+      var m = _certidaoMontarPayload_(linha, c.tipo);
+      item.dados = m.dados;
+      item.bloqueios = m.bloqueios.slice();
+      item.resumoPrevisto = m.resumoPrevisto;
+
+      // Cruzamento com o Jira: só faz sentido para Hauler, que tem serial
+      // dedicado. PPP não tem um identificador equivalente hoje — não dá
+      // para saber se "PPP - PLANTADORA X" já foi criado sem arriscar
+      // falso positivo por nome parecido, então PPP não é cruzado ainda.
+      if (c.tipo === 'HAULER' && item.dados.serial && seriaisExistentes[item.dados.serial]) {
+        item.jaExisteNoJira = seriaisExistentes[item.dados.serial];
+        item.bloqueios.push('já existe no Jira (' + item.jaExisteNoJira + ') — não seria recriado');
+      }
+
+      item.pronto = item.bloqueios.length === 0;
       porTipo[c.tipo].push(item);
     });
 
-    var prontos = porTipo.HAULER.filter(function (i) { return i.pronto; }).length
-                + porTipo.PPP.filter(function (i) { return i.pronto; }).length;
-    var comBloqueio = porTipo.HAULER.filter(function (i) { return !i.pronto; }).length
-                     + porTipo.PPP.filter(function (i) { return !i.pronto; }).length;
+    var noEscopo = porTipo.HAULER.concat(porTipo.PPP);
+    var prontos = noEscopo.filter(function (i) { return i.pronto; }).length;
+    var jaExistiam = noEscopo.filter(function (i) { return i.jaExisteNoJira; }).length;
 
     return {
       success: true,
+      anoMinimoEntrega: CERTIDAO_ANO_MINIMO_ENTREGA_,
       totalLinhas: linhas.length,
       resumo: {
         hauler: porTipo.HAULER.length,
         ppp: porTipo.PPP.length,
         ignorado: porTipo.IGNORADO.length,
+        foraDoEscopoPorData: foraDoEscopo.length,
         prontosParaCriar: prontos,
-        comBloqueio: comBloqueio,
+        jaExistemNoJira: jaExistiam,
+        comBloqueio: noEscopo.length - prontos,
       },
       hauler: porTipo.HAULER,
       ppp: porTipo.PPP,
-      // amostra, não a lista inteira de ignorados — só pra conferência visual
+      foraDoEscopoAmostra: foraDoEscopo.slice(0, 10),
       ignoradosAmostra: porTipo.IGNORADO.slice(0, 15).map(function (i) { return i.produto; }),
     };
   } catch (err) {
