@@ -338,6 +338,15 @@ function buildBodyGenerico_(dados, tipoCfg, summary) {
   if (dados.complexidade)       fields.customfield_10403 = { value: dados.complexidade };
   if (tipoCfg.categoria)        fields.customfield_10205 = { value: tipoCfg.categoria };
   if (dados.clienteNome)        fields.customfield_10038 = dados.clienteNome;
+  // O tipo PPP pede "Serial" no formulário (campos:['produto','serial',...])
+  // mas esse valor nunca era gravado no Jira — só buildBodyHauler_ escrevia
+  // em customfield_10537. Isso quebrava o cruzamento de idempotência da
+  // ingestão da Certidão: sem o campo dedicado, o único jeito de achar o
+  // serial de um PPP já existente era vasculhar texto solto no resumo, o
+  // que gestores contornavam digitando o serial ali à mão (ex: "P175 -
+  // IRRIGADOR DEXCO (3) S22000076" — o "S22000076" foi digitado no campo
+  // Cliente, não veio de customfield_10537).
+  if (dados.serial)             fields.customfield_10537 = dados.serial;
   // customfield_10139 (Número do projeto) é select com IDs fixos — não enviar no create
   return { fields };
 }
@@ -953,13 +962,18 @@ function atualizarDatas(dados) {
     const issueKey = dados.issueKey;
     if (!issueKey) throw new Error('Chave não informada.');
 
-    // "Data alvo"/"Data Baseline" só existem na tela de Tarefa — em Subtarefa o Jira
-    // rejeita o PUT com HTTP 400 se tentarmos setá-los (mesmo problema de registrarBloqueio()).
+    // Lê o estado ANTES de escrever, por dois motivos:
+    //  1. "Data alvo"/"Data Baseline" só existem na tela de Tarefa — em Subtarefa
+    //     o Jira rejeita o PUT com HTTP 400 (mesmo problema de registrarBloqueio()).
+    //  2. Precisamos do início ATUAL para saber de quantos dias o projeto andou
+    //     e deslocar as subtarefas pelo mesmo tanto (ver _deslocarSubtarefas_).
     let isSubtask = false;
-    if (dados.alvoDate || dados.baselineDate) {
-      const issInfo = jiraRequest_('GET', '/rest/api/3/issue/' + issueKey + '?fields=issuetype');
+    let inicioAtual = null;
+    if (dados.alvoDate || dados.baselineDate || dados.startDate) {
+      const issInfo = jiraRequest_('GET', '/rest/api/3/issue/' + issueKey + '?fields=issuetype,customfield_10015');
       const tipoIssue = issInfo.fields && issInfo.fields.issuetype ? issInfo.fields.issuetype.name : '';
       isSubtask = tipoIssue.toLowerCase()==='subtarefa' || tipoIssue.toLowerCase()==='subtask';
+      inicioAtual = (issInfo.fields && issInfo.fields.customfield_10015) || null;
     }
 
     const updates = {};
@@ -991,7 +1005,24 @@ function atualizarDatas(dados) {
     }
 
     jiraRequest_('PUT', '/rest/api/3/issue/' + issueKey, { fields: updates });
-    return { success: true, key: issueKey, updated: Object.keys(updates), camposIgnorados: camposIgnorados };
+
+    // Mover o projeto sem mover as subtarefas deixava o cronograma sem sentido:
+    // medido no AGTK-1312 (o gestor puxou o início de 08/09 para 10/08), TRÊS
+    // das quatro subtarefas passaram a terminar ANTES do projeto começar.
+    // Agora o bloco inteiro anda junto, mantendo duração e espaçamento.
+    var propagacao = null;
+    if (!isSubtask && dados.propagarSubtarefas !== false && dados.startDate && inicioAtual) {
+      try {
+        propagacao = _deslocarSubtarefas_(issueKey, inicioAtual, dados.startDate);
+      } catch (eProp) {
+        // O pai JÁ foi gravado. Falhar aqui não pode desfazer aquilo nem
+        // devolver erro — vira aviso, como nos outros fluxos.
+        propagacao = { erro: eProp.message };
+      }
+    }
+
+    return { success: true, key: issueKey, updated: Object.keys(updates),
+             camposIgnorados: camposIgnorados, subtarefas: propagacao };
   } catch (err) {
     return { success: false, erro: err.message };
   }
@@ -3210,3 +3241,52 @@ function salvarRelatorioDrive_(pdfResult) {
 // teste, chama registrarBloqueio() e resolverBloqueio() de verdade (mesmo
 // caminho que o painel usa), depois apaga a issue. Confirma que os PDFs
 // novos (Slides) e a pasta por ano funcionam ponta a ponta.
+
+// ─── PROPAGAÇÃO DE DATAS PARA SUBTAREFAS ──────────────────────
+//
+// Desloca TODAS as subtarefas de um projeto pelo mesmo número de dias que o
+// projeto andou, preservando duração e espaçamento entre elas.
+//
+// Por que "deslocar em bloco" e não "redistribuir proporcionalmente"
+// (decisão do usuário, 2026-08-28): redistribuir recalcula o cronograma do
+// zero e joga fora qualquer ajuste manual que o gestor já tenha feito numa
+// subtarefa específica. Deslocar preserva o planejamento — o projeto mudou
+// de lugar na linha do tempo, não mudou de forma.
+//
+// O delta vem sempre do INÍCIO. Se o gestor mexeu só no prazo final
+// (esticou/encurtou o projeto), deslocar tudo estaria errado — nesse caso
+// não propaga, e quem decide o que fazer com as etapas é ele.
+function _deslocarSubtarefas_(paiKey, inicioAntigo, inicioNovo) {
+  var delta = Math.round(
+    (new Date(inicioNovo + 'T12:00:00') - new Date(inicioAntigo + 'T12:00:00')) / 86400000
+  );
+  if (!delta || isNaN(delta)) return { delta: 0, movidas: [], motivo: 'início não mudou' };
+
+  var res = jiraRequest_('GET',
+    '/rest/api/3/search/jql?jql=' + encodeURIComponent('parent=' + paiKey) +
+    '&maxResults=100&fields=summary,duedate,customfield_10015');
+
+  var movidas = [], falhas = [], semData = 0;
+  (res.issues || []).forEach(function (sub) {
+    var f = sub.fields || {};
+    var ini = f.customfield_10015, fim = f.duedate;
+    if (!ini && !fim) { semData++; return; }  // nada a deslocar
+    var upd = {};
+    if (ini) upd.customfield_10015 = addDias_(ini, delta);
+    if (fim) upd.duedate = addDias_(fim, delta);
+    try {
+      jiraRequest_('PUT', '/rest/api/3/issue/' + sub.key, { fields: upd });
+      movidas.push({
+        key: sub.key,
+        resumo: f.summary || '',
+        startDate: upd.customfield_10015 || null,
+        dueDate: upd.duedate || null,
+      });
+    } catch (e) {
+      // Uma subtarefa que falha não derruba as outras nem o pai (já gravado).
+      falhas.push(sub.key + ': ' + e.message);
+    }
+  });
+
+  return { delta: delta, movidas: movidas, falhas: falhas, semData: semData };
+}

@@ -1563,7 +1563,8 @@ const ACOES_MUTANTES = ['deletarProjeto','mudarStatus','resolverBloqueio','regis
   // token e o backend responde "Não autorizado".
   'previaDigestSemanal','inspecionarDigest','setupDigestSemanalTrigger','desativarTriggersAntigosDiarios',
   'setupAquecimentoTrigger','setupAnalisesTrigger',
-  'inspecionarIngestaoCertidao'];
+  'inspecionarIngestaoCertidao',
+  'inspecionarAlinhamento','alinharSubtarefas'];
 function getApi(){return localStorage.getItem('agritrack_api')||DEFAULT_API;}
 // Procura no Jira um projeto recém-criado que case com o que o formulário
 // enviou. Serve para desfazer a ambiguidade de "erro de transporte": a escrita

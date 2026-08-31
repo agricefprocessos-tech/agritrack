@@ -34,6 +34,9 @@ function doGet(e) {
       // com dados de pedido/cliente. Só leitura, mas expõe dado que não é
       // do AgriTrack — exige token mesmo sem escrever nada ainda.
       'inspecionarIngestaoCertidao',
+      // alinharSubtarefas reescreve datas em massa no Jira; a inspecao le
+      // o projeto inteiro. Ambas exigem token.
+      'inspecionarAlinhamento', 'alinharSubtarefas',
     ];
     if (ACOES_MUTANTES.indexOf(data.action) !== -1) _validarToken_(data);
 
@@ -44,6 +47,7 @@ function doGet(e) {
     const ACOES_ALTERAM_TAREFAS = [
       'criarProjetoJira', 'deletarProjeto', 'mudarStatus',
       'registrarBloqueio', 'resolverBloqueio', 'atualizarDatas', 'syncDatasReais',
+      'alinharSubtarefas',
     ];
 
     // O switch fica dentro de uma função só para que a invalidação rode depois
@@ -106,6 +110,9 @@ function doGet(e) {
       case 'setupAnalisesTrigger':            return jsonResp_(setupAnalisesTrigger());
       // ── Ingestão da Certidão de nascimento (PCP) ──────────────────────
       case 'inspecionarIngestaoCertidao':     return jsonResp_(inspecionarIngestaoCertidao());
+      // ── Alinhamento de subtarefas ao periodo do pai ───────────────────
+      case 'inspecionarAlinhamento':          return jsonResp_(inspecionarAlinhamento());
+      case 'alinharSubtarefas':               return jsonResp_(alinharSubtarefas(data));
       default: return jsonResp_({ erro: 'Ação desconhecida: ' + data.action });
     }
     };

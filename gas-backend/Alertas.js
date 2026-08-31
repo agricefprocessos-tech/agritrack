@@ -937,6 +937,45 @@ function relatorioAtividadeSemanal(dados) {
     // Processa dados reais de todo mundo sempre; só o DESTINO do e-mail muda
     // em modo prévia — assim dá pra validar o conteúdo real sem notificar ninguém.
     var emails = Object.keys(porGestor);
+
+    // Modo inspeção: devolve QUEM mexeu e O QUE mudou, sem enviar e-mail
+    // nenhum e sem gravar histórico. Existe porque o único jeito de saber
+    // se um gestor mexeu era rodar o relatório inteiro — que dispara
+    // e-mail. E o retorno normal engana: `linhasArquivadas` é sempre 0 em
+    // prévia (é a prévia que não arquiva, não a ausência de atividade),
+    // o que me levou a afirmar "ninguém mexeu" quando havia mexido.
+    if (dados.somenteInspecionar) {
+      return {
+        success: true,
+        inspecao: true,
+        gestoresComAtividade: emails.length,
+        semEmailMapeado: semEmail,
+        itensTruncados: truncados,
+        detalhe: emails.map(function (email) {
+          var g = porGestor[email];
+          return {
+            nome: g.nome,
+            email: email,
+            totalItens: g.itens.length,
+            itens: g.itens.map(function (it) {
+              return {
+                key: it.key,
+                resumo: String(it.summary || '').slice(0, 55),
+                tipo: it.tipo,
+                eventos: it.eventos.map(function (ev) {
+                  if (ev.tipo === 'data')   return 'data ' + ev.campo + ': ' + ev.de + ' -> ' + ev.para;
+                  if (ev.tipo === 'status') return 'status: ' + ev.de + ' -> ' + ev.para;
+                  if (ev.tipo === 'bloqueio')    return 'BLOQUEOU';
+                  if (ev.tipo === 'desbloqueio') return 'desbloqueou';
+                  return ev.tipo + (ev.texto ? ': ' + String(ev.texto).slice(0, 60) : '');
+                }),
+              };
+            }),
+          };
+        }),
+      };
+    }
+
     _checarCotaEmail_(emails.length + 1);
 
     var previa = !!dados.somentePreviaParaMim;

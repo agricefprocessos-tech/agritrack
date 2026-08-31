@@ -81,12 +81,19 @@ function _certidaoLerLinhasPCP_() {
   for (var r = h + 1; r < valores.length; r++) {
     var row = valores[r];
     var pedido = String(row[0] || '').trim();
-    if (!pedido) continue;
+    var serieRaw = String(row[2] || '').trim();
+    var produtoRaw = String(row[1] || '').trim();
+    // Antes: `if (!pedido) continue;` — descartava a linha inteira quando o
+    // "Nº do pedido" estava vazio. Isso jogava fora seriais REAIS: os pedidos
+    // internos (produção para estoque) não têm número de pedido de cliente, e
+    // eram justamente os mais recentes (22000088..91). O identificador que
+    // importa aqui é o SERIAL, não o pedido. Só pula linha totalmente vazia.
+    if (!pedido && !serieRaw && !produtoRaw) continue;
     linhas.push({
       linhaPlanilha: r + 1, // 1-based; útil se algum dia formos escrever de volta
-      pedido: pedido,
-      produto: String(row[1] || '').replace(/\r|\n/g, ' ').replace(/\s+/g, ' ').trim(),
-      serie: String(row[2] || '').trim(),
+      pedido: pedido || '(interno)',
+      produto: produtoRaw.replace(/\r|\n/g, ' ').replace(/\s+/g, ' ').trim(),
+      serie: serieRaw,
       config: String(row[3] || '').trim(),
       inicio: _certidaoFmtData_(row[4]),
       fimPrevisto: _certidaoFmtData_(row[5]),
@@ -210,13 +217,15 @@ function inspecionarIngestaoCertidao() {
       var c = _certidaoClassificar_(linha.produto);
       if (c.tipo === 'IGNORADO') { porTipo.IGNORADO.push({ pedido: linha.pedido, produto: linha.produto }); return; }
 
-      // Escopo por Data de Entrega. Linha sem essa data, ou com ano anterior
-      // ao mínimo, não entra na contagem de "pronta"/"bloqueada" — fica à
-      // parte, visível, mas não pesa no resumo principal.
+      // Escopo por Data de Entrega — só EXCLUI o que é comprovadamente
+      // antigo. Linha SEM data de entrega continua no escopo: pedido
+      // recém-lançado ainda não tem prazo definido, e era exatamente esse
+      // caso (22000085..91) que a versão anterior descartava — o filtro
+      // eliminava justamente os projetos novos, que são o alvo da ingestão.
       var ano = linha.entrega ? parseInt(linha.entrega.slice(0, 4), 10) : null;
-      if (!ano || ano < CERTIDAO_ANO_MINIMO_ENTREGA_) {
+      if (ano && ano < CERTIDAO_ANO_MINIMO_ENTREGA_) {
         foraDoEscopo.push({ pedido: linha.pedido, produto: linha.produto, tipo: c.tipo,
-          motivo: ano ? ('Data de Entrega em ' + ano) : 'sem Data de Entrega' });
+          motivo: 'Data de Entrega em ' + ano });
         return;
       }
 
