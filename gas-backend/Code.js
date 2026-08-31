@@ -36,7 +36,7 @@ function doGet(e) {
       'inspecionarIngestaoCertidao',
       // alinharSubtarefas reescreve datas em massa no Jira; a inspecao le
       // o projeto inteiro. Ambas exigem token.
-      'inspecionarAlinhamento', 'alinharSubtarefas',
+      'inspecionarAlinhamento', 'alinharSubtarefas', 'reorganizarSubtarefas',
     ];
     if (ACOES_MUTANTES.indexOf(data.action) !== -1) _validarToken_(data);
 
@@ -47,7 +47,7 @@ function doGet(e) {
     const ACOES_ALTERAM_TAREFAS = [
       'criarProjetoJira', 'deletarProjeto', 'mudarStatus',
       'registrarBloqueio', 'resolverBloqueio', 'atualizarDatas', 'syncDatasReais',
-      'alinharSubtarefas',
+      'alinharSubtarefas', 'reorganizarSubtarefas',
     ];
 
     // O switch fica dentro de uma função só para que a invalidação rode depois
@@ -112,6 +112,7 @@ function doGet(e) {
       case 'inspecionarIngestaoCertidao':     return jsonResp_(inspecionarIngestaoCertidao());
       // ── Alinhamento de subtarefas ao periodo do pai ───────────────────
       case 'inspecionarAlinhamento':          return jsonResp_(inspecionarAlinhamento());
+      case 'reorganizarSubtarefas':           return jsonResp_(reorganizarSubtarefas(data));
       case 'alinharSubtarefas':               return jsonResp_(alinharSubtarefas(data));
       default: return jsonResp_({ erro: 'Ação desconhecida: ' + data.action });
     }

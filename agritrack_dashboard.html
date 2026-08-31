@@ -652,6 +652,8 @@ tr:hover td{background:rgba(255,255,255,0.02)}
       </div>
 
       <div class="form-msg" id="bMsg" style="margin-top:12px"></div>
+      <!-- Aparece só depois que a data do projeto muda; nada é aplicado sem clique. -->
+      <div id="reorgBox" style="display:none;margin-top:12px;padding:14px;background:var(--bg2);border:1px solid var(--amber);border-radius:10px"></div>
       <div class="fsubmit" style="margin-top:16px">
         <button class="btn-primary" onclick="submitBloqueio()">Registrar Bloqueio</button>
         <button class="btn-amber" onclick="submitApenasData()">Só Atualizar Datas</button>
@@ -2608,7 +2610,95 @@ async function submitApenasData(){
     }
     showBMsg('✓ '+nUpd+' data(s) atualizada(s) em '+key+ignorados,'ok');
     _jiraCacheSync();  // só depois de confirmado
+    // O projeto mudou de data — as etapas continuam onde estavam. Oferece a
+    // reorganização, sem aplicar nada por conta própria.
+    _oferecerReorganizacao_(key, r.podeReorganizar);
   }catch(e){desfazer('Não salvou: '+e.message);}
+}
+
+// ── Reorganização de subtarefas após mudança de data do projeto ──
+//
+// NÃO é automático de propósito. Mover 4 subtarefas sem o gestor pedir é o
+// tipo de ação que acerta às vezes e estraga o planejamento nas outras:
+// ele pode estar corrigindo um erro de digitação, ou as etapas já podem ter
+// sido replanejadas à mão. Aqui ele vê exatamente o que muda, nas duas
+// regras possíveis, e escolhe — ou ignora.
+let _reorgCtx=null;
+
+function _oferecerReorganizacao_(key, diag){
+  const box=document.getElementById('reorgBox');
+  if(!box) return;
+  if(!diag || diag.erro || !diag.total){ box.style.display='none'; _reorgCtx=null; return; }
+
+  _reorgCtx={key, diag};
+  const p=diag.periodoPai||{};
+  const ign=[];
+  if(diag.subtarefasConcluidasIgnoradas) ign.push(diag.subtarefasConcluidasIgnoradas+' concluída(s)');
+  if(diag.subtarefasSemDataIgnoradas)    ign.push(diag.subtarefasSemDataIgnoradas+' sem data');
+
+  const d=diag.deslocar, rd=diag.redistribuir;
+  const linhas=(itens)=>itens.map(i=>
+    `<div style="display:flex;gap:8px;padding:3px 0;font-size:11px;border-bottom:1px solid var(--border)">
+       <span style="flex:1;color:var(--text2)">${esc(i.resumo.slice(0,28))}</span>
+       <span style="font-family:monospace;color:var(--text3)">${i.de}</span>
+       <span style="color:var(--text3)">→</span>
+       <span style="font-family:monospace;color:var(--green)">${i.para}</span>
+     </div>`).join('');
+
+  let html=`<div style="font-size:12px;font-weight:600;color:var(--amber);margin-bottom:4px">
+      ⚠ ${key} mudou de data — reorganizar as ${diag.total} subtarefa(s) em aberto?</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px">
+      Período do projeto: ${p.inicio||'—'} → ${p.fim||'—'}${ign.length?' · ignorando '+ign.join(' e '):''}.
+      Nada é alterado até você escolher uma opção.</div>`;
+
+  if(rd){
+    html+=`<div style="background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:8px">
+      <div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:6px">
+        Redistribuir no período do projeto${rd.colapsadas?` <span style="color:var(--amber)">— ${rd.colapsadas} etapa(s) ficariam na mesma data, período curto</span>`:''}</div>
+      ${linhas(rd.itens)}
+      <button class="btn-sec" style="margin-top:8px" onclick="_aplicarReorg_('redistribuir')">Aplicar esta</button>
+    </div>`;
+  }
+  if(d){
+    html+=`<div style="background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:8px">
+      <div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:6px">
+        Deslocar em bloco (${d.deltaDias>0?'+':''}${d.deltaDias}d, mantém durações)${d.forasDoPrazoDoPai?` <span style="color:var(--red)">— ${d.forasDoPrazoDoPai} etapa(s) passariam do prazo do projeto</span>`:''}</div>
+      ${linhas(d.itens)}
+      <button class="btn-sec" style="margin-top:8px" onclick="_aplicarReorg_('deslocar')">Aplicar esta</button>
+    </div>`;
+  }
+  html+=`<button class="btn-sec" onclick="document.getElementById('reorgBox').style.display='none'">Deixar como está</button>
+    <div id="reorgMsg" style="margin-top:8px"></div>`;
+
+  box.innerHTML=html;
+  box.style.display='block';
+}
+
+async function _aplicarReorg_(modo){
+  if(!_reorgCtx) return;
+  const {key,diag}=_reorgCtx;
+  const bloco = modo==='deslocar' ? diag.deslocar : diag.redistribuir;
+  if(!bloco) return;
+  const msg=document.getElementById('reorgMsg');
+  msg.innerHTML='<span style="font-size:11px;color:var(--text2)">Reorganizando…</span>';
+  try{
+    // Manda os itens EXATOS do preview — o que ele aprovou é o que vai gravar.
+    const r=await api({action:'reorganizarSubtarefas', issueKey:key, modo,
+      itens: bloco.itens.map(i=>({key:i.key, startDate:i.startDate, dueDate:i.dueDate}))}, 120000);
+    if(!r.success){ msg.innerHTML=`<span style="font-size:11px;color:var(--red)">Erro: ${esc(r.erro||'')}</span>`; return; }
+
+    // Reflete localmente para o Gantt não continuar mostrando o antigo.
+    (r.movidas||[]).forEach(m=>_patchTaskDatas_(m.key,{startDate:m.startDate,dueDate:m.dueDate}));
+    renderGantt(); _jiraCacheSync();
+
+    let txt=`✓ ${r.movidas.length} subtarefa(s) reorganizada(s)`;
+    if(r.recusadas&&r.recusadas.length) txt+=` · ${r.recusadas.length} ignorada(s)`;
+    if(r.falhas&&r.falhas.length) txt+=` · ${r.falhas.length} falhou`;
+    msg.innerHTML=`<span style="font-size:11px;color:var(--green)">${txt}</span>`;
+    setTimeout(()=>{document.getElementById('reorgBox').style.display='none';},2500);
+  }catch(e){
+    msg.innerHTML=`<span style="font-size:11px;color:var(--red)">Erro: ${esc(e.message||String(e))}</span>`;
+  }
 }
 
 function clearBloqueioForm(){

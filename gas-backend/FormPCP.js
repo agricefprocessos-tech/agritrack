@@ -969,11 +969,13 @@ function atualizarDatas(dados) {
     //     e deslocar as subtarefas pelo mesmo tanto (ver _deslocarSubtarefas_).
     let isSubtask = false;
     let inicioAtual = null;
+    let fimAtual = null;
     if (dados.alvoDate || dados.baselineDate || dados.startDate) {
-      const issInfo = jiraRequest_('GET', '/rest/api/3/issue/' + issueKey + '?fields=issuetype,customfield_10015');
+      const issInfo = jiraRequest_('GET', '/rest/api/3/issue/' + issueKey + '?fields=issuetype,customfield_10015,duedate');
       const tipoIssue = issInfo.fields && issInfo.fields.issuetype ? issInfo.fields.issuetype.name : '';
       isSubtask = tipoIssue.toLowerCase()==='subtarefa' || tipoIssue.toLowerCase()==='subtask';
       inicioAtual = (issInfo.fields && issInfo.fields.customfield_10015) || null;
+      fimAtual    = (issInfo.fields && issInfo.fields.duedate) || null;
     }
 
     const updates = {};
@@ -1006,23 +1008,32 @@ function atualizarDatas(dados) {
 
     jiraRequest_('PUT', '/rest/api/3/issue/' + issueKey, { fields: updates });
 
-    // Mover o projeto sem mover as subtarefas deixava o cronograma sem sentido:
-    // medido no AGTK-1312 (o gestor puxou o início de 08/09 para 10/08), TRÊS
-    // das quatro subtarefas passaram a terminar ANTES do projeto começar.
-    // Agora o bloco inteiro anda junto, mantendo duração e espaçamento.
-    var propagacao = null;
-    if (!isSubtask && dados.propagarSubtarefas !== false && dados.startDate && inicioAtual) {
+    // NÃO propaga sozinho. Mover as subtarefas automaticamente é exatamente o
+    // tipo de ação que "é acionada quando não deveria": o gestor pode estar
+    // corrigindo um erro de digitação, ajustando só o prazo final, ou mexendo
+    // num projeto cujas etapas já foram replanejadas à mão. Reprogramar 4
+    // subtarefas sem ele pedir é pior que deixar desalinhado — ele ao menos
+    // VÊ o desalinhado.
+    //
+    // Em vez disso, devolvemos o diagnóstico e o painel oferece o botão
+    // "Reorganizar subtarefas". Quem decide é o gestor, vendo antes o que muda.
+    var podeReorganizar = null;
+    var mudouAlgumaData = (dados.startDate && dados.startDate !== inicioAtual)
+                       || (dados.dueDate   && dados.dueDate   !== fimAtual);
+    if (!isSubtask && mudouAlgumaData) {
       try {
-        propagacao = _deslocarSubtarefas_(issueKey, inicioAtual, dados.startDate);
-      } catch (eProp) {
-        // O pai JÁ foi gravado. Falhar aqui não pode desfazer aquilo nem
-        // devolver erro — vira aviso, como nos outros fluxos.
-        propagacao = { erro: eProp.message };
+        podeReorganizar = _diagnosticarSubtarefas_(issueKey, {
+          inicioAntigo: inicioAtual,
+          inicioNovo:   dados.startDate || inicioAtual,
+          fimNovo:      dados.dueDate   || fimAtual,
+        });
+      } catch (eDiag) {
+        podeReorganizar = { erro: eDiag.message };
       }
     }
 
     return { success: true, key: issueKey, updated: Object.keys(updates),
-             camposIgnorados: camposIgnorados, subtarefas: propagacao };
+             camposIgnorados: camposIgnorados, podeReorganizar: podeReorganizar };
   } catch (err) {
     return { success: false, erro: err.message };
   }
@@ -3289,4 +3300,155 @@ function _deslocarSubtarefas_(paiKey, inicioAntigo, inicioNovo) {
   });
 
   return { delta: delta, movidas: movidas, falhas: falhas, semData: semData };
+}
+
+// Diagnóstico (NÃO escreve nada): diz se vale oferecer a reorganização das
+// subtarefas depois que o gestor mudou a data do projeto, e o que mudaria.
+//
+// Só oferece quando há o que reorganizar de fato. Os filtros existem para o
+// botão não aparecer quando não deveria:
+//   - projeto concluído: replanejar o que já acabou não faz sentido;
+//   - subtarefa sem data: não há o que deslocar;
+//   - já alinhado: nada a fazer.
+function _diagnosticarSubtarefas_(paiKey, periodo) {
+  var res = jiraRequest_('GET',
+    '/rest/api/3/search/jql?jql=' + encodeURIComponent('parent=' + paiKey) +
+    '&maxResults=100&fields=summary,duedate,customfield_10015,status');
+
+  // Etapa já entregue não se replaneja, e sem data não há o que mover.
+  var abertas = [], concluidas = 0, semData = 0;
+  (res.issues || []).forEach(function (sub) {
+    var f = sub.fields || {};
+    var cat = f.status && f.status.statusCategory ? f.status.statusCategory.key : '';
+    if (cat === 'done') { concluidas++; return; }
+    if (!f.customfield_10015 && !f.duedate) { semData++; return; }
+    abertas.push({ key: sub.key, resumo: f.summary || '',
+                   ini: f.customfield_10015 || null, fim: f.duedate || null });
+  });
+  if (!abertas.length) return null;
+
+  // Ordem cronológica: é ela que define a sequência ao redistribuir.
+  abertas.sort(function (a, b) {
+    var ai = a.ini || a.fim || '', bi = b.ini || b.fim || '';
+    if (ai !== bi) return ai < bi ? -1 : 1;
+    return (a.fim || '') < (b.fim || '') ? -1 : 1;
+  });
+
+  var iniNovo = periodo.inicioNovo, fimNovo = periodo.fimNovo;
+
+  // ── Opção A: deslocar em bloco ──
+  var delta = (periodo.inicioAntigo && iniNovo)
+    ? Math.round((new Date(iniNovo + 'T12:00:00') - new Date(periodo.inicioAntigo + 'T12:00:00')) / 86400000)
+    : 0;
+  var deslocar = null;
+  if (delta && !isNaN(delta)) {
+    var estouram = 0;
+    var itensD = abertas.map(function (s) {
+      var ni = s.ini ? addDias_(s.ini, delta) : null;
+      var nf = s.fim ? addDias_(s.fim, delta) : null;
+      if (fimNovo && nf && nf > fimNovo) estouram++;
+      return { key: s.key, resumo: s.resumo,
+               de: (s.ini || '—') + ' → ' + (s.fim || '—'),
+               para: (ni || '—') + ' → ' + (nf || '—'),
+               startDate: ni, dueDate: nf };
+    });
+    deslocar = { deltaDias: delta, itens: itensD, forasDoPrazoDoPai: estouram };
+  }
+
+  // ── Opção B: redistribuir no período do pai ──
+  // Reaproveita _distribuirEtapas_, a MESMA função usada na criação do
+  // projeto — assim reorganizar produz o mesmo cronograma que criar produziria.
+  var redistribuir = null;
+  if (iniNovo && fimNovo && fimNovo > iniNovo) {
+    var marcos = _distribuirEtapas_(iniNovo, fimNovo, abertas.length);
+    var anterior = iniNovo;
+    var itensR = abertas.map(function (s, i) {
+      var ni = i === 0 ? iniNovo : marcos.fins[i - 1];
+      var nf = marcos.fins[i];
+      anterior = nf;
+      return { key: s.key, resumo: s.resumo,
+               de: (s.ini || '—') + ' → ' + (s.fim || '—'),
+               para: ni + ' → ' + nf,
+               startDate: ni, dueDate: nf };
+    });
+    redistribuir = { itens: itensR, totalDias: marcos.totalDias, colapsadas: marcos.colapsadas };
+  }
+
+  return {
+    total: abertas.length,
+    subtarefasConcluidasIgnoradas: concluidas,
+    subtarefasSemDataIgnoradas: semData,
+    periodoPai: { inicio: iniNovo, fim: fimNovo },
+    deslocar: deslocar,
+    redistribuir: redistribuir,
+  };
+}
+
+/**
+ * Aplica a reorganização — só quando o gestor clica no botão.
+ * Recebe explicitamente o delta que ele viu na tela, em vez de recalcular:
+ * se a data do projeto mudou de novo entre o diagnóstico e o clique,
+ * recalcular aplicaria um deslocamento diferente do que foi mostrado.
+ */
+/**
+ * Aplica a reorganização — só quando o gestor clica, e só o que ele viu.
+ *
+ * Recebe a lista EXATA de {key, startDate, dueDate} que o preview mostrou,
+ * em vez de recalcular no servidor. Recalcular abriria espaço para gravar
+ * algo diferente do que estava na tela: se a data do projeto mudasse entre
+ * o preview e o clique, ou se a regra tivesse qualquer divergência, o
+ * gestor aprovaria um cronograma e receberia outro. Aqui o que ele aprovou
+ * é literalmente o que vai para o Jira.
+ *
+ * As chaves são validadas contra o pai informado — mandar a chave de uma
+ * issue de outro projeto não reescreve nada.
+ */
+function reorganizarSubtarefas(dados) {
+  try {
+    var paiKey = (dados.issueKey || '').trim().toUpperCase();
+    var itens = Array.isArray(dados.itens) ? dados.itens : [];
+    if (!paiKey) throw new Error('issueKey obrigatório.');
+    if (!itens.length) throw new Error('Nenhuma subtarefa informada.');
+
+    // Só aceita chaves que são realmente filhas deste pai.
+    var res = jiraRequest_('GET',
+      '/rest/api/3/search/jql?jql=' + encodeURIComponent('parent=' + paiKey) +
+      '&maxResults=100&fields=summary,status');
+    var filhas = {};
+    (res.issues || []).forEach(function (sub) {
+      var cat = sub.fields && sub.fields.status && sub.fields.status.statusCategory
+        ? sub.fields.status.statusCategory.key : '';
+      filhas[sub.key] = { resumo: (sub.fields && sub.fields.summary) || '', concluida: cat === 'done' };
+    });
+
+    var movidas = [], falhas = [], recusadas = [];
+    itens.forEach(function (it) {
+      var key = String(it.key || '').trim().toUpperCase();
+      if (!filhas[key]) { recusadas.push(key + ': não é subtarefa de ' + paiKey); return; }
+      if (filhas[key].concluida) { recusadas.push(key + ': já concluída, não replanejada'); return; }
+      if (!it.startDate && !it.dueDate) { recusadas.push(key + ': sem data nova'); return; }
+
+      var upd = {};
+      if (it.startDate) upd.customfield_10015 = it.startDate;
+      if (it.dueDate)   upd.duedate = it.dueDate;
+      try {
+        jiraRequest_('PUT', '/rest/api/3/issue/' + key, { fields: upd });
+        movidas.push({ key: key, resumo: filhas[key].resumo,
+                       startDate: it.startDate || null, dueDate: it.dueDate || null });
+      } catch (e) {
+        // Uma que falha não impede as outras.
+        falhas.push(key + ': ' + e.message);
+      }
+    });
+
+    _auditLog_('reorganizarSubtarefas', paiKey,
+      'modo=' + (dados.modo || '?') + ' movidas=' + movidas.length +
+      (recusadas.length ? ' recusadas=' + recusadas.length : '') +
+      (falhas.length ? ' falhas=' + falhas.length : ''));
+
+    return { success: true, key: paiKey, modo: dados.modo || null,
+             movidas: movidas, falhas: falhas, recusadas: recusadas };
+  } catch (err) {
+    return { success: false, erro: err.message };
+  }
 }
