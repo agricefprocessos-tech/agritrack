@@ -550,9 +550,22 @@ tr:hover td{background:rgba(255,255,255,0.02)}
               <option value="Média">Média</option>
               <option value="Baixa">Baixa</option>
             </select></div>
-          <div class="fg" id="sAlinhamentoWrap" style="display:none"><label>Alinhamento Estratégico</label>
+          <!-- Campo distinto de Classificação Estratégica, e confundido com ela:
+               Classificação diz de onde vem o retorno (Receita direta,
+               Estratégico e Posicionamento, Sustentação e Excelência
+               Operacional); Alinhamento diz onde o projeto encosta no negócio.
+               Ficou escondido desde que foi criado — o wrap era display:none e
+               nada no código o exibia, e o select só tinha a opção vazia, então
+               nenhum projeto novo gravava o campo. As 4 opções abaixo são as que
+               de fato existem hoje nos projetos do Jira. Não entra no score:
+               a fórmula é F×0.40 + I×0.30 + U×0.15 + C×0.15. -->
+          <div class="fg" id="sAlinhamentoWrap"><label>Alinhamento Estratégico</label>
             <select id="sAlinhamento">
               <option value="">— Selecione —</option>
+              <option value="Core Business">Core Business</option>
+              <option value="Diferenciação">Diferenciação</option>
+              <option value="Sustentação">Sustentação</option>
+              <option value="Apoio">Apoio</option>
             </select></div>
         </div>
         <div class="score-row" style="margin-top:14px">
@@ -1566,7 +1579,8 @@ const ACOES_MUTANTES = ['deletarProjeto','mudarStatus','resolverBloqueio','regis
   'previaDigestSemanal','inspecionarDigest','setupDigestSemanalTrigger','desativarTriggersAntigosDiarios',
   'setupAquecimentoTrigger','setupAnalisesTrigger',
   'inspecionarIngestaoCertidao',
-  'inspecionarAlinhamento','alinharSubtarefas','reorganizarSubtarefas'];
+  'inspecionarAlinhamento','alinharSubtarefas','reorganizarSubtarefas',
+  'migrarVotacaoDoSheets','removerDaVotacao','abrirVotacao'];
 function getApi(){return localStorage.getItem('agritrack_api')||DEFAULT_API;}
 // Procura no Jira um projeto recém-criado que case com o que o formulário
 // enviou. Serve para desfazer a ambiguidade de "erro de transporte": a escrita
@@ -2407,23 +2421,40 @@ async function submitForm(){
       // gestor a clicar em Criar de novo e duplicar o projeto inteiro, com
       // subtarefas. Quando o erro é de transporte, conferimos antes de acusar.
       const transporte=/HTML|timeout|Timeout|tempo|network|Failed to fetch/i.test(r.erro||'');
-      if(transporte){
-        showFMsg('A resposta do servidor se perdeu — conferindo se o projeto foi criado…','info');
-        const criado=await _conferirProjetoCriado_(dados);
-        if(criado){
-          showFMsg('✓ Criado com sucesso! '+criado+' (a confirmação demorou, mas o projeto está no Jira — NÃO clique em Criar de novo)','ok');
-          return;
-        }
-        showFMsg('Não foi criado — a chamada falhou antes de gravar. Pode tentar de novo com segurança.','err');
-        return;
-      }
-      showFMsg('Erro: '+(r.erro||JSON.stringify(r)),'err');
+      if(transporte){ if(await _resolverCriacaoIncerta_(dados)) return; }
+      else showFMsg('Erro: '+(r.erro||JSON.stringify(r)),'err');
     }
   }catch(e){
-    const msg=e.message&&e.message.includes('aborted')?'Timeout: o Jira demorou a responder. Verifique se o projeto foi criado antes de tentar novamente.':e.message;
-    showFMsg('Erro: '+msg,'err');
+    // Este ramo é o do timeout de 55s: api() aborta e LANÇA, em vez de devolver
+    // success:false. Foi por aqui que o AGTK-2151/2157 nasceu duplicado — o
+    // gestor via "verifique se foi criado", não tinha como verificar, e clicava
+    // de novo. Agora a conferência roda aqui também: é justamente o caminho
+    // mais provável de duplicação.
+    const abortou=e.message&&(e.message.includes('aborted')||/timeout/i.test(e.message));
+    if(abortou){ if(await _resolverCriacaoIncerta_(dados)) return; }
+    else showFMsg('Erro: '+e.message,'err');
   }
   btn.disabled=false;btn.textContent='Criar Projeto no Jira';
+}
+
+// Resposta perdida: a escrita pode ter acontecido. Confere no Jira e informa.
+// Devolve true quando o projeto EXISTE — aí quem chamou deve sair sem
+// reabilitar o botão, para que ninguém clique em Criar de novo. Devolve false
+// quando não foi criado: o botão volta e o gestor pode tentar com segurança.
+async function _resolverCriacaoIncerta_(dados){
+  showFMsg('A resposta do servidor se perdeu — conferindo se o projeto foi criado…','info');
+  let criado=null;
+  try{ criado=await _conferirProjetoCriado_(dados); }
+  catch(err){
+    showFMsg('Não deu para confirmar automaticamente ('+err.message+'). Procure o projeto no Jira ANTES de clicar em Criar de novo.','err');
+    return true;   // incerto: trava o botão, duplicar é pior que travar
+  }
+  if(criado){
+    showFMsg('✓ Criado com sucesso! '+criado+' (a confirmação demorou, mas o projeto está no Jira — NÃO clique em Criar de novo)','ok');
+    return true;
+  }
+  showFMsg('Não foi criado — a chamada falhou antes de gravar. Pode tentar de novo com segurança.','err');
+  return false;
 }
 
 // ════════════════════════════════════════════════════════════════

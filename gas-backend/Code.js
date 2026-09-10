@@ -37,6 +37,9 @@ function doGet(e) {
       // alinharSubtarefas reescreve datas em massa no Jira; a inspecao le
       // o projeto inteiro. Ambas exigem token.
       'inspecionarAlinhamento', 'alinharSubtarefas', 'reorganizarSubtarefas',
+      // Reescrevem o armazenamento da votacao. removerDaVotacao tira um
+      // projeto do comite; migrarVotacaoDoSheets regrava registros em massa.
+      'migrarVotacaoDoSheets', 'removerDaVotacao', 'abrirVotacao',
     ];
     if (ACOES_MUTANTES.indexOf(data.action) !== -1) _validarToken_(data);
 
@@ -97,6 +100,14 @@ function doGet(e) {
       // ── Votação de prioridade (comitê) ─────────────────────────────────
       case 'registrarVoto':  return jsonResp_(registrarVoto(data));
       case 'buscarVotacao':  return jsonResp_(buscarVotacao(data));
+      case 'diagnosticarVotacao': return jsonResp_(diagnosticarVotacao());
+      case 'diagnosticarNotificacaoVotacao': return jsonResp_(diagnosticarNotificacaoVotacao());
+      case 'testarEscritaVotacao': return jsonResp_(testarEscritaVotacao());
+      case 'migrarVotacaoDoSheets': return jsonResp_(migrarVotacaoDoSheets(data));
+      case 'abrirVotacao': return jsonResp_(abrirVotacao(data));
+      case 'removerDaVotacao': return jsonResp_(removerDaVotacao(data));
+      case 'statusAuditoria': return jsonResp_(statusAuditoria());
+      case 'testarNotificacaoReal': return jsonResp_(testarNotificacaoReal(data));
       // ── Aquecimento do cache de tarefas ───────────────────────────────
       case 'statusAquecimentoTrigger': return jsonResp_(statusAquecimentoTrigger());
       case 'statusDigestSemanalTrigger': return jsonResp_(statusDigestSemanalTrigger());

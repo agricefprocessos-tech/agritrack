@@ -13,24 +13,77 @@ const JIRA_PROJECT = 'AGTK';
 // ─── LOG DE AUDITORIA (ações irreversíveis/impactantes) ───────
 // Planilha criada automaticamente no 1º uso, mesmo padrão da planilha
 // de votação (VOTACAO_SHEET_ID em Votacao.js).
+// Quanto tempo parar de tentar gravar auditoria depois de uma falha.
+const AUDIT_PAUSA_MS_ = 10 * 60 * 1000;
+
+/**
+ * Log best-effort — nunca pode impedir nem atrasar a ação principal.
+ *
+ * Duas proteções aprendidas com o Drive cheio de 09/2026, quando toda escrita
+ * em Sheets passou a ser recusada:
+ *
+ * 1. NUNCA cria a planilha. O create() custa ~25s e foi o que fazia o web app
+ *    devolver 404 por timeout. Se o id não estiver configurado, não há log —
+ *    rode _setupAuditSheet_() uma vez, de propósito.
+ * 2. Disjuntor: depois de uma falha, para de tentar por 10 minutos. Sem isso
+ *    cada ação do painel pagava o tempo de uma escrita que ia falhar de novo,
+ *    e era isso que deixava criar projeto lento a ponto de estourar o timeout
+ *    de 55s do painel — que por sua vez gerava projeto duplicado.
+ */
 function _auditLog_(acao, issueKey, detalhes) {
+  const props = PropertiesService.getScriptProperties();
   try {
-    const props = PropertiesService.getScriptProperties();
-    let id = props.getProperty('AUDIT_SHEET_ID');
-    let ss;
-    if (id) { try { ss = SpreadsheetApp.openById(id); } catch (e) { id = null; } }
-    if (!id) {
-      ss = SpreadsheetApp.create('AgriTrack — Log de Auditoria');
-      id = ss.getId();
-      props.setProperty('AUDIT_SHEET_ID', id);
-      ss.getSheets()[0].setName('Log');
-      ss.getSheets()[0].appendRow(['DataHora', 'Ação', 'Chave', 'Detalhes']);
-    }
-    ss.getSheetByName('Log').appendRow([new Date(), acao, issueKey, detalhes || '']);
+    const pausadoAte = Number(props.getProperty('AUDIT_PAUSADO_ATE') || 0);
+    if (pausadoAte > Date.now()) return;
+
+    const id = props.getProperty('AUDIT_SHEET_ID');
+    if (!id) return;
+
+    const ss = SpreadsheetApp.openById(id);
+    const log = ss.getSheetByName('Log');
+    if (!log) throw new Error('planilha de auditoria sem a aba "Log"');
+    log.appendRow([new Date(), acao, issueKey, detalhes || '']);
+
+    if (pausadoAte) props.deleteProperty('AUDIT_PAUSADO_ATE');
   } catch (e) {
-    // Log é best-effort — nunca deve impedir a ação principal de completar.
-    console.warn('_auditLog_ falhou: ' + e.message);
+    console.warn('_auditLog_ falhou, pausando auditoria por 10min: ' + e.message);
+    try { props.setProperty('AUDIT_PAUSADO_ATE', String(Date.now() + AUDIT_PAUSA_MS_)); } catch (e2) {}
   }
+}
+
+/**
+ * Cria a planilha de auditoria. Separado de _auditLog_ de propósito: criar é
+ * caro e só deve acontecer quando alguém pede, nunca no meio de uma ação do
+ * gestor. Rode uma vez no editor do Apps Script.
+ */
+function _setupAuditSheet_() {
+  const props = PropertiesService.getScriptProperties();
+  const atual = props.getProperty('AUDIT_SHEET_ID');
+  if (atual) {
+    try {
+      const ss = SpreadsheetApp.openById(atual);
+      return { success: true, jaExistia: true, url: ss.getUrl() };
+    } catch (e) { /* id órfão — segue e cria outra */ }
+  }
+  const ss = SpreadsheetApp.create('AgriTrack — Log de Auditoria');
+  props.setProperty('AUDIT_SHEET_ID', ss.getId());
+  const log = ss.getSheets()[0];
+  log.setName('Log');
+  log.appendRow(['DataHora', 'Ação', 'Chave', 'Detalhes']);
+  props.deleteProperty('AUDIT_PAUSADO_ATE');
+  return { success: true, jaExistia: false, url: ss.getUrl() };
+}
+
+/** Estado do disjuntor da auditoria — só leitura, para diagnóstico. */
+function statusAuditoria() {
+  const props = PropertiesService.getScriptProperties();
+  const ate = Number(props.getProperty('AUDIT_PAUSADO_ATE') || 0);
+  return {
+    success: true,
+    sheetIdConfigurado: !!props.getProperty('AUDIT_SHEET_ID'),
+    pausado: ate > Date.now(),
+    pausadoAte: ate ? new Date(ate).toISOString() : null,
+  };
 }
 
 // ─── AUTORIZAÇÃO DE AÇÕES MUTANTES ────────────────────────────
