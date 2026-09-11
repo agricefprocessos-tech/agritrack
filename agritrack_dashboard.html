@@ -7607,10 +7607,7 @@ async function ganttConfirmarMudarStatus(){
   // Optimistic UI — ver o comentário em submitBlkModal. Antes daqui o gestor
   // encarava "Salvando…" por ~2s e só então o card reabria com o status novo.
   const snap=_snapshotTask_(key);
-  [allTasks,allSubs].forEach(arr=>{
-    const task=arr.find(x=>x['Chave da item']===key);
-    if(task)task['Status']=novoStatus;
-  });
+  _aplicarStatusLocal_(key,novoStatus);
   ganttCancelarMudarStatus();
   ganttClick(key);   // reabre o card já com o status novo
   renderGantt();
@@ -7795,7 +7792,40 @@ function _patchTaskDatas_(key,{startDate,dueDate,alvoDate}={},addBloqueadoLabel)
 // devolver o estado anterior quando o salvamento falha.
 const _CAMPOS_OTIMISTAS_=['Campo personalizado (Start date)','Data limite',
   'Campo personalizado (Data alvo)','Labels','Status',
+  '_statusKey','Categoria do status','Resolvido','_resDt','_prazo',
   '_plannedStartDt','_plannedEndDt','_startDt','_dlDt'];
+
+// Os três status do painel e o que o Jira devolve para cada um — conferido nos
+// 762 itens em 11/09/2026, que caem exatamente nestes três trios.
+const _STATUS_JIRA_={
+  'A Fazer':{key:'new',          cat:'Itens Pendentes'},
+  'Fazendo':{key:'indeterminate',cat:'Em andamento'},
+  'Feito':  {key:'done',         cat:'Itens concluídos'},
+};
+
+// Aplica um status novo na tela deixando o registro igual ao que o Jira vai
+// devolver. Mudar só 'Status' não basta: processData recalcula 'Status' a partir
+// de '_statusKey' toda vez que os dados passam por ele — inclusive ao recarregar
+// do cache local. Em 11/09 isso fez 30 itens do P157 "voltarem" para A Fazer
+// num F5, depois de gravados como Feito no Jira; o PMO refez todos, e o Jira
+// registrou 49 transições Feito → Feito.
+function _aplicarStatusLocal_(key,novoStatus){
+  const t=allTasks.find(x=>x['Chave da item']===key)||allSubs.find(x=>x['Chave da item']===key);
+  if(!t)return null;
+  const eraFeito=t['_statusKey']==='done';
+  t['Status']=novoStatus;
+  const j=_STATUS_JIRA_[novoStatus];
+  if(j){t['_statusKey']=j.key;t['Categoria do status']=j.cat;}
+  else delete t['_statusKey'];   // fora dos três: sem chave, processData preserva o nome
+  // O Jira preenche a data de resolução ao concluir e a limpa ao reabrir.
+  if(novoStatus==='Feito'&&!eraFeito)t['Resolvido']=new Date().toISOString();
+  else if(novoStatus!=='Feito')t['Resolvido']='';
+  if(t['Tipo de item']!=='Subtarefa'){
+    t._resDt=pd(t['Resolvido']);
+    t._prazo=calcPrazo(t);
+  }
+  return t;
+}
 
 function _snapshotTask_(key){
   const t=allTasks.find(x=>x['Chave da item']===key)||allSubs.find(x=>x['Chave da item']===key);

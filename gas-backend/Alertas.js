@@ -902,6 +902,9 @@ function relatorioAtividadeSemanal(dados) {
             if (ATIVIDADE_CAMPOS_DATA_[item.field]) {
               eventos.push({ tipo: 'data', campo: ATIVIDADE_CAMPOS_DATA_[item.field], de: _fmtValorChangelog_(item.fromString) || '—', para: _fmtValorChangelog_(item.toString) || '—', quando: created });
             } else if (item.field === 'status') {
+              // "Feito → Feito" não é atividade: é transição repetida, como as 49
+              // de 11/09 causadas por um bug do painel. Não vai para o gestor.
+              if ((item.fromString || '') === (item.toString || '')) return;
               eventos.push({ tipo: 'status', de: item.fromString || '—', para: item.toString || '—', quando: created });
             } else if (item.field === 'labels') {
               var ganhou = (item.toString || '').indexOf('bloqueado') !== -1 && (item.fromString || '').indexOf('bloqueado') === -1;

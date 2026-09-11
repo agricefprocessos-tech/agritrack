@@ -1177,9 +1177,33 @@ function mudarStatus(dados) {
     };
     var targets = ALIAS[novoStatus] || [novoStatus.toLowerCase()];
 
-    // Busca as transições disponíveis para o issue
-    var trans = jiraRequest_('GET', '/rest/api/3/issue/' + issueKey + '/transitions');
-    var list  = (trans.transitions) || [];
+    // Status atual e transições numa chamada só (expand=transitions devolve a
+    // mesma lista que GET /transitions).
+    var atual = jiraRequest_('GET', '/rest/api/3/issue/' + issueKey + '?fields=status&expand=transitions');
+    var list  = (atual.transitions) || [];
+
+    // Já está no status pedido: não transiciona. O fluxo tem transições
+    // globais, então o Jira aceitava "Feito → Feito" — e em 11/09 isso gerou 49
+    // entradas falsas no histórico (e 49 disparos da automação de Status de
+    // prazo), quando um bug do painel mostrava como pendente o que já estava
+    // concluído e o PMO refazia. Compara pela categoria, que é o que o painel
+    // exibe: os três status do painel são as três categorias do Jira.
+    var CATEGORIA = { 'A Fazer': 'new', 'Fazendo': 'indeterminate', 'Feito': 'done' };
+    var st = (atual.fields && atual.fields.status) || {};
+    var catAtual = st.statusCategory ? st.statusCategory.key : '';
+    if (CATEGORIA[novoStatus] && CATEGORIA[novoStatus] === catAtual) {
+      var avisoJa = null;
+      if (comentario) {
+        try {
+          jiraRequest_('POST', '/rest/api/3/issue/' + issueKey + '/comment', {
+            body: { type: 'doc', version: 1, content: [{ type: 'paragraph', content: [{ type: 'text',
+              text: 'Comentário via AgriTrack PMO Dashboard (status já era "' + (st.name || novoStatus) + '").\n\n' + comentario }] }] }
+          });
+        } catch (eCom) { avisoJa = 'O status já estava correto, mas o comentário não foi gravado: ' + eCom.message; }
+      }
+      return { success: true, key: issueKey, novoStatus: novoStatus, jaEstava: true,
+               statusJira: st.name || null, aviso: avisoJa };
+    }
     // Os ALVOS são o laço de FORA: eles estão em ordem de preferência, então o
     // alias mais específico tem que vencer. Com as transições por fora, a
     // primeira da lista do Jira que casasse com QUALQUER alias ganhava — se o

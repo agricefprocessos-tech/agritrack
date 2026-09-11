@@ -59,12 +59,26 @@ function buscarTarefasJira(dados) {
   return _atualizarCacheTarefas_();
 }
 
+// Marcador trocado a cada invalidação. Quem vai ao Jira anota o valor antes e
+// só grava o cache se ele continuar igual depois.
+var TAREFAS_GERACAO_CHAVE_ = TAREFAS_CACHE_CHAVE_ + '_geracao';
+
 /** Busca do Jira e grava no cache. Devolve o mesmo objeto de sempre. */
 function _atualizarCacheTarefas_() {
+  var c = CacheService.getScriptCache();
+  var geracaoAntes = c.get(TAREFAS_GERACAO_CHAVE_);
   var r = _buscarTarefasJiraDoJira_();
   if (r && r.success) {
     r.geradoEm = Date.now();
-    _gravarCache_(TAREFAS_CACHE_CHAVE_, r);
+    // A busca pagina o Jira por ~8s. Se uma gravação terminou nesse meio-tempo,
+    // as páginas lidas antes dela estão velhas — e gravar agora devolveria ao
+    // cache, por até 5 min, o valor que o gestor acabou de mudar. Nesse caso o
+    // resultado ainda vai para quem pediu, só não fica guardado.
+    if (c.get(TAREFAS_GERACAO_CHAVE_) === geracaoAntes) {
+      _gravarCache_(TAREFAS_CACHE_CHAVE_, r);
+    } else {
+      r.naoGravadoPorConcorrencia = true;
+    }
     r.doCache = false;
     r.idadeSeg = 0;
   }
@@ -80,6 +94,9 @@ function _atualizarCacheTarefas_() {
 function _invalidarCacheTarefas_() {
   try {
     var c = CacheService.getScriptCache();
+    // Troca a geração ANTES de apagar: uma busca que já estava em andamento
+    // percebe a troca e não regrava o dado velho por cima.
+    c.put(TAREFAS_GERACAO_CHAVE_, String(Date.now()) + ':' + Math.random(), 21600);
     var n = parseInt(c.get(TAREFAS_CACHE_CHAVE_ + '_n') || '0', 10);
     var chaves = [TAREFAS_CACHE_CHAVE_ + '_n'];
     for (var i = 0; i < n; i++) chaves.push(TAREFAS_CACHE_CHAVE_ + '_' + i);

@@ -40,6 +40,9 @@ function doGet(e) {
       // Reescrevem o armazenamento da votacao. removerDaVotacao tira um
       // projeto do comite; migrarVotacaoDoSheets regrava registros em massa.
       'migrarVotacaoDoSheets', 'removerDaVotacao', 'abrirVotacao',
+      // Só leitura, mas expõe quem mudou o quê (changelog com nomes). O painel
+      // não chama esta ação, então não precisa constar na lista do HTML.
+      'atividadeRecente',
     ];
     if (ACOES_MUTANTES.indexOf(data.action) !== -1) _validarToken_(data);
 
@@ -107,6 +110,7 @@ function doGet(e) {
       case 'abrirVotacao': return jsonResp_(abrirVotacao(data));
       case 'removerDaVotacao': return jsonResp_(removerDaVotacao(data));
       case 'statusAuditoria': return jsonResp_(statusAuditoria());
+      case 'atividadeRecente': return jsonResp_(atividadeRecente(data));
       case 'testarNotificacaoReal': return jsonResp_(testarNotificacaoReal(data));
       // ── Aquecimento do cache de tarefas ───────────────────────────────
       case 'statusAquecimentoTrigger': return jsonResp_(statusAquecimentoTrigger());
