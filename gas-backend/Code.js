@@ -43,6 +43,9 @@ function doGet(e) {
       // Só leitura, mas expõe quem mudou o quê (changelog com nomes). O painel
       // não chama esta ação, então não precisa constar na lista do HTML.
       'atividadeRecente',
+      // Completa os links do padrão (etapa → mãe, F1 → F2) em massa no Jira.
+      // A prévia lê o projeto inteiro. O painel não chama nenhuma das duas.
+      'inspecionarLinksPadrao', 'aplicarLinksPadrao',
     ];
     if (ACOES_MUTANTES.indexOf(data.action) !== -1) _validarToken_(data);
 
@@ -53,7 +56,7 @@ function doGet(e) {
     const ACOES_ALTERAM_TAREFAS = [
       'criarProjetoJira', 'deletarProjeto', 'mudarStatus',
       'registrarBloqueio', 'resolverBloqueio', 'atualizarDatas', 'syncDatasReais',
-      'alinharSubtarefas', 'reorganizarSubtarefas',
+      'alinharSubtarefas', 'reorganizarSubtarefas', 'aplicarLinksPadrao',
     ];
 
     // O switch fica dentro de uma função só para que a invalidação rode depois
@@ -111,6 +114,8 @@ function doGet(e) {
       case 'removerDaVotacao': return jsonResp_(removerDaVotacao(data));
       case 'statusAuditoria': return jsonResp_(statusAuditoria());
       case 'atividadeRecente': return jsonResp_(atividadeRecente(data));
+      case 'inspecionarLinksPadrao': return jsonResp_(inspecionarLinksPadrao(data));
+      case 'aplicarLinksPadrao':     return jsonResp_(aplicarLinksPadrao(data));
       case 'testarNotificacaoReal': return jsonResp_(testarNotificacaoReal(data));
       // ── Aquecimento do cache de tarefas ───────────────────────────────
       case 'statusAquecimentoTrigger': return jsonResp_(statusAquecimentoTrigger());

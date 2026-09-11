@@ -345,6 +345,8 @@ function criarProjetoSimples_(dados) {
       }
     }
   }
+  // Cada etapa bloqueia a mãe — o padrão dos projetos antigos (LinksPadrao.js).
+  _ligarEtapasAMae_(resp.key, resultado.subtasks, avisos);
   if (avisos.length) resultado.avisos = avisos;
 
   // Notifica o comitê para votação de prioridade (não bloqueia a criação se falhar)
@@ -409,6 +411,22 @@ function buildBodyGenerico_(dados, tipoCfg, summary) {
 function criarHaulerJira(dados) {
   try {
     const resultado = { chaves: {} };
+    const avisos = [];
+
+    // Etapa que falha vira aviso: a fase já existe no Jira, e devolver erro
+    // levaria o gestor a repetir o formulário e duplicar o Hauler inteiro.
+    const criarEtapas_ = function (paiKey, etapas, destino) {
+      for (const st of etapas) {
+        try {
+          const r = criarSubtarefa_(paiKey, st.nome, st.start, st.end);
+          if (r && r.key) destino.push(r.key);
+          else avisos.push('Etapa "' + st.nome + '" de ' + paiKey + ' não foi criada.');
+        } catch (eSt) {
+          avisos.push('Etapa "' + st.nome + '" de ' + paiKey + ': ' + eSt.message);
+        }
+      }
+      _ligarEtapasAMae_(paiKey, destino, avisos);
+    };
 
     if (dados.criarFases !== 'f2') {
       const datasF1   = calcularDatasF1_(dados.startDate);
@@ -430,10 +448,7 @@ function criarHaulerJira(dados) {
         { nome: 'Fabricação (Agricef)', ...datasF1.fabAgricef   },
         { nome: 'Pré – Montagem',       ...datasF1.preMontagem  },
       ];
-      for (const st of subtasksF1) {
-        const r = criarSubtarefa_(resF1.key, st.nome, st.start, st.end);
-        if (r.key) resultado.chaves.f1_subtasks.push(r.key);
-      }
+      criarEtapas_(resF1.key, subtasksF1, resultado.chaves.f1_subtasks);
     }
 
     if (dados.criarFases !== 'f1') {
@@ -449,13 +464,16 @@ function criarHaulerJira(dados) {
       resultado.chaves.f2     = resF2.key;
       resultado.chaves.f2_url = JIRA_BASE + '/browse/' + resF2.key;
       resultado.chaves.f2_subtasks = [];
+      criarEtapas_(resF2.key, stF2, resultado.chaves.f2_subtasks);
 
-      for (const st of stF2) {
-        const r = criarSubtarefa_(resF2.key, st.nome, st.start, st.end);
-        if (r.key) resultado.chaves.f2_subtasks.push(r.key);
-      }
+      // O F1 bloqueia o F2. Quando o F2 é criado sozinho, o F1 já existe de
+      // antes — foi assim que o S22000077 ficou sem essa ligação.
+      const f1Key = resultado.chaves.f1 || _acharF1Existente_(summaryF2);
+      if (f1Key) _ligarFases_(f1Key, resF2.key, avisos);
+      else avisos.push('Não achei o F1 de ' + resF2.key + ' pelo nome — a ligação F1 → F2 ficou por fazer.');
     }
 
+    if (avisos.length) resultado.avisos = avisos;
     return { success: true, resultado };
   } catch (err) {
     return { success: false, erro: err.message };
