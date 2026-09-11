@@ -195,6 +195,16 @@ tr:hover td{background:rgba(255,255,255,0.02)}
 /* ── SCORE PREVIEW ── */
 .score-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px}
 .score-pill{padding:4px 12px;border-radius:20px;font-size:11px;font-weight:600}
+/* ⓘ dos pilares de prioridade — definições oficiais do Escritório de Projetos */
+.pinfo-btn{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;margin-left:5px;border-radius:50%;border:1px solid var(--border2);background:transparent;color:var(--text2);font-size:10px;line-height:1;cursor:pointer;vertical-align:middle;padding:0;text-transform:none;letter-spacing:0;font-family:inherit}
+.pinfo-btn:hover,.pinfo-btn[aria-expanded="true"]{color:var(--green);border-color:var(--green)}
+.pinfo-box{background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;font-size:11.5px;line-height:1.5;color:var(--text2)}
+.pinfo-box .pinfo-res{color:var(--text);margin-bottom:6px}
+.pinfo-box dl{margin:0;display:grid;gap:4px}
+.pinfo-box dt{color:var(--text);font-weight:600}
+.pinfo-box dd{margin:0 0 3px}
+.pinfo-box .pinfo-fonte{margin-top:7px;font-size:10px;color:var(--text3)}
+.pinfo-sel{font-size:11px;line-height:1.45;color:var(--text2)}
 .sp-p1{background:var(--rdim);color:var(--red);border:1px solid rgba(240,82,82,.3)}
 .sp-p2{background:var(--adim);color:var(--amber);border:1px solid rgba(245,158,11,.3)}
 .sp-p3{background:var(--bdim);color:var(--blue);border:1px solid rgba(96,165,250,.3)}
@@ -518,14 +528,14 @@ tr:hover td{background:rgba(255,255,255,0.02)}
       <div class="sec">Score de Prioridade</div>
       <div class="card" style="margin-bottom:14px">
         <div class="form-grid">
-          <div class="fg"><label>Classificação Estratégica</label>
+          <div class="fg"><label>Classificação Estratégica<button type="button" class="pinfo-btn" data-pilar="classificacao" aria-expanded="false" title="O que significa cada opção" onclick="_pilarInfoToggle(this)">i</button></label>
             <select id="sClass" onchange="calcScore()">
               <option value="">— Selecione —</option>
               <option value="Receita direta">Receita direta</option>
               <option value="Estratégico e Posicionamento">Estratégico e Posicionamento</option>
               <option value="Sustentação e Excelência Operacional">Sustentação e Excelência Operacional</option>
             </select></div>
-          <div class="fg"><label>Impacto Financeiro</label>
+          <div class="fg"><label>Impacto Financeiro<button type="button" class="pinfo-btn" data-pilar="impacto" aria-expanded="false" title="O que significa cada opção" onclick="_pilarInfoToggle(this)">i</button></label>
             <select id="sImpacto" onchange="calcScore()">
               <option value="">— Selecione —</option>
               <option value="Transformacional">Transformacional</option>
@@ -534,7 +544,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
               <option value="Incremental">Incremental</option>
               <option value="Marginal">Marginal</option>
             </select></div>
-          <div class="fg"><label>Urgência / Janela de Oportunidade</label>
+          <div class="fg"><label>Urgência / Janela de Oportunidade<button type="button" class="pinfo-btn" data-pilar="urgencia" aria-expanded="false" title="O que significa cada opção" onclick="_pilarInfoToggle(this)">i</button></label>
             <select id="sUrgencia" onchange="calcScore()">
               <option value="">— Selecione —</option>
               <option value="Imediata (Crítica)">Imediata (Crítica)</option>
@@ -543,7 +553,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
               <option value="Baixa (Desejável)">Baixa (Desejável)</option>
               <option value="Backlog">Backlog</option>
             </select></div>
-          <div class="fg"><label>Complexidade</label>
+          <div class="fg"><label>Complexidade<button type="button" class="pinfo-btn" data-pilar="complexidade" aria-expanded="false" title="O que significa cada opção" onclick="_pilarInfoToggle(this)">i</button></label>
             <select id="sComplex" onchange="calcScore()">
               <option value="">— Selecione —</option>
               <option value="Alta">Alta</option>
@@ -559,7 +569,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
                nenhum projeto novo gravava o campo. As 4 opções abaixo são as que
                de fato existem hoje nos projetos do Jira. Não entra no score:
                a fórmula é F×0.40 + I×0.30 + U×0.15 + C×0.15. -->
-          <div class="fg" id="sAlinhamentoWrap"><label>Alinhamento Estratégico</label>
+          <div class="fg" id="sAlinhamentoWrap"><label>Alinhamento Estratégico<button type="button" class="pinfo-btn" data-pilar="alinhamento" aria-expanded="false" title="O que significa cada opção" onclick="_pilarInfoToggle(this)">i</button></label>
             <select id="sAlinhamento">
               <option value="">— Selecione —</option>
               <option value="Core Business">Core Business</option>
@@ -1128,14 +1138,14 @@ tr:hover td{background:rgba(255,255,255,0.02)}
         <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px">Registrar meu voto</div>
         <div class="fg" style="margin-bottom:10px"><label>Seu nome</label><input id="votNome" placeholder="Nome completo"></div>
         <div class="form-grid" style="margin-bottom:10px">
-          <div class="fg"><label>Classificação Estratégica</label>
+          <div class="fg"><label>Classificação Estratégica<button type="button" class="pinfo-btn" data-pilar="classificacao" aria-expanded="false" title="O que significa cada opção" onclick="_pilarInfoToggle(this)">i</button></label>
             <select id="votClass">
               <option value="">— Selecione —</option>
               <option value="Receita direta">Receita direta</option>
               <option value="Estratégico e Posicionamento">Estratégico e Posicionamento</option>
               <option value="Sustentação e Excelência Operacional">Sustentação e Excelência Operacional</option>
             </select></div>
-          <div class="fg"><label>Impacto Financeiro</label>
+          <div class="fg"><label>Impacto Financeiro<button type="button" class="pinfo-btn" data-pilar="impacto" aria-expanded="false" title="O que significa cada opção" onclick="_pilarInfoToggle(this)">i</button></label>
             <select id="votImpacto">
               <option value="">— Selecione —</option>
               <option value="Transformacional">Transformacional</option>
@@ -1146,7 +1156,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
             </select></div>
         </div>
         <div class="form-grid" style="margin-bottom:14px">
-          <div class="fg"><label>Urgência / Janela de Oportunidade</label>
+          <div class="fg"><label>Urgência / Janela de Oportunidade<button type="button" class="pinfo-btn" data-pilar="urgencia" aria-expanded="false" title="O que significa cada opção" onclick="_pilarInfoToggle(this)">i</button></label>
             <select id="votUrgencia">
               <option value="">— Selecione —</option>
               <option value="Imediata (Crítica)">Imediata (Crítica)</option>
@@ -1155,7 +1165,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
               <option value="Baixa (Desejável)">Baixa (Desejável)</option>
               <option value="Backlog">Backlog</option>
             </select></div>
-          <div class="fg"><label>Complexidade</label>
+          <div class="fg"><label>Complexidade<button type="button" class="pinfo-btn" data-pilar="complexidade" aria-expanded="false" title="O que significa cada opção" onclick="_pilarInfoToggle(this)">i</button></label>
             <select id="votComplexidade">
               <option value="">— Selecione —</option>
               <option value="Alta">Alta</option>
@@ -8038,6 +8048,150 @@ function setRptDept(dept,btn){
 // ════════════════════════════════════════════════════════════════
 let _votKeyAtual=null;
 
+// ── ⓘ dos pilares de prioridade ──────────────────────────────────
+// Definições oficiais do Escritório de Projetos (Ações PE 2026), tiradas dos
+// documentos — não reescritas: "Modelo de Classificação Estratégica de
+// Projetos" (17/02/2026) e "Guia de Classificação de Impacto" (25/03/2026).
+// O comitê vota sem ter o documento aberto; sem isto cada um lia "Relevante"
+// ou "Média" do seu jeito, e a moda da votação misturava critérios diferentes.
+//
+// Complexidade: o Jira tem Alta/Média/Baixa e o Guia descreve os níveis 5, 3 e
+// 1 (5 = alta incerteza técnica). Alta, Média e Baixa correspondem a esses três
+// níveis, na mesma ordem.
+//
+// "curtas" vai no texto de cada opção do menu ("Transformacional — mais de
+// R$ 1 mi/ano"), para quem vota ler o significado ao abrir o dropdown. Só o
+// TEXTO muda: o valor gravado no Jira continua o nome da opção.
+const _PILAR_CURTAS_={
+  classificacao:{
+    'Receita direta':'faturamento em 6 a 12 meses',
+    'Estratégico e Posicionamento':'tecnologia e mercados do futuro',
+    'Sustentação e Excelência Operacional':'segurança, normas e redução de custo',
+  },
+  impacto:{
+    'Transformacional':'mais de R$ 1 mi/ano',
+    'Estratégico':'R$ 500 mil a R$ 1 mi/ano',
+    'Relevante':'R$ 150 mil a R$ 500 mil/ano',
+    'Incremental':'R$ 50 mil a R$ 150 mil/ano',
+    'Marginal':'menos de R$ 50 mil/ano',
+  },
+  alinhamento:{
+    'Core Business':'objetivo principal do plano do ano',
+    'Diferenciação':'vantagem que a concorrência não tem',
+    'Sustentação':'governança e processos vitais',
+    'Apoio':'ajuda uma área, não a empresa toda',
+  },
+  urgencia:{
+    'Imediata (Crítica)':'perda de contrato, multa ou janela de safra',
+    'Alta (Próximo Trimestre)':'cliente real aguardando resposta',
+    'Média (Semestral)':'aceita replanejar em 30 a 60 dias',
+    'Baixa (Desejável)':'pode ser feito a qualquer momento do ano',
+    'Backlog':'sem prazo; depende de sobra de capacidade',
+  },
+  complexidade:{
+    'Alta':'incerteza técnica, tecnologia nova ou mais de 6 meses',
+    'Média':'tecnologia conhecida, várias áreas envolvidas',
+    'Baixa':'alteração simples, padronização ou rotina',
+  },
+};
+const _PILAR_INFO_={
+  classificacao:{
+    resumo:'Categoria principal do projeto no portfólio — uma só por projeto, definida na abertura.',
+    fonte:'Modelo de Classificação Estratégica de Projetos (Escritório de Projetos, fev/2026)',
+    opcoes:{
+      'Receita direta':'Gerar aumento de faturamento no curto prazo: produto ou funcionalidade vendável, demanda formal de cliente, oportunidade comercial ou expansão de mercado. Receita esperada em 6 a 12 meses após a conclusão.',
+      'Estratégico e Posicionamento':'Preparar a Agricef para o futuro: novas tecnologias ou plataformas, P&D sem retorno financeiro imediato garantido, novos mercados ou parcerias de longo prazo.',
+      'Sustentação e Excelência Operacional':'Manter a empresa rodando com segurança, dentro da lei e com mais eficiência: segurança do trabalho, NRs, correções críticas, redução de custo e de desperdício, padronização e lead time.',
+    }},
+  impacto:{
+    resumo:'O "quanto": impacto no faturamento ou redução de custo, por ano.',
+    fonte:'Guia de Classificação de Impacto (Escritório de Projetos, mar/2026)',
+    opcoes:{
+      'Transformacional':'Mais de R$ 1 milhão por ano. Requer validação da Controladoria/Diretoria.',
+      'Estratégico':'De R$ 500 mil a R$ 1 milhão por ano. Baseado em pipeline real de vendas ou Capex aprovado.',
+      'Relevante':'De R$ 150 mil a R$ 500 mil por ano. Histórico de projetos similares ou economia de insumos.',
+      'Incremental':'De R$ 50 mil a R$ 150 mil por ano. Ganhos marginais de processo.',
+      'Marginal':'Menos de R$ 50 mil por ano. Organização interna ou suporte técnico.',
+    }},
+  alinhamento:{
+    resumo:'O "porquê": o vínculo do projeto com o Plano Estratégico da Agricef.',
+    fonte:'Guia de Classificação de Impacto (Escritório de Projetos, mar/2026)',
+    opcoes:{
+      'Core Business':'É o objetivo principal do Plano Estratégico do ano (ex.: novo produto carro-chefe).',
+      'Diferenciação':'Cria uma vantagem competitiva que a concorrência não tem no momento.',
+      'Sustentação':'Melhora a governança ou a organização de processos vitais para a empresa crescer.',
+      'Apoio':'Projeto tático que ajuda uma área específica, mas não move o ponteiro da empresa toda.',
+    }},
+  urgencia:{
+    resumo:'O "quando": o prazo real de mercado — não quem pede mais alto.',
+    fonte:'Guia de Classificação de Impacto (Escritório de Projetos, mar/2026)',
+    opcoes:{
+      'Imediata (Crítica)':'Não executar agora causa perda contratual, multa legal ou perda de uma janela de safra/mercado que não volta.',
+      'Alta (Próximo Trimestre)':'Oportunidade comercial com cliente real aguardando resposta; o atraso gera perda de receita.',
+      'Média (Semestral)':'Necessário para o ciclo anual, mas suporta replanejamento de 30 a 60 dias.',
+      'Baixa (Desejável)':'Melhora o dia a dia, mas pode ser executado em qualquer momento do ano.',
+      'Backlog':'Sem prazo definido; a execução depende de sobra de capacidade da engenharia.',
+    }},
+  complexidade:{
+    resumo:'O "risco/esforço": o contrapeso do score — separa ganho rápido de esforço de longo prazo.',
+    fonte:'Guia de Classificação de Impacto (Escritório de Projetos, mar/2026)',
+    opcoes:{
+      'Alta':'Alta incerteza técnica: exige novos fornecedores, tecnologia desconhecida ou mais de 6 meses de engenharia.',
+      'Média':'Tecnologia conhecida pela Agricef, mas exige integração entre várias áreas (Produção + Engenharia + Comercial).',
+      'Baixa':'Simples alteração de projeto, padronização ou manutenção de rotina.',
+    }},
+};
+
+// Abre/fecha a explicação do pilar, entre o rótulo e a lista de opções.
+function _pilarInfoToggle(btn){
+  const fg=btn.closest('.fg'); if(!fg)return;
+  let box=fg.querySelector('.pinfo-box');
+  if(!box){
+    const p=_PILAR_INFO_[btn.dataset.pilar]; if(!p)return;
+    box=document.createElement('div');
+    box.className='pinfo-box';
+    box.hidden=true;
+    box.innerHTML='<div class="pinfo-res">'+esc(p.resumo)+'</div><dl>'
+      +Object.keys(p.opcoes).map(o=>'<dt>'+esc(o)+'</dt><dd>'+esc(p.opcoes[o])+'</dd>').join('')
+      +'</dl><div class="pinfo-fonte">Fonte: '+esc(p.fonte)+'</div>';
+    btn.closest('label').insertAdjacentElement('afterend',box);
+  }
+  box.hidden=!box.hidden;
+  btn.setAttribute('aria-expanded',String(!box.hidden));
+}
+
+// Mostra, logo abaixo de cada select, o que a opção escolhida significa.
+const _PILAR_SELECTS_={sClass:'classificacao',votClass:'classificacao',sImpacto:'impacto',votImpacto:'impacto',
+  sUrgencia:'urgencia',votUrgencia:'urgencia',sComplex:'complexidade',votComplexidade:'complexidade',
+  sAlinhamento:'alinhamento'};
+function _pilarInfoInit(){
+  Object.keys(_PILAR_SELECTS_).forEach(id=>{
+    const sel=document.getElementById(id);
+    if(!sel||sel._pinfo)return;
+    sel._pinfo=true;
+    const pilar=_PILAR_SELECTS_[id];
+    // Significado dentro do próprio menu: texto curto na opção, texto completo
+    // no title (aparece ao passar o mouse). O value não muda.
+    [...sel.options].forEach(o=>{
+      const curta=(_PILAR_CURTAS_[pilar]||{})[o.value];
+      if(!curta)return;
+      o.textContent=o.value+' — '+curta;
+      o.title=_PILAR_INFO_[pilar].opcoes[o.value]||'';
+    });
+    const hint=document.createElement('div');
+    hint.className='pinfo-sel';
+    hint.hidden=true;
+    sel.insertAdjacentElement('afterend',hint);
+    const atualizar=()=>{
+      const t=_PILAR_INFO_[_PILAR_SELECTS_[id]].opcoes[sel.value];
+      hint.textContent=t||'';
+      hint.hidden=!t;
+    };
+    sel.addEventListener('change',atualizar);
+    atualizar();
+  });
+}
+
 function initVotacao(){
   const params=new URLSearchParams(location.search);
   const key=(params.get('votar')||'').trim().toUpperCase();
@@ -8147,6 +8301,8 @@ async function submitVoto(){
   // Pré-carrega BOM do Hauler em background (cache localStorage ou Drive)
   _haulerRestoreCache();
   if(!_haulerData) setTimeout(()=>_haulerFetchBomDrive(), 5000); // busca Drive após 5s
+  // ⓘ dos pilares: significado da opção escolhida abaixo de cada select
+  _pilarInfoInit();
   // Auto-fetch Jira on load
   autoFetch();
   // Pré-carrega Compras em background após 8s (não bloqueia o carregamento inicial)
