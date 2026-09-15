@@ -1669,6 +1669,66 @@ async function api(payload, timeoutMs=28000){
   }finally{clearTimeout(tid);}
 }
 
+// ── Resposta perdida não é "não gravou" ─────────────────────────
+// Medido em 14/09/2026: o Apps Script executa a ação até o fim e o Google perde
+// a resposta no segundo salto do redirect (script.googleusercontent.com devolve
+// 404 "Não foi possível abrir o arquivo") — em 4 de 4 buscas forçadas o cache do
+// servidor foi regravado no exato momento da chamada, e o cliente recebeu 404.
+// O painel lia isso como falha, desfazia a mudança na tela e dizia "Não salvou"
+// com o Jira já gravado; o recarregar também falhava e mostrava o cache antigo.
+function _erroTransporte_(e){
+  return /retornou HTML|Resposta inválida|abort|Failed to fetch|NetworkError|Load failed/i
+    .test(String((e&&e.message)||e||''));
+}
+
+// Lê o item no Jira e diz se as mudanças pedidas já estão lá: gravou true/false,
+// ou null quando nem a leitura passou. Só compara o que foi pedido.
+async function _conferirNoJira_(key,esperado){
+  for(let t=0;t<3;t++){
+    if(t) await new Promise(ok=>setTimeout(ok,3000));
+    let r;
+    try{ r=await api({action:'buscarIssue',issueKey:key},45000); }catch(e){ continue; }
+    if(!(r&&r.success&&r.issue)) continue;
+    const i=r.issue;
+    const isSub=/^(subtarefa|subtask)$/i.test(i.tipo||'');
+    const bate=(pedido,noJira)=>!pedido||String(noJira||'').slice(0,10)===pedido;
+    let gravou=bate(esperado.startDate,i.startdate)&&bate(esperado.dueDate,i.duedate);
+    // Data alvo não existe em subtarefa (o backend descarta); buscarIssue antigo não traz o campo.
+    if(esperado.alvoDate&&!isSub&&i.alvo!==undefined) gravou=gravou&&bate(esperado.alvoDate,i.alvo);
+    if(esperado.status){
+      const j=_STATUS_JIRA_[esperado.status];
+      gravou=gravou&&(j&&i.statusKey?i.statusKey===j.key:i.status===esperado.status);
+    }
+    if(esperado.bloqueado) gravou=gravou&&(i.labels||[]).includes('bloqueado');
+    return {gravou,isSub};
+  }
+  return {gravou:null};
+}
+
+// Chama uma ação de escrita e, se a resposta se perder, confere no Jira antes
+// de dar como falha. Com repetir:true (só ações idempotentes — mudarStatus e
+// atualizarDatas), manda de novo uma vez quando o Jira mostra que não gravou.
+// Uma resposta de verdade do servidor ({success:false}) nunca passa por aqui.
+async function _gravarConferindo_(payload,esperado,{timeoutMs=90000,repetir=false}={}){
+  const confirmado=(c)=>({success:true,confirmadoNoJira:true,
+    updated:Object.keys(esperado).filter(k=>esperado[k]),
+    camposIgnorados:c.isSub&&esperado.alvoDate?['Data alvo (campo não existe em subtarefas)']:[]});
+  let ultimoErro;
+  for(let tentativa=0;tentativa<(repetir?2:1);tentativa++){
+    try{ return await api(payload,timeoutMs); }
+    catch(e){
+      if(!_erroTransporte_(e)) throw e;
+      ultimoErro=e;
+      const c=await _conferirNoJira_(payload.issueKey,esperado);
+      if(c.gravou===true) return confirmado(c);
+      if(c.gravou===null) throw new Error('o servidor não respondeu e não deu para conferir no Jira. '
+        +'Pode ter gravado — clique ↺ daqui a 1 minuto antes de refazer');
+    }
+  }
+  console.warn('[AgriTrack] gravação não chegou ao Jira:',ultimoErro.message);
+  throw new Error('não chegou ao Jira, o servidor não respondeu — tente de novo');
+}
+
 // ════════════════════════════════════════════════════════════════
 // NAVIGATION
 // ════════════════════════════════════════════════════════════════
@@ -1752,6 +1812,7 @@ async function autoFetch(force=false){
       const ago=Math.round((Date.now()-cache.ts)/60000);
       document.getElementById('dashMeta').textContent=`⚠ Erro na busca — usando cache (${ago}min atrás) — ${cache.issues.length} itens`;
       document.getElementById('livePill').style.display='inline-flex';
+      if(_erroTransporte_(e)) _jiraRefreshBg();  // continua tentando sem prender a tela
     } else {
       document.getElementById('dashLoad').innerHTML='<div style="color:var(--red);text-align:center"><div style="font-size:24px;margin-bottom:10px">⚠️</div><div>'+e.message+'</div><div style="margin-top:10px;font-size:12px;color:var(--text2)">Use "Importar CSV manualmente" como alternativa</div></div>';
     }
@@ -1760,15 +1821,24 @@ async function autoFetch(force=false){
 
 // Refresh silencioso em background (não mostra spinner)
 async function _jiraRefreshBg(){
-  try{
-    const r=await api({action:'buscarTarefasJira'},55000);
-    if(!r.success)return;
-    _jiraCacheSet(r.issues);
-    processData(r.issues);
-    const now=new Date().toLocaleString('pt-BR');
-    document.getElementById('dashMeta').textContent='Atualizado: '+now+' — '+r.total+' itens';
-    localStorage.setItem('agritrack_lastUpdate',now);
-  }catch(e){console.warn('[AgriTrack] jiraRefreshBg falhou:',e.message);}
+  // Até 3 tentativas: a lista inteira (~1 MB) é a resposta que o Google mais
+  // perde (ver _erroTransporte_). Desistir na primeira deixava o cache antigo na
+  // tela — e com ele a data ou o status de antes, já trocados no Jira.
+  for(let t=0;t<3;t++){
+    try{
+      const r=await api({action:'buscarTarefasJira'},55000);
+      if(!r.success)return;
+      _jiraCacheSet(r.issues);
+      processData(r.issues);
+      const now=new Date().toLocaleString('pt-BR');
+      document.getElementById('dashMeta').textContent='Atualizado: '+now+' — '+r.total+' itens';
+      localStorage.setItem('agritrack_lastUpdate',now);
+      return;
+    }catch(e){
+      console.warn('[AgriTrack] jiraRefreshBg falhou (tentativa '+(t+1)+'):',e.message);
+      if(!_erroTransporte_(e))return;
+    }
+  }
 }
 
 function processData(data){
@@ -2584,8 +2654,14 @@ async function submitBloqueio(){
 
   const desfazer=(txt)=>{_restaurarTask_(snap);renderGantt();showBMsg(txt,'err');};
 
+  // Mesmo critério de submitBlkModal para dar para conferir no Jira.
+  const antes=snap?snap.antes:{};
+  const jaBloqueado=String(antes['Labels']||'').split(' ').includes('bloqueado');
+  const muda=(novo,velho)=>!!novo&&novo!==String(velho||'').slice(0,10);
+  const confirmavel=!jaBloqueado||muda(dStart,antes['Campo personalizado (Start date)'])||muda(dDue,antes['Data limite']);
+
   try{
-    const r=await api({
+    const payload={
       action:'registrarBloqueio',
       issueKey:key,
       tipoBloqueio:tipo,
@@ -2597,11 +2673,17 @@ async function submitBloqueio(){
       novaDueDate:dDue,
       novaDataAlvo:dAlvo,
       novaDataStart:dStart,
-    }, 60000); // registrarBloqueio é a ação mais lenta do sistema (medido: até 16,5s)
+    };
+    // registrarBloqueio é a ação mais lenta do sistema (medido: até 16,5s).
+    // Não repete: cada chamada cria um card BLKQ novo.
+    const r=confirmavel
+      ? await _gravarConferindo_(payload,{startDate:dStart,dueDate:dDue,alvoDate:dAlvo,bloqueado:true})
+      : await api(payload,90000);
     if(!r.success){desfazer('Não bloqueou: '+(r.erro||JSON.stringify(r)));return;}
 
     const ignorados=r.camposIgnorados&&r.camposIgnorados.length?' (ignorado: '+r.camposIgnorados.join('; ')+')':'';
     let msgOk='✓ Bloqueio registrado em '+key+ignorados;
+    if(r.confirmadoNoJira)msgOk+=' — a resposta do servidor se perdeu, conferido direto no Jira';
     if(r.drive&&r.drive.pendente)msgOk+=' — relatório PDF sendo gerado em segundo plano';
     else if(r.drive&&r.drive.url)msgOk+=` <a href="${r.drive.url}" target="_blank" style="color:inherit;text-decoration:underline">📄 ${r.drive.nome||'Relatório PDF'}</a>`;
     document.getElementById('bMsg').innerHTML=msgOk;
@@ -2637,7 +2719,8 @@ async function submitApenasData(){
   const desfazer=(txt)=>{_restaurarTask_(snap);renderGantt();showBMsg(txt,'err');};
 
   try{
-    const r=await api({action:'atualizarDatas',issueKey:key,dueDate:dDue,alvoDate:dAlvo,startDate:dStart});
+    const r=await _gravarConferindo_({action:'atualizarDatas',issueKey:key,dueDate:dDue,alvoDate:dAlvo,startDate:dStart},
+      {startDate:dStart,dueDate:dDue,alvoDate:dAlvo},{repetir:true});
     if(!r.success){desfazer('Não salvou: '+(r.erro||JSON.stringify(r)));return;}
     const nUpd=(r.updated||[]).length;
     const ignorados=r.camposIgnorados&&r.camposIgnorados.length?' (ignorado: '+r.camposIgnorados.join('; ')+')':'';
@@ -2649,7 +2732,9 @@ async function submitApenasData(){
       _patchTaskDatas_(key,{startDate:dStart,dueDate:dDue,alvoDate:alvoIgnorado?null:dAlvo});
       renderGantt();
     }
-    showBMsg('✓ '+nUpd+' data(s) atualizada(s) em '+key+ignorados,'ok');
+    showBMsg(r.confirmadoNoJira
+      ?'✓ '+key+' gravado'+ignorados+' — a resposta do servidor se perdeu, conferido direto no Jira.'
+      :'✓ '+nUpd+' data(s) atualizada(s) em '+key+ignorados,'ok');
     _jiraCacheSync();  // só depois de confirmado
     // O projeto mudou de data — as etapas continuam onde estavam. Oferece a
     // reorganização, sem aplicar nada por conta própria.
@@ -7623,8 +7708,10 @@ async function ganttConfirmarMudarStatus(){
   renderGantt();
 
   try{
-    const r=await api({action:'mudarStatus',issueKey:key,novoStatus,comentario:cmt});
+    const r=await _gravarConferindo_({action:'mudarStatus',issueKey:key,novoStatus,comentario:cmt},
+      {status:novoStatus},{repetir:true});
     if(!r.success)throw new Error(r.erro||'Falha ao mudar status');
+    if(r.confirmadoNoJira)_toast_('✓ '+key+' → '+novoStatus+' — a resposta do servidor se perdeu, conferido direto no Jira.',true);
     // Cache só depois de confirmado — senão o F5 traria de volta um status que
     // nunca chegou ao Jira.
     _jiraCacheSync();
@@ -7854,19 +7941,22 @@ function _restaurarTask_(snap){
 // formulário que originou a ação já foi fechado, então não há onde escrever o
 // erro. Sem isto o rollback aconteceria em silêncio — o pior desfecho possível,
 // porque o gestor acharia que salvou.
-function _toastErro_(txt){
+function _toastErro_(txt){_toast_(txt,false);}
+function _toast_(txt,ok){
   let el=document.getElementById('toastErro');
   if(!el){
     el=document.createElement('div');
     el.id='toastErro';
     el.style.cssText='position:fixed;right:18px;bottom:18px;z-index:9999;max-width:380px;'
-      +'background:#2a1215;border:1px solid var(--red,#e5484d);color:#ffd7d9;'
       +'padding:12px 14px;border-radius:10px;font-size:13px;line-height:1.5;'
       +'box-shadow:0 8px 24px rgba(0,0,0,.45);cursor:pointer';
     el.title='Clique para fechar';
     el.onclick=()=>{el.style.display='none';};
     document.body.appendChild(el);
   }
+  el.style.background=ok?'#0f2418':'#2a1215';
+  el.style.border='1px solid '+(ok?'var(--green,#30a46c)':'var(--red,#e5484d)');
+  el.style.color=ok?'#c9f5d9':'#ffd7d9';
   el.textContent=txt;
   el.style.display='block';
   clearTimeout(el._t);
@@ -7919,11 +8009,24 @@ async function submitBlkModal(apenasData){
     msg.textContent=txt;msg.className='form-msg err';msg.style.display='block';
   };
 
+  // Conferir um bloqueio no Jira precisa de um sinal que só ele deixa: o label
+  // novo, ou uma data diferente da atual (as datas são o último passo do
+  // registrarBloqueio). Rebloquear sem mudar data não tem sinal — aí fica o erro.
+  const antes=snap?snap.antes:{};
+  const jaBloqueado=String(antes['Labels']||'').split(' ').includes('bloqueado');
+  const muda=(novo,velho)=>!!novo&&novo!==String(velho||'').slice(0,10);
+  const datasMudam=muda(dStart,antes['Campo personalizado (Start date)'])||muda(dDue,antes['Data limite']);
+  const esperado={startDate:dStart,dueDate:dDue,alvoDate:dAlvo,bloqueado:!apenasData};
+  const confirmavel=apenasData||!jaBloqueado||datasMudam;
+
   try{
-    const r=await api(payload);
+    const r=confirmavel
+      ? await _gravarConferindo_(payload,esperado,{repetir:apenasData})
+      : await api(payload,90000);
     if(!r.success){desfazer('Não salvou: '+(r.erro||JSON.stringify(r)));return;}
     const ignorados=r.camposIgnorados&&r.camposIgnorados.length?' (ignorado: '+r.camposIgnorados.join('; ')+')':'';
     if(apenasData&&(r.updated||[]).length===0){desfazer('Nenhuma data foi gravada'+ignorados);return;}
+    if(r.confirmadoNoJira)_toast_('✓ '+key+' gravado — a resposta do servidor se perdeu, conferido direto no Jira.',true);
 
     // Reaplica a partir do estado original usando o que o servidor de fato
     // gravou — cobre o campo que ele descartou (ex: Data alvo em subtarefa),

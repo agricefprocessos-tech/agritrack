@@ -1119,6 +1119,7 @@ function buscarIssue(dados) {
     const fields = [
       'summary','status','issuetype','parent','duedate',
       'customfield_10015','customfield_10073','labels','assignee','subtasks',
+      'customfield_10470',
     ].join(',');
     const r = jiraRequest_('GET', '/rest/api/3/issue/' + issueKey + '?fields=' + fields);
     if (!r.key) throw new Error('Issue não encontrada: ' + issueKey);
@@ -1129,9 +1130,13 @@ function buscarIssue(dados) {
         key:          r.key,
         summary:      f.summary || '',
         status:       f.status ? f.status.name : '',
+        // Chave invariante do status — o painel confere por ela quando a
+        // resposta de um mudarStatus se perde (ver _conferirNoJira_).
+        statusKey:    f.status && f.status.statusCategory ? f.status.statusCategory.key : '',
         tipo:         f.issuetype ? f.issuetype.name : '',
         duedate:      f.duedate || '',
         startdate:    f.customfield_10015 || '',
+        alvo:         f.customfield_10470 || '',
         departamento: f.customfield_10073 ? (f.customfield_10073.value || f.customfield_10073) : '',
         assignee:     f.assignee ? f.assignee.displayName : '',
         labels:       f.labels || [],
